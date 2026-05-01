@@ -186,7 +186,39 @@ resolve_listener_pid_by_port() {
   fi
   local pid
   pid="$(lsof -nP -t -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | head -1)"
+  if [ -z "$pid" ]; then
+    # lsof v4.95 (Ubuntu Noble) misses next-server's listener on port 3000
+    # under containerd in some namespace configurations even though the
+    # socket is plainly visible in /proc/net/tcp6. Fall back to reading
+    # /proc directly: find the inode for the listening port, then walk
+    # /proc/<pid>/fd/* for the holder of that socket.
+    pid="$(_resolve_listener_pid_via_proc "$port" 2>/dev/null || echo "")"
+  fi
   [ -n "$pid" ] && echo "$pid"
+}
+
+_resolve_listener_pid_via_proc() {
+  local port="$1"
+  local hex_port inode
+  printf -v hex_port '%04X' "$port"
+  # /proc/net/tcp{,6} columns: sl, local_addr:port, rem_addr:port, state,
+  # tx_q rx_q, tr tm_when, retrnsmt, uid, timeout, inode. State 0A = LISTEN.
+  inode="$(awk -v p=":$hex_port" '$2 ~ p"$" && $4 == "0A" {print $10; exit}' \
+           /proc/net/tcp /proc/net/tcp6 2>/dev/null)"
+  [ -z "$inode" ] && return 1
+  local pid_dir fd target
+  for pid_dir in /proc/[0-9]*; do
+    [ -d "$pid_dir/fd" ] || continue
+    for fd in "$pid_dir"/fd/*; do
+      [ -L "$fd" ] || continue
+      target="$(readlink "$fd" 2>/dev/null || echo "")"
+      if [ "$target" = "socket:[$inode]" ]; then
+        basename "$pid_dir"
+        return 0
+      fi
+    done
+  done
+  return 1
 }
 
 # launch_service <name> <working-dir> <command>
