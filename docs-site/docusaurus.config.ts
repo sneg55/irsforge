@@ -93,11 +93,11 @@ const config: Config = {
           title: 'Project',
           items: [
             { label: 'GitHub', href: 'https://github.com/sneg55/irsforge' },
-            { label: 'Canton Network', href: 'https://www.canton.network/' },
+            { label: 'IRSForge', href: 'https://irsforge.com' },
           ],
         },
       ],
-      copyright: `Built for HackCanton Season #1 — open-source reference implementation.`,
+      copyright: `On-chain Interest Rate Swap platform for Canton Network.`,
     },
     prism: {
       theme: prismThemes.github,
