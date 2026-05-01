@@ -1,0 +1,194 @@
+-- Basis swap proposal. Two floating legs, single currency, two different
+-- FloatingRateIndex contracts (e.g. USD-SOFR vs USD-EFFR). Rides on the
+-- shared FpmlFactory + FpmlAdapter — the Accept choice builds two
+-- FpmlLeg values and hands them to legToSwapStream, carrying each leg's
+-- lookback into the stream's fixingDates so the Daml Finance library
+-- consumes the ARRC shift per leg.
+module Swap.BasisSwapProposal where
+
+import DA.Map qualified as Map
+import DA.Set qualified as Set
+import Daml.Finance.Interface.Types.Common.V3.Types (Id(..), InstrumentKey(..), HoldingStandard(..))
+import Daml.Finance.Interface.Types.Date.V3.DayCount (DayCountConventionEnum(..))
+import Daml.Finance.Interface.Instrument.Swap.V0.Fpml.Types (Fpml(..))
+import Daml.Finance.Interface.Instrument.Swap.V0.Fpml.Factory qualified as FpmlFactory
+import Oracle.FloatingRateIndex (FloatingRateIndex(..))
+import Setup.CashSetup (CashSetupRecord(..), cashSetupKey)
+import Swap.FpmlAdapter (legToSwapStream)
+import Swap.Types (FpmlLeg(..))
+import Swap.Workflow (SwapWorkflow(..))
+
+template BasisSwapProposal
+  with
+    operator           : Party
+    proposer           : Party
+    counterparty       : Party
+    notional           : Decimal
+    currency           : Text
+    leg0Spread         : Decimal
+    leg1Spread         : Decimal
+    startDate          : Date
+    maturityDate       : Date
+    dayCountConvention : DayCountConventionEnum
+  where
+    signatory proposer, operator
+    observer counterparty
+
+    ensure notional > 0.0 && maturityDate > startDate
+
+    choice BasisAccept : ContractId SwapWorkflow
+      with
+        operator                 : Party
+        regulators                : [Party]
+        leg0FloatingRateIndexCid : ContractId FloatingRateIndex
+        leg1FloatingRateIndexCid : ContractId FloatingRateIndex
+      controller counterparty
+      do
+        assertMsg "operator arg must match proposal's operator signatory"
+          (operator == this.operator)
+        (_, setup) <- fetchByKey @CashSetupRecord
+          (cashSetupKey operator this.proposer this.counterparty)
+
+        leg0Frid <- fetch leg0FloatingRateIndexCid
+        leg1Frid <- fetch leg1FloatingRateIndexCid
+
+        assertMsg ("leg0 FloatingRateIndex currency must be " <> this.currency <>
+                   ", got " <> leg0Frid.currency)
+          (leg0Frid.currency == this.currency)
+        assertMsg ("leg1 FloatingRateIndex currency must be " <> this.currency <>
+                   ", got " <> leg1Frid.currency)
+          (leg1Frid.currency == this.currency)
+
+        let
+          ccyKey = case Map.lookup this.currency setup.currencies of
+            Some k -> k
+            None   -> error ("Currency " <> this.currency <>
+                             " not seeded — operator must add it to config")
+          schedDef = case Map.lookup "BASIS" setup.scheduleDefaults of
+            Some s -> s
+            None   -> error "Schedule defaults for BASIS not seeded — \
+                            \operator must add them to config"
+
+          leg0 = FpmlLeg with
+            legType = "float"
+            currency = this.currency
+            notional = this.notional
+            rate = None
+            indexId = Some leg0Frid.indexId
+            spread = Some this.leg0Spread
+            dayCountConvention = this.dayCountConvention
+
+          leg1 = FpmlLeg with
+            legType = "float"
+            currency = this.currency
+            notional = this.notional
+            rate = None
+            indexId = Some leg1Frid.indexId
+            spread = Some this.leg1Spread
+            dayCountConvention = this.dayCountConvention
+
+          stream0 = legToSwapStream 0 leg0 this.startDate this.maturityDate
+                      schedDef (Some leg0Frid) this.proposer this.counterparty
+          stream1 = legToSwapStream 1 leg1 this.startDate this.maturityDate
+                      schedDef (Some leg1Frid) this.proposer this.counterparty
+
+        now <- getTime
+
+        let
+          instrumentId =
+            "BASIS-" <> show this.proposer <> "-" <> show this.counterparty
+              <> "-" <> show this.startDate <> "-" <> show this.notional
+
+          instrumentKey = InstrumentKey with
+            depository      = operator
+            issuer          = operator
+            id              = Id instrumentId
+            version         = "0"
+            holdingStandard = TransferableFungible
+
+          observerMap = Map.fromList
+            [("observers", Set.fromList ([this.proposer, this.counterparty] <> regulators))]
+
+          fpml = Fpml with
+            instrument           = instrumentKey
+            description          = "BASIS " <> instrumentId
+            swapStreams          = [stream0, stream1]
+            issuerPartyRef       = show this.proposer
+            calendarDataProvider = operator
+            -- Fpml.currencies carries one InstrumentKey per stream; BasisSwap
+            -- is single-currency so both entries resolve to the same key.
+            currencies           = [ccyKey, ccyKey]
+            lastEventTimestamp   = now
+
+        exercise setup.factories.fpml FpmlFactory.Create with
+          fpml
+          observers = observerMap
+
+        create SwapWorkflow with
+          swapType = "BASIS"
+          operator
+          partyA = this.proposer
+          partyB = this.counterparty
+          regulators
+          scheduler = setup.scheduler
+          instrumentKey
+          notional = this.notional
+
+    -- Manual operator co-sign path: counterparty fires this instead of BasisAccept.
+    nonconsuming choice BasisProposeAccept : ContractId BasisAcceptAck
+      with
+        operator                 : Party
+        regulators                : [Party]
+        leg0FloatingRateIndexCid : ContractId FloatingRateIndex
+        leg1FloatingRateIndexCid : ContractId FloatingRateIndex
+      controller counterparty
+      do
+        assertMsg "operator arg must match proposal's operator signatory"
+          (operator == this.operator)
+        create BasisAcceptAck with
+          proposer                 = this.proposer
+          counterparty             = this.counterparty
+          operator
+          regulators
+          proposalCid              = self
+          leg0FloatingRateIndexCid
+          leg1FloatingRateIndexCid
+
+    choice BasisReject : ()
+      controller counterparty
+      do pure ()
+
+    choice BasisWithdraw : ()
+      controller proposer
+      do pure ()
+
+-- | BasisAcceptAck: pending ack awaiting operator confirmation.
+template BasisAcceptAck
+  with
+    proposer                 : Party
+    counterparty             : Party
+    operator                 : Party
+    regulators                : [Party]
+    proposalCid              : ContractId BasisSwapProposal
+    leg0FloatingRateIndexCid : ContractId FloatingRateIndex
+    leg1FloatingRateIndexCid : ContractId FloatingRateIndex
+  where
+    signatory proposer, counterparty, operator
+    observer  regulators
+
+    choice BasisConfirmAccept : ContractId SwapWorkflow
+      controller operator
+      do
+        exercise proposalCid BasisAccept with
+          operator
+          regulators
+          leg0FloatingRateIndexCid
+          leg1FloatingRateIndexCid
+
+    choice BasisAcceptAckCancelByCounterparty : ()
+      controller counterparty
+      do pure ()
+
+    choice BasisAcceptAckCancelByOperator : ()
+      controller operator
+      do pure ()

@@ -1,0 +1,126 @@
+module Swap.TestMaturity where
+
+import Daml.Script
+import DA.Assert ((===))
+import DA.Date (date, Month(..))
+import DA.Optional (isSome)
+import Daml.Finance.Holding.V4.TransferableFungible qualified as TFungible
+import Daml.Finance.Interface.Holding.V4.Fungible qualified as Fungible
+import Swap.Workflow
+import Swap.TestHelpers
+import Setup.CashSetup (cashSetup)
+
+test_mature_happy_path : Script ()
+test_mature_happy_path = do
+  tp <- allocateTestParties
+  cashResult <- cashSetup tp.operator tp.partyA tp.partyB tp.regulator "USD" "US Dollar"
+  (workflowCid, effectCids, _instrKey, _lifeRuleCid, maturityDate)
+    <- setupIrsThroughLifecycle tp cashResult
+
+  allHoldingsA <- query @TFungible.TransferableFungible tp.partyA
+  let [(partyAHoldingCidRaw, _)] = [(cid, h) | (cid, h) <- allHoldingsA, h.account.owner == tp.partyA]
+
+  allHoldingsB <- query @TFungible.TransferableFungible tp.partyB
+  let [(partyBHoldingCidRaw, _)] = [(cid, h) | (cid, h) <- allHoldingsB, h.account.owner == tp.partyB]
+
+  let
+    partyAHoldingCid = toInterfaceContractId @Fungible.I partyAHoldingCidRaw
+    partyBHoldingCid = toInterfaceContractId @Fungible.I partyBHoldingCidRaw
+
+  advanceClockPastMaturity maturityDate
+
+  maturedCid <- submitMulti [tp.operator] [tp.partyA, tp.partyB] do
+    exerciseCmd workflowCid Mature with
+      maturityDate
+      actualMaturityDate   = maturityDate
+      effectCids
+      settlementFactoryCid = cashResult.settlementFactoryCid
+      routeProviderCid     = cashResult.routeProviderCid
+      partyAHoldingCid     = Some partyAHoldingCid
+      partyBHoldingCid     = Some partyBHoldingCid
+      partyAAccountKey     = cashResult.partyAAccountKey
+      partyBAccountKey     = cashResult.partyBAccountKey
+      usdInstrumentKey     = cashResult.defaultInstrumentKey
+
+  Some matured <- queryContractId tp.operator maturedCid
+  matured.swapType === "IRS"
+  assertMsg "finalSettleBatchCid set" (isSome matured.finalSettleBatchCid)
+  assertMsg "finalNetAmount nonzero" (matured.finalNetAmount /= 0.0)
+  assertMsg "actualMaturityDate equals scheduled" (matured.actualMaturityDate == maturityDate)
+
+  None <- queryContractId tp.operator workflowCid
+  pure ()
+
+test_mature_before_maturity_fails : Script ()
+test_mature_before_maturity_fails = do
+  tp <- allocateTestParties
+  cashResult <- cashSetup tp.operator tp.partyA tp.partyB tp.regulator "USD" "US Dollar"
+  (workflowCid, _effectCids, _, _, _maturityDate)
+    <- setupIrsThroughLifecycle tp cashResult
+
+  -- Pass actualMaturityDate before maturityDate — the choice assertMsg must reject this.
+  let maturityDate     = date 2026 Jul 16
+      priorDate        = date 2026 Apr 16  -- before maturity
+
+  submitMultiMustFail [tp.operator] [tp.partyA, tp.partyB] do
+    exerciseCmd workflowCid Mature with
+      maturityDate
+      actualMaturityDate   = priorDate
+      effectCids           = []
+      settlementFactoryCid = cashResult.settlementFactoryCid
+      routeProviderCid     = cashResult.routeProviderCid
+      partyAHoldingCid     = None
+      partyBHoldingCid     = None
+      partyAAccountKey     = cashResult.partyAAccountKey
+      partyBAccountKey     = cashResult.partyBAccountKey
+      usdInstrumentKey     = cashResult.defaultInstrumentKey
+
+test_mature_empty_effects : Script ()
+test_mature_empty_effects = do
+  tp <- allocateTestParties
+  cashResult <- cashSetup tp.operator tp.partyA tp.partyB tp.regulator "USD" "US Dollar"
+  (workflowCid, _effectCids, _, _, maturityDate)
+    <- setupIrsThroughLifecycle tp cashResult
+
+  advanceClockPastMaturity maturityDate
+
+  maturedCid <- submitMulti [tp.operator] [tp.partyA, tp.partyB] do
+    exerciseCmd workflowCid Mature with
+      maturityDate
+      actualMaturityDate   = maturityDate
+      effectCids           = []
+      settlementFactoryCid = cashResult.settlementFactoryCid
+      routeProviderCid     = cashResult.routeProviderCid
+      partyAHoldingCid     = None
+      partyBHoldingCid     = None
+      partyAAccountKey     = cashResult.partyAAccountKey
+      partyBAccountKey     = cashResult.partyBAccountKey
+      usdInstrumentKey     = cashResult.defaultInstrumentKey
+
+  Some matured <- queryContractId tp.operator maturedCid
+  matured.finalSettleBatchCid === None
+  matured.finalNetAmount === 0.0
+  None <- queryContractId tp.operator workflowCid
+  pure ()
+
+test_mature_missing_holdings_fails : Script ()
+test_mature_missing_holdings_fails = do
+  tp <- allocateTestParties
+  cashResult <- cashSetup tp.operator tp.partyA tp.partyB tp.regulator "USD" "US Dollar"
+  (workflowCid, effectCids, _, _, maturityDate)
+    <- setupIrsThroughLifecycle tp cashResult
+
+  advanceClockPastMaturity maturityDate
+
+  submitMultiMustFail [tp.operator] [tp.partyA, tp.partyB] do
+    exerciseCmd workflowCid Mature with
+      maturityDate
+      actualMaturityDate   = maturityDate
+      effectCids
+      settlementFactoryCid = cashResult.settlementFactoryCid
+      routeProviderCid     = cashResult.routeProviderCid
+      partyAHoldingCid     = None  -- missing
+      partyBHoldingCid     = None  -- missing
+      partyAAccountKey     = cashResult.partyAAccountKey
+      partyBAccountKey     = cashResult.partyBAccountKey
+      usdInstrumentKey     = cashResult.defaultInstrumentKey

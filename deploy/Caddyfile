@@ -1,0 +1,29 @@
+# IRSForge shared-demo Caddyfile.
+#
+# Install on the host:
+#   sudo cp deploy/Caddyfile /etc/caddy/Caddyfile
+#   sudo systemctl reload caddy
+#
+# Behind Cloudflare with Full(strict) — origin presents a Cloudflare Origin
+# Certificate which CF validates against its own origin CA. Direct (non-CF)
+# hits to 443 are still rejected because the host header must match this
+# block.
+
+demo.irsforge.com {
+    tls /etc/caddy/origin/cert.pem /etc/caddy/origin/key.pem
+    encode gzip
+
+    # Canton JSON API streaming — Next.js does not forward WebSocket
+    # upgrades, so /v1/stream/* must hit Canton directly. The container
+    # exposes Canton's JSON API on 127.0.0.1:7575 (see
+    # deploy/docker-compose.yml). Browsers reach this via the per-org
+    # streamUrl field in irsforge.yaml.
+    @canton_stream path /v1/stream/*
+    handle @canton_stream {
+        reverse_proxy 127.0.0.1:7575
+    }
+
+    # Everything else: Next.js prod app (homepage, /org/*, /api/* incl.
+    # /api/ledger HTTP proxy, /api/config, /api/oracle).
+    reverse_proxy 127.0.0.1:3000
+}

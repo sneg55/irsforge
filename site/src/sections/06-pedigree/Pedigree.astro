@@ -1,0 +1,35 @@
+---
+import LogoStrip from '../../components/LogoStrip.astro'
+import Section from '../../components/Section.astro'
+---
+<Section
+  id="pedigree"
+  label="Pedigree"
+  headline="Built on the language ISDA picked for derivatives in 2018."
+  variant="default"
+>
+  <p class="prose">
+    Since 2018, ISDA and Digital Asset have jointly developed an open-source
+    reference library in Daml, including a working IRS and CDS lifecycle
+    implementation under the ISDA Common Domain Model
+    (<a href="https://www.isda.org/2020/10/06/isda-and-digital-asset-launch-cdm-clearing-pilot-using-daml/" class="src" target="_blank" rel="noopener">source</a>).
+    IRSForge sits one layer above that. It consumes Daml Finance, Digital Asset's
+    derivatives library that encodes the same ISDA conventions, and wires the
+    lifecycle, oracle, and settlement chain around the templates as shipped.
+    Nothing reimplemented.
+  </p>
+  <LogoStrip />
+  <blockquote class="quote">"We don't reimplement Daml Finance interfaces. We use them."</blockquote>
+  <p class="if-link">
+    <a href="https://docs.irsforge.com/architecture/daml-finance-interfaces">See the full interface map in the docs →</a>
+  </p>
+</Section>
+
+<style>
+  .prose { max-width: 60ch; font-size: 1.0625rem; line-height: 1.65; color: var(--color-fg-body); margin: 0 auto 2rem; }
+  .src { color: var(--color-fg-muted); text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px; font-size: 0.875em; }
+  .src:hover { color: var(--color-accent); }
+  .quote { font-family: var(--font-display); font-size: 1.5rem; font-style: italic; color: var(--color-accent); border-left: 2px solid var(--color-accent); padding-left: 1.25rem; margin: 3rem auto; max-width: 50ch; }
+  .if-link { text-align: center; margin: 2rem 0 0; font-size: 0.9375rem; }
+  .if-link a { color: var(--color-accent); }
+</style>

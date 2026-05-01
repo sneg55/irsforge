@@ -1,0 +1,43 @@
+{
+  "curve": {
+    "currency": "USD",
+    "curveType": "Discount",
+    "indexId": null,
+    "asOf": "2026-04-17T00:00:00Z",
+    "pillars": [
+      { "tenorDays": 30, "zeroRate": 0.04 },
+      { "tenorDays": 365, "zeroRate": 0.04 },
+      { "tenorDays": 1825, "zeroRate": 0.04 }
+    ],
+    "interpolation": "LinearZero",
+    "dayCount": "Act360"
+  },
+  "index": {
+    "indexId": "USD-SOFR",
+    "currency": "USD",
+    "family": "SOFR",
+    "compounding": "CompoundedInArrears",
+    "lookback": 0,
+    "floor": null
+  },
+  "swaps": [
+    {
+      "contractId": "swap1",
+      "ownerReceivesFix": true,
+      "tradeDate": "2026-04-17",
+      "effectiveDate": "2026-04-17",
+      "maturityDate": "2031-04-17",
+      "fixedRate": 0.04,
+      "notional": 10000000
+    },
+    {
+      "contractId": "swap2",
+      "ownerReceivesFix": false,
+      "tradeDate": "2026-04-17",
+      "effectiveDate": "2026-04-17",
+      "maturityDate": "2031-04-17",
+      "fixedRate": 0.04,
+      "notional": 10000000
+    }
+  ]
+}

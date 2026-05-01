@@ -1,0 +1,87 @@
+-- Cancel-path tests for Ccy + Fx AcceptAck families.
+module Swap.AcceptAckCancelTestC where
+
+import Daml.Script
+import DA.Date (date, Month(..))
+import Daml.Finance.Interface.Types.Date.V3.DayCount (DayCountConventionEnum(..))
+import Swap.CcySwapProposal
+import Swap.FxSwapProposal
+import Swap.TestHelpers
+
+testCcyAcceptAckCancelByCounterparty : Script ()
+testCcyAcceptAckCancelByCounterparty = do
+  tp <- allocateTestParties
+  runInit tp
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd CcySwapProposal with
+      operator = tp.operator; proposer = tp.partyA; counterparty = tp.partyB
+      notional = 10_000_000.0; baseRate = 0.04; foreignRate = 0.035
+      baseCurrency = "USD"; foreignCurrency = "EUR"; fxRate = 1.08
+      ownerReceivesBase = True
+      startDate = date 2026 Apr 16; maturityDate = date 2027 Apr 16
+      dayCountConvention = Act360
+  ackCid <- submit tp.partyB do
+    exerciseCmd proposalCid CcyProposeAccept with
+      operator = tp.operator; regulators = [tp.regulator]
+  submit tp.partyB do
+    exerciseCmd ackCid CcyAcceptAckCancelByCounterparty
+  acks <- query @CcyAcceptAck tp.operator
+  assertMsg "CcyAcceptAck must be archived" (null acks)
+  proposals <- query @CcySwapProposal tp.partyA
+  assertMsg "Proposal must still be live" (length proposals == 1)
+
+testCcyAcceptAckCancelByOperator : Script ()
+testCcyAcceptAckCancelByOperator = do
+  tp <- allocateTestParties
+  runInit tp
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd CcySwapProposal with
+      operator = tp.operator; proposer = tp.partyA; counterparty = tp.partyB
+      notional = 10_000_000.0; baseRate = 0.04; foreignRate = 0.035
+      baseCurrency = "USD"; foreignCurrency = "EUR"; fxRate = 1.08
+      ownerReceivesBase = True
+      startDate = date 2026 Apr 16; maturityDate = date 2027 Apr 16
+      dayCountConvention = Act360
+  ackCid <- submit tp.partyB do
+    exerciseCmd proposalCid CcyProposeAccept with
+      operator = tp.operator; regulators = [tp.regulator]
+  submit tp.operator do
+    exerciseCmd ackCid CcyAcceptAckCancelByOperator
+  acks <- query @CcyAcceptAck tp.operator
+  assertMsg "CcyAcceptAck must be archived" (null acks)
+
+testFxAcceptAckCancelByCounterparty : Script ()
+testFxAcceptAckCancelByCounterparty = do
+  tp <- allocateTestParties
+  runInit tp
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd FxSwapProposal with
+      operator = tp.operator; proposer = tp.partyA; counterparty = tp.partyB
+      notional = 10_000_000.0; baseCurrency = "USD"; foreignCurrency = "EUR"
+      firstFxRate = 1.08; finalFxRate = 1.085
+      firstPaymentDate = date 2026 Jul 16; maturityDate = date 2027 Apr 16
+  ackCid <- submit tp.partyB do
+    exerciseCmd proposalCid FxProposeAccept with
+      operator = tp.operator; regulators = [tp.regulator]
+  submit tp.partyB do
+    exerciseCmd ackCid FxAcceptAckCancelByCounterparty
+  acks <- query @FxAcceptAck tp.operator
+  assertMsg "FxAcceptAck must be archived" (null acks)
+
+testFxAcceptAckCancelByOperator : Script ()
+testFxAcceptAckCancelByOperator = do
+  tp <- allocateTestParties
+  runInit tp
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd FxSwapProposal with
+      operator = tp.operator; proposer = tp.partyA; counterparty = tp.partyB
+      notional = 10_000_000.0; baseCurrency = "USD"; foreignCurrency = "EUR"
+      firstFxRate = 1.08; finalFxRate = 1.085
+      firstPaymentDate = date 2026 Jul 16; maturityDate = date 2027 Apr 16
+  ackCid <- submit tp.partyB do
+    exerciseCmd proposalCid FxProposeAccept with
+      operator = tp.operator; regulators = [tp.regulator]
+  submit tp.operator do
+    exerciseCmd ackCid FxAcceptAckCancelByOperator
+  acks <- query @FxAcceptAck tp.operator
+  assertMsg "FxAcceptAck must be archived" (null acks)

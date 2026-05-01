@@ -1,0 +1,174 @@
+-- XCCYFixedFloat proposal lifecycle tests: create / reject / withdraw /
+-- accept / currency-guard. Mirrors TestBasisSwap's structure; differences:
+-- the Accept path exercises the currency-mismatch + ensure-guards that
+-- are unique to XCCY (fixedCurrency /= floatCurrency).
+module Swap.TestXccyFixedFloat where
+
+import Daml.Script
+import DA.Date (date, Month(..))
+import DA.Text (isPrefixOf)
+import Daml.Finance.Interface.Types.Common.V3.Types (Id(..))
+import Daml.Finance.Interface.Types.Date.V3.DayCount (DayCountConventionEnum(..))
+import Oracle.Types (RateFamily(..))
+import Swap.XccyFixedFloatProposal
+import Swap.Workflow
+import Swap.TestHelpers
+
+proposalCreateTest : Script ()
+proposalCreateTest = do
+  tp <- allocateTestParties
+
+  _ <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd XccyFixedFloatProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      fixedCurrency = "USD"
+      fixedNotional = 10_000_000.0
+      fixedRate = 0.04
+      floatCurrency = "EUR"
+      floatNotional = 9_260_000.0
+      startDate = date 2026 Apr 16
+      maturityDate = date 2031 Apr 16
+      dayCountConvention = Act360
+
+  proposals <- query @XccyFixedFloatProposal tp.partyB
+  assertMsg "PartyB should see 1 XCCY proposal" (length proposals == 1)
+  pure ()
+
+proposalRejectTest : Script ()
+proposalRejectTest = do
+  tp <- allocateTestParties
+
+  propCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd XccyFixedFloatProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      fixedCurrency = "USD"
+      fixedNotional = 10_000_000.0
+      fixedRate = 0.04
+      floatCurrency = "EUR"
+      floatNotional = 9_260_000.0
+      startDate = date 2026 Apr 16
+      maturityDate = date 2031 Apr 16
+      dayCountConvention = Act360
+
+  submit tp.partyB do exerciseCmd propCid XccyReject
+
+  proposals <- query @XccyFixedFloatProposal tp.partyB
+  assertMsg "No proposals remain after XccyReject" (null proposals)
+  pure ()
+
+proposalWithdrawTest : Script ()
+proposalWithdrawTest = do
+  tp <- allocateTestParties
+
+  propCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd XccyFixedFloatProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      fixedCurrency = "USD"
+      fixedNotional = 10_000_000.0
+      fixedRate = 0.04
+      floatCurrency = "EUR"
+      floatNotional = 9_260_000.0
+      startDate = date 2026 Apr 16
+      maturityDate = date 2031 Apr 16
+      dayCountConvention = Act360
+
+  submit tp.partyA do exerciseCmd propCid XccyWithdraw
+
+  proposals <- query @XccyFixedFloatProposal tp.partyA
+  assertMsg "No proposals remain after XccyWithdraw" (null proposals)
+  pure ()
+
+-- | Happy path: EUR-ESTR float index + EUR cash setup + XCCY workflow emerges.
+proposalAcceptTest : Script ()
+proposalAcceptTest = do
+  tp <- allocateTestParties
+  runInit tp
+  eurEstrCid <- seedFloatingRateIndex tp "EUR-ESTR" "EUR" ESTR 0
+
+  propCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd XccyFixedFloatProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      fixedCurrency = "USD"
+      fixedNotional = 10_000_000.0
+      fixedRate = 0.04
+      floatCurrency = "EUR"
+      floatNotional = 9_260_000.0
+      startDate = date 2026 Apr 16
+      maturityDate = date 2031 Apr 16
+      dayCountConvention = Act360
+
+  _ <- submitMulti [tp.partyB, tp.operator] [] do
+    exerciseCmd propCid XccyAccept with
+      operator = tp.operator
+      regulators = [tp.regulator]
+      floatFloatingRateIndexCid = eurEstrCid
+
+  workflows <- query @SwapWorkflow tp.partyA
+  assertMsg "Should have 1 XCCY workflow" (length workflows == 1)
+  case workflows of
+    [(_, wf)] -> do
+      assertMsg "swapType = XCCY" (wf.swapType == "XCCY")
+      assertMsg "notional = 10M fixed" (wf.notional == 10_000_000.0)
+      let (Id instrId) = wf.instrumentKey.id
+      assertMsg ("instrumentKey.id has XCCY- prefix: " <> instrId)
+        (isPrefixOf "XCCY-" instrId)
+    _ -> assertFail "Expected exactly 1 workflow"
+  pure ()
+
+-- | Guard: the float-leg FloatingRateIndex must share the proposal's float
+--   currency. A USD index on an EUR float leg is rejected at Accept time.
+proposalFloatCurrencyMismatchTest : Script ()
+proposalFloatCurrencyMismatchTest = do
+  tp <- allocateTestParties
+  runInit tp
+  -- USD-SOFR is wrong for an EUR float leg.
+  sofrCid <- seedUsdSofrIndex tp
+
+  propCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd XccyFixedFloatProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      fixedCurrency = "USD"
+      fixedNotional = 10_000_000.0
+      fixedRate = 0.04
+      floatCurrency = "EUR"
+      floatNotional = 9_260_000.0
+      startDate = date 2026 Apr 16
+      maturityDate = date 2031 Apr 16
+      dayCountConvention = Act360
+
+  submitMultiMustFail [tp.partyB, tp.operator] [] do
+    exerciseCmd propCid XccyAccept with
+      operator = tp.operator
+      regulators = [tp.regulator]
+      floatFloatingRateIndexCid = sofrCid
+  pure ()
+
+-- | Guard: fixedCurrency /= floatCurrency is enforced by `ensure` on the
+--   template. Same-currency proposals never leave the ledger.
+proposalSameCurrencyRejectedTest : Script ()
+proposalSameCurrencyRejectedTest = do
+  tp <- allocateTestParties
+  submitMultiMustFail [tp.partyA, tp.operator] [] do
+    createCmd XccyFixedFloatProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      fixedCurrency = "USD"
+      fixedNotional = 10_000_000.0
+      fixedRate = 0.04
+      floatCurrency = "USD"
+      floatNotional = 10_000_000.0
+      startDate = date 2026 Apr 16
+      maturityDate = date 2031 Apr 16
+      dayCountConvention = Act360
+  pure ()

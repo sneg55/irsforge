@@ -1,0 +1,18 @@
+-- | Marker contract for the scheduler party. Choices in Workflow/Csa are
+--   NOT gated on this contract — JWT topology enforces controller
+--   restriction. The role exists as the audit anchor a regulator queries
+--   to confirm "automation was active at this point in time."
+module Setup.SchedulerRole where
+
+template SchedulerRole
+  with
+    operator  : Party
+    scheduler : Party
+    regulators : [Party]
+  where
+    signatory operator
+    observer scheduler, regulators
+
+    nonconsuming choice IsActive : ()
+      controller scheduler
+      do pure ()

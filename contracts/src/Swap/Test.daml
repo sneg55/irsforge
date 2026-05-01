@@ -1,0 +1,7 @@
+-- Entry point: swap contract tests are split across:
+--   TestIrs.daml      — IRS proposal: create / reject / withdraw / accept / terminate / mature
+--   TestAltSwaps.daml — CDS, CCY, FX, Asset, FpML proposals
+--   TestLifecycle.daml — full lifecycle integration test
+-- `daml test` discovers tests from each module directly; this file is kept
+-- for discoverability only.
+module Swap.Test where

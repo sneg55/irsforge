@@ -1,0 +1,29 @@
+-- DisputeRecord: per-dispute audit-trail contract.
+--
+-- One created when a CSA dispute opens, archived on resolution. Mirrors the
+-- back-reference design of Csa.Mark.MarkToMarket and Csa.Shortfall.MarginShortfall:
+-- operator-signed; partyA, partyB, regulators, scheduler observe; the
+-- originating Csa contract ID is stored as Text to avoid a mutual import
+-- between Csa.Csa and Csa.Dispute. Frontends and downstream services
+-- re-resolve the typed ContractId via the JSON API when needed.
+module Csa.Dispute where
+
+import qualified Csa.Types as T
+
+template DisputeRecord
+  with
+    operator    : Party
+    partyA      : Party
+    partyB      : Party
+    regulators  : [Party]
+    scheduler   : Party
+    csaCid      : Text
+    disputer    : Party
+    counterMark : Decimal
+    reason      : T.DisputeReason
+    notes       : Text
+    openedAt    : Time
+  where
+    signatory operator
+    observer partyA, partyB, regulators, scheduler
+    ensure disputer == partyA || disputer == partyB

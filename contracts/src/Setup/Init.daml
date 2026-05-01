@@ -1,0 +1,35 @@
+-- Demo entry-point: allocate parties, create JSON-API users, then delegate
+-- to `Setup.InitImpl.initForParties` for the infrastructure bootstrap.
+module Setup.Init where
+
+import Daml.Script
+import Setup.GeneratedConfig qualified as Config
+import Setup.InitImpl (InitParties(..), initForParties)
+
+init : Script ()
+init = do
+  -- 1. Allocate parties
+  operator  <- allocatePartyWithHint "Operator"  (PartyIdHint "Operator")
+  partyA    <- allocatePartyWithHint "PartyA"    (PartyIdHint "PartyA")
+  partyB    <- allocatePartyWithHint "PartyB"    (PartyIdHint "PartyB")
+  regulator <- allocatePartyWithHint "Regulator" (PartyIdHint "Regulator")
+  scheduler <- allocatePartyWithHint Config.schedulerPartyHint
+                 (PartyIdHint Config.schedulerPartyHint)
+
+  -- 2. Create users with stable IDs for JSON API login
+  operatorId  <- validateUserId "operator"
+  partyAId    <- validateUserId "partyA"
+  partyBId    <- validateUserId "partyB"
+  regulatorId <- validateUserId "regulator"
+  schedulerId <- validateUserId "scheduler"
+  createUser (User operatorId  (Some operator))  [CanActAs operator]
+  createUser (User partyAId    (Some partyA))    [CanActAs partyA]
+  createUser (User partyBId    (Some partyB))    [CanActAs partyB]
+  createUser (User regulatorId (Some regulator)) [CanActAs regulator, CanReadAs partyA, CanReadAs partyB]
+  createUser (User schedulerId (Some scheduler)) [CanActAs scheduler]
+
+  -- 3. Delegate the infrastructure bootstrap. Demo profile has a single
+  -- canonical regulator party; multi-regulator deployments populate the
+  -- list from config at the entry point that drives initForParties.
+  let regulators = [regulator]
+  initForParties InitParties{..}

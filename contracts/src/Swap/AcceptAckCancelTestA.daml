@@ -1,0 +1,106 @@
+-- Cancel-path tests for OIS + Basis AcceptAck families.
+-- See AcceptAckCancelTestB/C/D for the other 6 families.
+module Swap.AcceptAckCancelTestA where
+
+import Daml.Script
+import DA.Date (date, Month(..))
+import Daml.Finance.Interface.Types.Date.V3.DayCount (DayCountConventionEnum(..))
+import Oracle.Types (RateFamily(..))
+import Swap.OisProposal
+import Swap.BasisSwapProposal
+import Swap.Workflow (SwapWorkflow)
+import Swap.TestHelpers
+
+testOisAcceptAckCancelByCounterparty : Script ()
+testOisAcceptAckCancelByCounterparty = do
+  tp <- allocateTestParties
+  runInit tp
+  fridCid <- seedUsdSofrIndex tp
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd OisProposal with
+      operator = tp.operator; proposer = tp.partyA; counterparty = tp.partyB
+      notional = 10_000_000.0; fixRate = 0.04
+      startDate = date 2026 Apr 16; maturityDate = date 2031 Apr 16
+      dayCountConvention = Act360
+  ackCid <- submit tp.partyB do
+    exerciseCmd proposalCid OisProposeAccept with
+      operator = tp.operator; regulators = [tp.regulator]
+      floatingRateIndexCid = fridCid
+  submit tp.partyB do
+    exerciseCmd ackCid OisAcceptAckCancelByCounterparty
+  acks <- query @OisAcceptAck tp.operator
+  assertMsg "OisAcceptAck must be archived" (null acks)
+  proposals <- query @OisProposal tp.partyA
+  assertMsg "Proposal must still be live" (length proposals == 1)
+  workflows <- query @SwapWorkflow tp.partyA
+  assertMsg "No workflow yet" (null workflows)
+
+testOisAcceptAckCancelByOperator : Script ()
+testOisAcceptAckCancelByOperator = do
+  tp <- allocateTestParties
+  runInit tp
+  fridCid <- seedUsdSofrIndex tp
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd OisProposal with
+      operator = tp.operator; proposer = tp.partyA; counterparty = tp.partyB
+      notional = 10_000_000.0; fixRate = 0.04
+      startDate = date 2026 Apr 16; maturityDate = date 2031 Apr 16
+      dayCountConvention = Act360
+  ackCid <- submit tp.partyB do
+    exerciseCmd proposalCid OisProposeAccept with
+      operator = tp.operator; regulators = [tp.regulator]
+      floatingRateIndexCid = fridCid
+  submit tp.operator do
+    exerciseCmd ackCid OisAcceptAckCancelByOperator
+  acks <- query @OisAcceptAck tp.operator
+  assertMsg "OisAcceptAck must be archived" (null acks)
+  proposals <- query @OisProposal tp.partyA
+  assertMsg "Proposal must still be live" (length proposals == 1)
+
+testBasisAcceptAckCancelByCounterparty : Script ()
+testBasisAcceptAckCancelByCounterparty = do
+  tp <- allocateTestParties
+  runInit tp
+  sofrCid <- seedUsdSofrIndex tp
+  effrCid <- seedFloatingRateIndex tp "USD-EFFR" "USD" SOFR 2
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd BasisSwapProposal with
+      operator = tp.operator; proposer = tp.partyA; counterparty = tp.partyB
+      notional = 25_000_000.0; currency = "USD"
+      leg0Spread = 0.0; leg1Spread = 0.0025
+      startDate = date 2026 Apr 16; maturityDate = date 2031 Apr 16
+      dayCountConvention = Act360
+  ackCid <- submit tp.partyB do
+    exerciseCmd proposalCid BasisProposeAccept with
+      operator = tp.operator; regulators = [tp.regulator]
+      leg0FloatingRateIndexCid = sofrCid
+      leg1FloatingRateIndexCid = effrCid
+  submit tp.partyB do
+    exerciseCmd ackCid BasisAcceptAckCancelByCounterparty
+  acks <- query @BasisAcceptAck tp.operator
+  assertMsg "BasisAcceptAck must be archived" (null acks)
+  proposals <- query @BasisSwapProposal tp.partyA
+  assertMsg "Proposal must still be live" (length proposals == 1)
+
+testBasisAcceptAckCancelByOperator : Script ()
+testBasisAcceptAckCancelByOperator = do
+  tp <- allocateTestParties
+  runInit tp
+  sofrCid <- seedUsdSofrIndex tp
+  effrCid <- seedFloatingRateIndex tp "USD-EFFR" "USD" SOFR 2
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd BasisSwapProposal with
+      operator = tp.operator; proposer = tp.partyA; counterparty = tp.partyB
+      notional = 25_000_000.0; currency = "USD"
+      leg0Spread = 0.0; leg1Spread = 0.0025
+      startDate = date 2026 Apr 16; maturityDate = date 2031 Apr 16
+      dayCountConvention = Act360
+  ackCid <- submit tp.partyB do
+    exerciseCmd proposalCid BasisProposeAccept with
+      operator = tp.operator; regulators = [tp.regulator]
+      leg0FloatingRateIndexCid = sofrCid
+      leg1FloatingRateIndexCid = effrCid
+  submit tp.operator do
+    exerciseCmd ackCid BasisAcceptAckCancelByOperator
+  acks <- query @BasisAcceptAck tp.operator
+  assertMsg "BasisAcceptAck must be archived" (null acks)

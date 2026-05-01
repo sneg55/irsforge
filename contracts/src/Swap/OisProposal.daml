@@ -1,0 +1,195 @@
+-- OIS proposal. Shape mirrors Swap.Proposal.SwapProposal (fixed-vs-float
+-- single-currency IRS built on the same `IRSFactory.Create` chain), but
+-- OIS is quoted by explicit maturityDate (not a TenorEnum) and defaults
+-- to annual frequency via `scheduleDefaults["OIS"]`. Choice names are
+-- prefixed `Ois*` to give the frontend a per-product dispatch surface.
+module Swap.OisProposal where
+
+import DA.Map qualified as Map
+import DA.Set qualified as Set
+import DA.Date (toGregorian)
+import Daml.Finance.Interface.Types.Common.V3.Types (Id(..), InstrumentKey(..), HoldingStandard(..))
+import Daml.Finance.Interface.Types.Date.V3.DayCount (DayCountConventionEnum(..))
+import Daml.Finance.Interface.Types.Date.V3.DateOffset (DateOffset(..), DayTypeEnum(..))
+import Daml.Finance.Interface.Types.Date.V3.RollConvention (Period(..), PeriodEnum(..), RollConventionEnum(..))
+import Daml.Finance.Interface.Types.Date.V3.Schedule (PeriodicSchedule(..), Frequency(..), ScheduleFrequency(..))
+import Daml.Finance.Interface.Instrument.Types.V2.FloatingRate (FloatingRate(..), ReferenceRateTypeEnum(..))
+import Daml.Finance.Interface.Instrument.Swap.V0.InterestRate.Types (InterestRate(..))
+import Daml.Finance.Interface.Instrument.Swap.V0.InterestRate.Factory qualified as IRSFactory
+import Constants (usdCalendarId)
+import Oracle.FloatingRateIndex (FloatingRateIndex(..))
+import Setup.CashSetup (CashSetupRecord(..), cashSetupKey)
+import Swap.Types (lastRegularEndFor)
+import Swap.Workflow (SwapWorkflow(..))
+
+template OisProposal
+  with
+    operator            : Party
+    proposer            : Party
+    counterparty        : Party
+    notional            : Decimal
+    fixRate             : Decimal
+    startDate           : Date
+    maturityDate        : Date
+    dayCountConvention  : DayCountConventionEnum
+  where
+    signatory proposer, operator
+    observer counterparty
+
+    ensure notional > 0.0
+      && fixRate > 0.0
+      && fixRate < 1.0
+      && maturityDate > startDate
+
+    choice OisAccept : ContractId SwapWorkflow
+      with
+        operator             : Party
+        regulators            : [Party]
+        floatingRateIndexCid : ContractId FloatingRateIndex
+      controller counterparty
+      do
+        assertMsg "operator arg must match proposal's operator signatory"
+          (operator == this.operator)
+        (_, setup) <- fetchByKey @CashSetupRecord
+          (cashSetupKey operator this.proposer this.counterparty)
+        frid <- fetch floatingRateIndexCid
+
+        let
+          defaultCcyKey = case Map.lookup setup.defaultCurrencyCode setup.currencies of
+            Some k -> k
+            None   -> error ("Currency " <> setup.defaultCurrencyCode <>
+                             " not seeded — operator must add it to config")
+
+          schedDef = case Map.lookup "OIS" setup.scheduleDefaults of
+            Some s -> s
+            None   -> error "Schedule defaults for OIS not seeded — \
+                            \operator must add them to config"
+
+          (_, _, startDay) = toGregorian this.startDate
+          stubLastEnd = lastRegularEndFor this.startDate schedDef.frequencyMonths this.maturityDate
+
+        now <- getTime
+
+        let
+          periodicSchedule = PeriodicSchedule with
+            effectiveDate                        = this.startDate
+            terminationDate                      = this.maturityDate
+            firstRegularPeriodStartDate          = None
+            lastRegularPeriodEndDate             = stubLastEnd
+            frequency = Periodic Frequency with
+              period = Period with
+                period           = M
+                periodMultiplier = schedDef.frequencyMonths
+              rollConvention = DOM startDay
+            businessDayAdjustment                = schedDef.businessDayAdjustment
+            effectiveDateBusinessDayAdjustment   = None
+            terminationDateBusinessDayAdjustment = None
+            stubPeriodType                       = None
+
+          floatingRate = FloatingRate with
+            referenceRateId   = frid.indexId
+            referenceRateType = CompoundedIndex schedDef.dayCountConvention
+            fixingDates = DateOffset with
+              period                = D
+              periodMultiplier      = negate frid.lookback
+              dayType               = Some Business
+              businessDayConvention = schedDef.businessDayAdjustment.convention
+              businessCenters       = schedDef.businessDayAdjustment.calendarIds
+
+          instrumentId =
+            "OIS-" <> show this.proposer <> "-" <> show this.counterparty
+              <> "-" <> show this.startDate <> "-" <> show this.notional
+
+          instrumentKey = InstrumentKey with
+            depository      = operator
+            issuer          = operator
+            id              = Id instrumentId
+            version         = "0"
+            holdingStandard = TransferableFungible
+
+          observerMap = Map.fromList
+            [("observers", Set.fromList ([this.proposer, this.counterparty] <> regulators))]
+
+          interestRate = InterestRate with
+            instrument           = instrumentKey
+            description          = "OIS " <> instrumentId
+            floatingRate
+            ownerReceivesFix     = True
+            fixRate              = this.fixRate
+            periodicSchedule
+            holidayCalendarIds   = [usdCalendarId]
+            calendarDataProvider = operator
+            dayCountConvention   = schedDef.dayCountConvention
+            currency             = defaultCcyKey
+            lastEventTimestamp   = now
+
+        exercise setup.factories.irs IRSFactory.Create with
+          interestRate
+          observers = observerMap
+
+        create SwapWorkflow with
+          swapType = "OIS"
+          operator
+          partyA = this.proposer
+          partyB = this.counterparty
+          regulators
+          scheduler = setup.scheduler
+          instrumentKey
+          notional = this.notional
+
+    -- Manual operator co-sign path: counterparty fires this instead of OisAccept.
+    -- nonconsuming: the proposal stays live so OisConfirmAccept can later
+    -- exercise OisAccept on it; the proposal is consumed by OisAccept at that point.
+    nonconsuming choice OisProposeAccept : ContractId OisAcceptAck
+      with
+        operator             : Party
+        regulators            : [Party]
+        floatingRateIndexCid : ContractId FloatingRateIndex
+      controller counterparty
+      do
+        assertMsg "operator arg must match proposal's operator signatory"
+          (operator == this.operator)
+        create OisAcceptAck with
+          proposer             = this.proposer
+          counterparty         = this.counterparty
+          operator
+          regulators
+          proposalCid          = self
+          floatingRateIndexCid
+
+    choice OisReject : ()
+      controller counterparty
+      do pure ()
+
+    choice OisWithdraw : ()
+      controller proposer
+      do pure ()
+
+-- | OisAcceptAck: pending ack awaiting operator confirmation.
+template OisAcceptAck
+  with
+    proposer             : Party
+    counterparty         : Party
+    operator             : Party
+    regulators            : [Party]
+    proposalCid          : ContractId OisProposal
+    floatingRateIndexCid : ContractId FloatingRateIndex
+  where
+    signatory proposer, counterparty, operator
+    observer  regulators
+
+    choice OisConfirmAccept : ContractId SwapWorkflow
+      controller operator
+      do
+        exercise proposalCid OisAccept with
+          operator
+          regulators
+          floatingRateIndexCid
+
+    choice OisAcceptAckCancelByCounterparty : ()
+      controller counterparty
+      do pure ()
+
+    choice OisAcceptAckCancelByOperator : ()
+      controller operator
+      do pure ()

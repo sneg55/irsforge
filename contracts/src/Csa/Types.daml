@@ -1,0 +1,75 @@
+module Csa.Types where
+
+import Daml.Finance.Interface.Types.Common.V3.Types (InstrumentKey, AccountKey)
+import Daml.Finance.Interface.Lifecycle.V4.Effect qualified as Effect
+import Daml.Finance.Interface.Holding.V4.Fungible qualified as Fungible
+
+data Direction
+  = DirA
+  | DirB
+  deriving (Eq, Show, Ord)
+
+-- | Governing law jurisdiction for the ISDA Master Agreement under which
+--   this CSA is signed. Pure metadata: no settlement-flow consumer
+--   dispatches on this value in v1.
+data GoverningLaw
+  = NewYork
+  | English
+  | Japanese
+  deriving (Eq, Show, Ord)
+
+-- | Dispute reason categories for CSA disputes.
+--   Tracks the category of issue that triggered the dispute resolution workflow.
+data DisputeReason
+  = Valuation
+  | Collateral
+  | FxRate
+  | Threshold
+  | IndependentAmount
+  | Other
+  deriving (Eq, Show, Ord)
+
+data EligibleCollateral = EligibleCollateral
+  with
+    currency : Text
+    haircut  : Decimal
+  deriving (Eq, Show)
+
+data CsaState
+  = Active
+  | MarkDisputed
+  | MarginCallOutstanding
+  | Escalated
+  deriving (Eq, Show)
+
+-- | A single swap's contribution to a netted-settlement batch.
+--   `instrumentKey` is supplied by the caller to avoid a redundant
+--   SwapWorkflow re-fetch inside the choice body.
+--
+--   Parametric on `sw` to avoid a circular import between `Csa.Types` and
+--   `Swap.Workflow`. `Csa.Csa` instantiates it as `NettingEntry SwapWorkflow`.
+data NettingEntry sw = NettingEntry
+  with
+    swapWorkflowCid : ContractId sw
+    effectCids      : [ContractId Effect.I]
+    instrumentKey   : InstrumentKey
+    reversed        : Bool
+      -- ^ True ⇒ swap.partyA == csa.partyB (the workflow was
+      -- proposed in the opposite orientation to the CSA pair).
+      -- Settlement must flip the sign of this swap's contribution
+      -- so the netted amount stays in csa.partyA's frame of
+      -- reference.
+  deriving (Eq, Show)
+
+-- | Per-currency holding + account wiring for both parties of the CSA.
+--   Caller (off-chain scheduler) supplies one CcyHoldings per ccy that the
+--   prediction step says will have non-zero net flow.
+data CcyHoldings = CcyHoldings
+  with
+    currency           : Text
+    instrumentKey      : InstrumentKey
+    partyAHoldingCid   : ContractId Fungible.I
+    partyBHoldingCid   : ContractId Fungible.I
+    partyAAccountKey   : AccountKey
+    partyBAccountKey   : AccountKey
+  deriving (Eq, Show)

@@ -1,0 +1,22 @@
+module Oracle.FloatingRateIndex where
+
+import Oracle.Types
+
+template FloatingRateIndex
+  with
+    operator    : Party
+    subscribers : [Party]
+    regulators   : [Party]
+    indexId     : Text
+    currency    : Text
+    family      : RateFamily
+    compounding : CompoundingMethod
+    lookback    : Int
+    floor       : Optional Decimal
+  where
+    signatory operator
+    observer subscribers, regulators
+    key (operator, indexId) : (Party, Text)
+    maintainer key._1
+
+    ensure lookback >= 0

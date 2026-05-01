@@ -1,0 +1,222 @@
+module Swap.AssetSwapProposal where
+
+import DA.Map qualified as Map
+import DA.Set qualified as Set
+import Daml.Finance.Interface.Types.Common.V3.Types (Id(..), InstrumentKey(..), HoldingStandard(..))
+import Daml.Finance.Interface.Types.Date.V3.DayCount (DayCountConventionEnum(..))
+import Daml.Finance.Interface.Types.Date.V3.DateOffset (DateOffset(..), DayTypeEnum(..))
+import DA.Date (toGregorian)
+import Daml.Finance.Interface.Types.Date.V3.RollConvention (Period(..), PeriodEnum(..), RollConventionEnum(..))
+import Daml.Finance.Interface.Types.Date.V3.Schedule (PeriodicSchedule(..), Frequency(..), ScheduleFrequency(..))
+import Daml.Finance.Interface.Instrument.Types.V2.FloatingRate (FloatingRate(..), ReferenceRateTypeEnum(..))
+import Daml.Finance.Interface.Instrument.Swap.V0.Asset.Types (Asset(..), Underlying(..))
+import Daml.Finance.Interface.Instrument.Swap.V0.Asset.Factory qualified as AssetFactory
+import Constants (usdCalendarId)
+import Oracle.FloatingRateIndex (FloatingRateIndex(..))
+import Setup.CashSetup (CashSetupRecord(..), cashSetupKey)
+import Swap.Types (lastRegularEndFor)
+import Swap.Workflow (SwapWorkflow(..))
+
+template AssetSwapProposal
+  with
+    operator : Party
+    proposer : Party
+    counterparty : Party
+    notional : Decimal
+    fixRate : Decimal
+    ownerReceivesRate : Bool
+    underlyingAssetIds : [Text]
+    underlyingWeights : [Decimal]
+    startDate : Date
+    maturityDate : Date
+    dayCountConvention : DayCountConventionEnum
+  where
+    -- Operator co-signs so AssetAccept inherits factory auth.
+    signatory proposer, operator
+    observer counterparty
+
+    ensure notional > 0.0
+
+    choice AssetAccept : ContractId SwapWorkflow
+      with
+        operator             : Party
+        regulators            : [Party]
+        -- The accepter picks a FloatingRateIndex (e.g. USD-SOFR) at
+        -- accept-time. The index's `indexId` becomes the float leg's
+        -- `referenceRateId`, and its `lookback` is written as a negative
+        -- `periodMultiplier` into `fixingDates` — that's the ARRC-style
+        -- T-k shift the library consumes natively. Asset swaps always
+        -- carry a float interest leg, so the index is mandatory.
+        floatingRateIndexCid : ContractId FloatingRateIndex
+      controller counterparty
+      do
+        assertMsg "operator arg must match proposal's operator signatory"
+          (operator == this.operator)
+        (_, setup) <- fetchByKey @CashSetupRecord (cashSetupKey operator this.proposer this.counterparty)
+        frid <- fetch floatingRateIndexCid
+
+        let
+          defaultCcyKey = case Map.lookup setup.defaultCurrencyCode setup.currencies of
+            Some k -> k
+            None   -> error ("Currency " <> setup.defaultCurrencyCode <> " not seeded — operator must add it to config")
+
+          schedDef = case Map.lookup "ASSET" setup.scheduleDefaults of
+            Some s -> s
+            None   -> error "Schedule defaults for ASSET not seeded — operator must add them to config"
+
+          -- Daml Finance's Factory.Create validates effectiveDate's
+          -- day-of-month matches rollConvention. Override the schedule
+          -- default's rollConvention to match startDate's day so any valid
+          -- proposal date works (not just DOM 16 from the demo seed).
+          (_, _, startDay) = toGregorian this.startDate
+
+          -- User-supplied maturityDate may land on a different DOM than
+          -- startDate; ISDA convention generates a back-stub rather than
+          -- rejecting the schedule. See Swap.Types.lastRegularEndFor.
+          stubLastEnd = lastRegularEndFor this.startDate schedDef.frequencyMonths this.maturityDate
+
+        now <- getTime
+
+        let
+          periodicSchedule = PeriodicSchedule with
+            effectiveDate                        = this.startDate
+            terminationDate                      = this.maturityDate
+            firstRegularPeriodStartDate          = None
+            lastRegularPeriodEndDate             = stubLastEnd
+            frequency = Periodic Frequency with
+              period = Period with
+                period           = M
+                periodMultiplier = schedDef.frequencyMonths
+              rollConvention = DOM startDay
+            businessDayAdjustment                = schedDef.businessDayAdjustment
+            effectiveDateBusinessDayAdjustment   = None
+            terminationDateBusinessDayAdjustment = None
+            stubPeriodType                       = None
+
+          -- Build the float leg's FloatingRate from the fetched
+          -- FloatingRateIndex. `periodMultiplier = negate lookback`
+          -- encodes ARRC T-k conventions (SOFR lookback=2 → -2 business
+          -- days).
+          floatingRateOpt = Some FloatingRate with
+            referenceRateId   = frid.indexId
+            referenceRateType = CompoundedIndex schedDef.dayCountConvention
+            fixingDates = DateOffset with
+              period                = D
+              periodMultiplier      = negate frid.lookback
+              dayType               = Some Business
+              businessDayConvention = schedDef.businessDayAdjustment.convention
+              businessCenters       = schedDef.businessDayAdjustment.calendarIds
+
+          -- Build Underlying records: one per asset id. Since the proposal
+          -- only carries asset ids + weights (not real InstrumentKeys),
+          -- synthesise reference-asset keys off the operator.
+          mkUnderlying : (Text, Decimal) -> Underlying
+          mkUnderlying (aid, w) = Underlying with
+            referenceAsset = InstrumentKey with
+              depository      = operator
+              issuer          = operator
+              id              = Id aid
+              version         = "0"
+              holdingStandard = TransferableFungible
+            referenceAssetId = aid
+            weight           = w
+            initialPrice     = 1.0
+
+          underlyings = map mkUnderlying (zip this.underlyingAssetIds this.underlyingWeights)
+
+          instrumentId =
+            "ASSET-" <> show this.proposer <> "-" <> show this.counterparty
+              <> "-" <> show this.startDate <> "-" <> show this.notional
+
+          instrumentKey = InstrumentKey with
+            depository      = operator
+            issuer          = operator
+            id              = Id instrumentId
+            version         = "0"
+            holdingStandard = TransferableFungible
+
+          observerMap = Map.fromList
+            [("observers", Set.fromList ([this.proposer, this.counterparty] <> regulators))]
+
+          asset = Asset with
+            instrument           = instrumentKey
+            description          = "ASSET " <> instrumentId
+            underlyings
+            ownerReceivesRate    = this.ownerReceivesRate
+            floatingRate         = floatingRateOpt
+            fixRate              = this.fixRate
+            periodicSchedule
+            holidayCalendarIds   = [usdCalendarId]
+            calendarDataProvider = operator
+            dayCountConvention   = schedDef.dayCountConvention
+            currency             = defaultCcyKey
+            lastEventTimestamp   = now
+
+        exercise setup.factories.asset AssetFactory.Create with
+          asset
+          observers = observerMap
+
+        create SwapWorkflow with
+          swapType = "ASSET"
+          operator
+          partyA = this.proposer
+          partyB = this.counterparty
+          regulators
+          scheduler = setup.scheduler
+          instrumentKey
+          notional = this.notional
+
+    -- Manual operator co-sign path: counterparty fires this instead of AssetAccept.
+    nonconsuming choice AssetProposeAccept : ContractId AssetAcceptAck
+      with
+        operator             : Party
+        regulators            : [Party]
+        floatingRateIndexCid : ContractId FloatingRateIndex
+      controller counterparty
+      do
+        assertMsg "operator arg must match proposal's operator signatory"
+          (operator == this.operator)
+        create AssetAcceptAck with
+          proposer             = this.proposer
+          counterparty         = this.counterparty
+          operator
+          regulators
+          proposalCid          = self
+          floatingRateIndexCid
+
+    choice AssetReject : ()
+      controller counterparty
+      do pure ()
+
+    choice AssetWithdraw : ()
+      controller proposer
+      do pure ()
+
+-- | AssetAcceptAck: pending ack awaiting operator confirmation.
+template AssetAcceptAck
+  with
+    proposer             : Party
+    counterparty         : Party
+    operator             : Party
+    regulators            : [Party]
+    proposalCid          : ContractId AssetSwapProposal
+    floatingRateIndexCid : ContractId FloatingRateIndex
+  where
+    signatory proposer, counterparty, operator
+    observer  regulators
+
+    choice AssetConfirmAccept : ContractId SwapWorkflow
+      controller operator
+      do
+        exercise proposalCid AssetAccept with
+          operator
+          regulators
+          floatingRateIndexCid
+
+    choice AssetAcceptAckCancelByCounterparty : ()
+      controller counterparty
+      do pure ()
+
+    choice AssetAcceptAckCancelByOperator : ()
+      controller operator
+      do pure ()

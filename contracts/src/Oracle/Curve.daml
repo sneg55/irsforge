@@ -1,0 +1,24 @@
+module Oracle.Curve where
+
+import Oracle.Types
+
+template Curve
+  with
+    operator   : Party
+    subscribers: [Party]
+    regulators  : [Party]
+    currency   : Text
+    curveType  : CurveType
+    indexId    : Optional Text
+    asOf       : Time
+    pillars    : [Pillar]
+    interpolation : InterpolationMethod
+    dayCount      : CurveDayCount
+    constructionMetadata : Text
+  where
+    signatory operator
+    observer subscribers, regulators
+    key (operator, currency, curveType, indexId) : (Party, Text, CurveType, Optional Text)
+    maintainer key._1
+
+    ensure length pillars >= 2

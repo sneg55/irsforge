@@ -1,0 +1,91 @@
+-- Demo bootstrap helpers for terminal-state IRS rows. Each helper accepts
+-- an extra IRS proposal, archives the resulting SwapWorkflow, and creates
+-- a MaturedSwap or TerminatedSwap pointing at the same instrument key.
+-- Lifecycle effects (TriggerLifecycle → Settle → Mature) are skipped — the
+-- goal is a blotter-visible row in the Matured / Unwound tabs on first
+-- load, not a faithful lifecycle replay.
+module Setup.DemoTerminalSeed where
+
+import Daml.Script
+import Daml.Finance.Interface.Types.Date.V3.DayCount (DayCountConventionEnum(..))
+import Oracle.FloatingRateIndex (FloatingRateIndex)
+import Swap.Proposal
+import Swap.Types
+import Swap.Workflow (SwapWorkflow(..), MaturedSwap(..))
+import Swap.Terminate (TerminatedSwap(..))
+
+acceptAndArchive
+  : Party -> Party -> Party -> Party -> ContractId FloatingRateIndex
+  -> Decimal -> Decimal -> Date
+  -> Script (Optional SwapWorkflow)
+acceptAndArchive operator partyA partyB regulator sofrCid notional fixRate startDate = do
+  proposalCid <- submitMulti [partyA, operator] [] do
+    createCmd SwapProposal with
+      operator
+      proposer           = partyA
+      counterparty       = partyB
+      notional
+      fixRate
+      tenor              = Y1
+      startDate
+      dayCountConvention = Act360
+  workflowCid <- submitMulti [partyB, operator] [] do
+    exerciseCmd proposalCid Accept with
+      operator
+      regulators           = [regulator]
+      floatingRateIndexCid = sofrCid
+  workflowOpt <- queryContractId partyA workflowCid
+  case workflowOpt of
+    Some w -> do
+      submitMulti [partyA, partyB] [] do archiveCmd workflowCid
+      pure (Some w)
+    None -> pure None
+
+seedDemoMatured
+  : Party -> Party -> Party -> Party -> ContractId FloatingRateIndex
+  -> Decimal -> Decimal -> Date -> Date -> Decimal
+  -> Script ()
+seedDemoMatured operator partyA partyB regulator sofrCid notional fixRate startDate maturedOn finalNet = do
+  wOpt <- acceptAndArchive operator partyA partyB regulator sofrCid notional fixRate startDate
+  case wOpt of
+    None -> pure ()
+    Some w -> do
+      _ <- submitMulti [partyA, partyB] [] do
+        createCmd MaturedSwap with
+          operator
+          partyA              = w.partyA
+          partyB              = w.partyB
+          regulators          = w.regulators
+          scheduler           = w.scheduler
+          swapType            = "IRS"
+          instrumentKey       = w.instrumentKey
+          notional            = w.notional
+          actualMaturityDate  = maturedOn
+          finalSettleBatchCid = None
+          finalNetAmount      = finalNet
+      pure ()
+
+seedDemoTerminated
+  : Party -> Party -> Party -> Party -> ContractId FloatingRateIndex
+  -> Decimal -> Decimal -> Date -> Date -> Decimal -> Text
+  -> Script ()
+seedDemoTerminated operator partyA partyB regulator sofrCid notional fixRate startDate terminatedOn agreedPv reason = do
+  wOpt <- acceptAndArchive operator partyA partyB regulator sofrCid notional fixRate startDate
+  case wOpt of
+    None -> pure ()
+    Some w -> do
+      _ <- submitMulti [partyA, partyB] [] do
+        createCmd TerminatedSwap with
+          operator
+          partyA             = w.partyA
+          partyB             = w.partyB
+          regulators         = w.regulators
+          swapType           = "IRS"
+          instrumentKey      = w.instrumentKey
+          notional           = w.notional
+          terminationDate    = terminatedOn
+          agreedPvAmount     = agreedPv
+          reason
+          terminatedByParty  = w.partyB
+          settleBatchCid     = None
+      pure ()

@@ -1,0 +1,14 @@
+module Constants where
+
+-- Rate-family constants have moved to Setup.GeneratedRateFamilies (codegen
+-- from shared-config/rateFamilies YAML). This module now holds only
+-- deployment-wide identifiers that are not rate-family specific.
+
+usdInstrumentLabel : Text
+usdInstrumentLabel = "USD"
+
+usdCalendarId : Text
+usdCalendarId = "USD"
+
+appId : Text
+appId = "IRSForge"

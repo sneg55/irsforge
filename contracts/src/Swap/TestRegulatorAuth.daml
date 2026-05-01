@@ -1,0 +1,176 @@
+-- Anti-leak tests at the ledger boundary for SwapWorkflow.
+--
+-- Companion to Csa.TestRegulatorAuth and the React DOM-level tests in
+-- `app/src/features/regulator/__tests__/anti-leak.test.tsx`. These prove
+-- that even with a valid regulator JWT, the ledger refuses every write
+-- choice on SwapWorkflow — Daml authorization, not React conditional
+-- rendering, is the trust boundary.
+module Swap.TestRegulatorAuth where
+
+import Daml.Script
+import DA.Set qualified as Set
+import DA.Date (date, Month(..))
+import DA.Time (time)
+import Daml.Finance.Data.V4.Time.DateClockUpdate qualified as DateClockUpdate
+import Daml.Finance.Holding.V4.TransferableFungible qualified as TFungible
+import Daml.Finance.Interface.Holding.V4.Fungible qualified as Fungible
+import Daml.Finance.Interface.Lifecycle.V4.Event qualified as Event
+import Daml.Finance.Interface.Types.Common.V3.Types (Id(..), InstrumentKey(..), HoldingStandard(..))
+import Setup.CashSetup (cashSetup)
+import Swap.Workflow
+import Swap.TestHelpers
+
+-- Sanity: regulator IS observer on SwapWorkflow, so they can fetch it.
+-- This is the read-only surface that powers /oversight and /timeline.
+-- All the subsequent negative tests rely on the regulator being able to
+-- fetch the contract id; without this, "submitMustFail reg" could be
+-- masking a contract-not-found failure rather than an authorization one.
+test_regulator_can_observe_workflow : Script ()
+test_regulator_can_observe_workflow = do
+  tp <- allocateTestParties
+  cashResult <- cashSetup tp.operator tp.partyA tp.partyB tp.regulator "USD" "US Dollar"
+  (workflowCid, _eff, _ik, _rule, _mat) <- setupIrsThroughLifecycle tp cashResult
+  Some _ <- queryContractId tp.regulator workflowCid
+  pure ()
+
+-- Regulator alone cannot create a SwapWorkflow — signatory is partyA + partyB.
+test_regulator_cannot_create_workflow : Script ()
+test_regulator_cannot_create_workflow = do
+  tp <- allocateTestParties
+  let dummyKey = InstrumentKey with
+        depository = tp.operator
+        issuer = tp.operator
+        id = Id "DUMMY"
+        version = "0"
+        holdingStandard = TransferableFungible
+  submitMustFail tp.regulator do
+    createCmd SwapWorkflow with
+      swapType      = "IRS"
+      operator      = tp.operator
+      partyA        = tp.partyA
+      partyB        = tp.partyB
+      regulators     = [tp.regulator]
+      scheduler     = tp.scheduler
+      instrumentKey = dummyKey
+      notional      = 1_000_000.0
+
+-- TriggerLifecycle controller is `operator`. The valid setup gives us
+-- real cids; submitting the same payload as regulator must fail.
+test_regulator_cannot_trigger_lifecycle : Script ()
+test_regulator_cannot_trigger_lifecycle = do
+  tp <- allocateTestParties
+  cashResult <- cashSetup tp.operator tp.partyA tp.partyB tp.regulator "USD" "US Dollar"
+  (workflowCid, _eff, _ik, lifecycleRuleCid, _mat) <-
+    setupIrsThroughLifecycleWith tp cashResult 0.0530 True
+
+  eventCid <- submit tp.operator do
+    createCmd DateClockUpdate.DateClockUpdateEvent with
+      providers   = Set.singleton tp.operator
+      date        = date 2026 Jul 16
+      eventTime   = time (date 2026 Jul 16) 0 0 0
+      id          = Id "clock-update-reg-trigger-neg"
+      description = "Regulator negative auth event"
+      observers   = Set.fromList [tp.operator, tp.regulator, tp.scheduler]
+  let eventInterfaceCid = toInterfaceContractId @Event.Event eventCid
+
+  submitMustFail tp.regulator do
+    exerciseCmd workflowCid TriggerLifecycle with
+      lifecycleRuleCid
+      eventCid       = eventInterfaceCid
+      observableCids = []
+
+-- TriggerLifecycleByScheduler controller is `scheduler` — regulator is
+-- still rejected. Closes the path where someone might assume a wider
+-- controller set covers regulator too.
+test_regulator_cannot_trigger_lifecycle_by_scheduler : Script ()
+test_regulator_cannot_trigger_lifecycle_by_scheduler = do
+  tp <- allocateTestParties
+  cashResult <- cashSetup tp.operator tp.partyA tp.partyB tp.regulator "USD" "US Dollar"
+  (workflowCid, _eff, _ik, lifecycleRuleCid, _mat) <-
+    setupIrsThroughLifecycleWith tp cashResult 0.0530 True
+
+  eventCid <- submit tp.operator do
+    createCmd DateClockUpdate.DateClockUpdateEvent with
+      providers   = Set.singleton tp.operator
+      date        = date 2026 Jul 16
+      eventTime   = time (date 2026 Jul 16) 0 0 0
+      id          = Id "clock-update-reg-sched-neg"
+      description = "Regulator-vs-scheduler negative auth event"
+      observers   = Set.fromList [tp.operator, tp.regulator, tp.scheduler]
+  let eventInterfaceCid = toInterfaceContractId @Event.Event eventCid
+
+  submitMustFail tp.regulator do
+    exerciseCmd workflowCid TriggerLifecycleByScheduler with
+      lifecycleRuleCid
+      eventCid       = eventInterfaceCid
+      observableCids = []
+
+-- Settle controller is `operator`.
+test_regulator_cannot_settle : Script ()
+test_regulator_cannot_settle = do
+  tp <- allocateTestParties
+  cashResult <- cashSetup tp.operator tp.partyA tp.partyB tp.regulator "USD" "US Dollar"
+  (workflowCid, effectCids, _ik, _rule, _mat) <- setupIrsThroughLifecycle tp cashResult
+
+  allHoldingsA <- query @TFungible.TransferableFungible tp.partyA
+  let [(partyAHoldingCidRaw, _)] = [(c, h) | (c, h) <- allHoldingsA, h.account.owner == tp.partyA]
+  allHoldingsB <- query @TFungible.TransferableFungible tp.partyB
+  let [(partyBHoldingCidRaw, _)] = [(c, h) | (c, h) <- allHoldingsB, h.account.owner == tp.partyB]
+
+  let
+    partyAHoldingCid = toInterfaceContractId @Fungible.I partyAHoldingCidRaw
+    partyBHoldingCid = toInterfaceContractId @Fungible.I partyBHoldingCidRaw
+
+  submitMustFail tp.regulator do
+    exerciseCmd workflowCid Settle with
+      effectCids
+      settlementFactoryCid = cashResult.settlementFactoryCid
+      routeProviderCid     = cashResult.routeProviderCid
+      partyAHoldingCid
+      partyBHoldingCid
+      partyAAccountKey     = cashResult.partyAAccountKey
+      partyBAccountKey     = cashResult.partyBAccountKey
+      usdInstrumentKey     = cashResult.defaultInstrumentKey
+
+-- Mature controller is `operator`. Use empty effects + None holdings to
+-- skirt the settlement-chain dependency; the auth check fires first.
+test_regulator_cannot_mature : Script ()
+test_regulator_cannot_mature = do
+  tp <- allocateTestParties
+  cashResult <- cashSetup tp.operator tp.partyA tp.partyB tp.regulator "USD" "US Dollar"
+  (workflowCid, _eff, _ik, _rule, maturityDate) <- setupIrsThroughLifecycle tp cashResult
+  advanceClockPastMaturity maturityDate
+
+  submitMustFail tp.regulator do
+    exerciseCmd workflowCid Mature with
+      maturityDate
+      actualMaturityDate   = maturityDate
+      effectCids           = []
+      settlementFactoryCid = cashResult.settlementFactoryCid
+      routeProviderCid     = cashResult.routeProviderCid
+      partyAHoldingCid     = None
+      partyBHoldingCid     = None
+      partyAAccountKey     = cashResult.partyAAccountKey
+      partyBAccountKey     = cashResult.partyBAccountKey
+      usdInstrumentKey     = cashResult.defaultInstrumentKey
+
+-- MatureByScheduler controller is `scheduler` — regulator still rejected.
+test_regulator_cannot_mature_by_scheduler : Script ()
+test_regulator_cannot_mature_by_scheduler = do
+  tp <- allocateTestParties
+  cashResult <- cashSetup tp.operator tp.partyA tp.partyB tp.regulator "USD" "US Dollar"
+  (workflowCid, _eff, _ik, _rule, maturityDate) <- setupIrsThroughLifecycle tp cashResult
+  advanceClockPastMaturity maturityDate
+
+  submitMustFail tp.regulator do
+    exerciseCmd workflowCid MatureByScheduler with
+      maturityDate
+      actualMaturityDate   = maturityDate
+      effectCids           = []
+      settlementFactoryCid = cashResult.settlementFactoryCid
+      routeProviderCid     = cashResult.routeProviderCid
+      partyAHoldingCid     = None
+      partyBHoldingCid     = None
+      partyAAccountKey     = cashResult.partyAAccountKey
+      partyBAccountKey     = cashResult.partyBAccountKey
+      usdInstrumentKey     = cashResult.defaultInstrumentKey

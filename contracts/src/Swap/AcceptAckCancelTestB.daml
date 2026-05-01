@@ -1,0 +1,92 @@
+-- Cancel-path tests for Xccy + Cds AcceptAck families.
+module Swap.AcceptAckCancelTestB where
+
+import Daml.Script
+import DA.Date (date, Month(..))
+import Daml.Finance.Interface.Types.Date.V3.DayCount (DayCountConventionEnum(..))
+import Oracle.Types (RateFamily(..))
+import Swap.XccyFixedFloatProposal
+import Swap.CdsProposal
+import Swap.TestHelpers
+
+testXccyAcceptAckCancelByCounterparty : Script ()
+testXccyAcceptAckCancelByCounterparty = do
+  tp <- allocateTestParties
+  runInit tp
+  eurEstrCid <- seedFloatingRateIndex tp "EUR-ESTR" "EUR" ESTR 0
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd XccyFixedFloatProposal with
+      operator = tp.operator; proposer = tp.partyA; counterparty = tp.partyB
+      fixedCurrency = "USD"; fixedNotional = 10_000_000.0; fixedRate = 0.04
+      floatCurrency = "EUR"; floatNotional = 9_260_000.0
+      startDate = date 2026 Apr 16; maturityDate = date 2031 Apr 16
+      dayCountConvention = Act360
+  ackCid <- submit tp.partyB do
+    exerciseCmd proposalCid XccyProposeAccept with
+      operator = tp.operator; regulators = [tp.regulator]
+      floatFloatingRateIndexCid = eurEstrCid
+  submit tp.partyB do
+    exerciseCmd ackCid XccyAcceptAckCancelByCounterparty
+  acks <- query @XccyAcceptAck tp.operator
+  assertMsg "XccyAcceptAck must be archived" (null acks)
+  proposals <- query @XccyFixedFloatProposal tp.partyA
+  assertMsg "Proposal must still be live" (length proposals == 1)
+
+testXccyAcceptAckCancelByOperator : Script ()
+testXccyAcceptAckCancelByOperator = do
+  tp <- allocateTestParties
+  runInit tp
+  eurEstrCid <- seedFloatingRateIndex tp "EUR-ESTR" "EUR" ESTR 0
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd XccyFixedFloatProposal with
+      operator = tp.operator; proposer = tp.partyA; counterparty = tp.partyB
+      fixedCurrency = "USD"; fixedNotional = 10_000_000.0; fixedRate = 0.04
+      floatCurrency = "EUR"; floatNotional = 9_260_000.0
+      startDate = date 2026 Apr 16; maturityDate = date 2031 Apr 16
+      dayCountConvention = Act360
+  ackCid <- submit tp.partyB do
+    exerciseCmd proposalCid XccyProposeAccept with
+      operator = tp.operator; regulators = [tp.regulator]
+      floatFloatingRateIndexCid = eurEstrCid
+  submit tp.operator do
+    exerciseCmd ackCid XccyAcceptAckCancelByOperator
+  acks <- query @XccyAcceptAck tp.operator
+  assertMsg "XccyAcceptAck must be archived" (null acks)
+
+testCdsAcceptAckCancelByCounterparty : Script ()
+testCdsAcceptAckCancelByCounterparty = do
+  tp <- allocateTestParties
+  runInit tp
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd CdsProposal with
+      operator = tp.operator; proposer = tp.partyA; counterparty = tp.partyB
+      notional = 5_000_000.0; fixRate = 0.015; referenceName = "TSLA"
+      ownerReceivesFix = True
+      startDate = date 2026 Apr 16; maturityDate = date 2027 Apr 16
+      dayCountConvention = Act360
+  ackCid <- submit tp.partyB do
+    exerciseCmd proposalCid CdsProposeAccept with
+      operator = tp.operator; regulators = [tp.regulator]
+  submit tp.partyB do
+    exerciseCmd ackCid CdsAcceptAckCancelByCounterparty
+  acks <- query @CdsAcceptAck tp.operator
+  assertMsg "CdsAcceptAck must be archived" (null acks)
+
+testCdsAcceptAckCancelByOperator : Script ()
+testCdsAcceptAckCancelByOperator = do
+  tp <- allocateTestParties
+  runInit tp
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd CdsProposal with
+      operator = tp.operator; proposer = tp.partyA; counterparty = tp.partyB
+      notional = 5_000_000.0; fixRate = 0.015; referenceName = "TSLA"
+      ownerReceivesFix = True
+      startDate = date 2026 Apr 16; maturityDate = date 2027 Apr 16
+      dayCountConvention = Act360
+  ackCid <- submit tp.partyB do
+    exerciseCmd proposalCid CdsProposeAccept with
+      operator = tp.operator; regulators = [tp.regulator]
+  submit tp.operator do
+    exerciseCmd ackCid CdsAcceptAckCancelByOperator
+  acks <- query @CdsAcceptAck tp.operator
+  assertMsg "CdsAcceptAck must be archived" (null acks)

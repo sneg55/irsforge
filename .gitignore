@@ -1,0 +1,84 @@
+# Daml
+contracts/.daml/
+contracts/lib/
+*.dar
+
+# Generated package ID constant (see scripts/extract-package-id.sh)
+app/src/shared/ledger/generated/
+
+# Node
+node_modules/
+.next/
+dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+
+# Auth keys (generated at runtime)
+auth/keys/
+
+# Service-accounts registry holds bcrypt-hashed secrets — never commit.
+# See auth/service-accounts.example.yaml for the template.
+auth/service-accounts.yaml
+
+# Environment
+.env
+.env.local
+
+# Daml runtime output
+contracts/log/
+contracts/navigator.log
+
+# AI tooling — local-only, never committed upstream
+.claude/
+AGENTS.md
+CLAUDE.md
+.superpowers/
+
+# git worktrees — local isolation for subagent-driven work
+.worktrees/
+
+# Local demo harness state (scripts/demo.sh)
+.demo/
+
+# Test coverage output
+coverage/
+
+# Husky managed hooks (auto-generated)
+.husky/_/
+
+# Local hook-avoidance trash dir (see CLAUDE.md memory)
+.trash/
+
+# ESLint cache
+**/.cache/eslint/
+
+# Astro marketing site
+site/dist/
+site/.astro/
+site/test-results/
+site/playwright-report/
+site/.lighthouseci/
+
+# agent-browser user-data dir from local smoke tests
+irsforge-smoke/
+
+# Internal planning + research docs — not for upstream
+docs/TODO.md
+docs/audits/
+docs/business-brief.md
+docs/gtm-outline.md
+docs/hackathon/
+docs/reference-impl-roadmap.md
+docs/superpowers/
+hackcanton-hackathon.md
+hackcanton-irs-deep-dive.md
+spike-3x/
+
+# Stray junk
+--output

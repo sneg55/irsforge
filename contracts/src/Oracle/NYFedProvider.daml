@@ -1,0 +1,76 @@
+module Oracle.NYFedProvider where
+
+import DA.Map qualified as Map
+import DA.Set qualified as Set
+import DA.Time (time)
+import Daml.Finance.Data.V4.Numeric.Observation qualified as Obs
+import Daml.Finance.Interface.Types.Common.V3.Types qualified as FinTypes
+import Oracle.Curve (Curve)
+import Oracle.Interface
+import Oracle.Types
+
+template NYFedOracleProvider
+  with
+    operator : Party
+    subscribers : [Party]
+    regulators : [Party]
+    supportedRateIds : [Text]
+  where
+    signatory operator
+    observer subscribers, regulators
+
+    interface instance Provider for NYFedOracleProvider where
+      view = OracleView with
+        id = "nyfed"
+        publisher = operator
+        subscribers = subscribers
+        regulators = regulators
+        supportedRateIds = supportedRateIds
+
+    -- NYFed-specific: bulk-publish multiple Observations in one transaction.
+    -- Not part of the Provider interface — provider-specific extension.
+    nonconsuming choice PublishCurve : [ContractId Obs.Observation]
+      with
+        args : PublishCurveArgs
+      controller operator
+      do
+        mapA (\pt ->
+          create Obs.Observation with
+            provider = operator
+            id = FinTypes.Id pt.rateId
+            observations = Map.fromList [(time args.effectiveDate 0 0 0, pt.value)]
+            observers = Map.fromList [("subscribers", Set.fromList subscribers)]
+          ) args.points
+
+    -- NYFed-specific: stamp full Observation history in one shot
+    -- (Init back-fills the IRS template's schedule).
+    nonconsuming choice PublishHistory : ContractId Obs.Observation
+      with
+        rateId : Text
+        entries : [(Date, Decimal)]
+      controller operator
+      do
+        create Obs.Observation with
+          provider = operator
+          id = FinTypes.Id rateId
+          observations = Map.fromList [ (time d 0 0 0, v) | (d, v) <- entries ]
+          observers = Map.fromList [("subscribers", Set.fromList subscribers)]
+
+    -- NYFed-specific: discount curve + projection observations atomically.
+    -- Composes Provider_PublishDiscountCurve via toInterfaceContractId.
+    nonconsuming choice PublishCurveAndObservations : (ContractId Curve, [ContractId Obs.Observation])
+      with
+        curveArgs : PublishDiscountCurveArgs
+        observationArgs : PublishCurveArgs
+      controller operator
+      do
+        let providerThis = toInterfaceContractId @Provider self
+        curveCid <- exercise providerThis Provider_PublishDiscountCurve with
+          currency = curveArgs.currency
+          asOf = curveArgs.asOf
+          pillars = curveArgs.pillars
+          interpolation = curveArgs.interpolation
+          dayCount = curveArgs.dayCount
+          constructionMetadata = curveArgs.constructionMetadata
+        obsCids <- exercise self PublishCurve with args = observationArgs
+        pure (curveCid, obsCids)

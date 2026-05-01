@@ -1,0 +1,39 @@
+---
+import '../styles/global.css'
+import Footer from '../components/Footer.astro'
+import NavBar from '../components/NavBar.astro'
+
+interface Props {
+  title?: string
+  description?: string
+}
+const {
+  title = 'IRSForge: Institutional rates infrastructure for Canton',
+  description = 'Open-source reference implementation of interest-rate, credit, and cross-currency swaps for Canton Network.',
+} = Astro.props
+const ogImage = new URL('/og-image.png', Astro.site).toString()
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0a0e1a" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="preload" href="/fonts/source-serif-4-variable.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/inter-variable.woff2" as="font" type="font/woff2" crossorigin />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+  </head>
+  <body>
+    <a href="#main" class="skip-link">Skip to content</a>
+    <NavBar />
+    <main id="main"><slot /></main>
+    <Footer />
+  </body>
+</html>

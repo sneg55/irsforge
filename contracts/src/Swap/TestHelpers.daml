@@ -1,0 +1,298 @@
+module Swap.TestHelpers where
+
+import Daml.Script
+import DA.Date (date, Month(..), DayOfWeek(..))
+import DA.Map qualified as Map
+import DA.Set qualified as Set
+import DA.Time (time)
+import Daml.Finance.Interface.Types.Common.V3.Types (Id(..), InstrumentKey(..), HoldingStandard(..))
+import Daml.Finance.Interface.Types.Date.V3.DayCount (DayCountConventionEnum(..))
+import Daml.Finance.Interface.Types.Date.V3.Calendar (BusinessDayAdjustment(..), BusinessDayConventionEnum(..), HolidayCalendarData(..))
+import Daml.Finance.Interface.Types.Date.V3.Schedule (PeriodicSchedule(..), Frequency(..), ScheduleFrequency(..))
+import Daml.Finance.Interface.Types.Date.V3.RollConvention (PeriodEnum(..), Period(..), RollConventionEnum(..))
+import Daml.Finance.Interface.Types.Date.V3.DateOffset (DateOffset(..), DayTypeEnum(..))
+import Daml.Finance.Interface.Instrument.Types.V2.FloatingRate (FloatingRate(..), ReferenceRateTypeEnum(..))
+import Daml.Finance.Interface.Instrument.Swap.V0.InterestRate.Types (InterestRate(..))
+import Daml.Finance.Interface.Instrument.Swap.V0.InterestRate.Factory qualified as IRSFactory
+import Daml.Finance.Instrument.Swap.V0.InterestRate.Factory qualified as IRSFactoryImpl
+import Daml.Finance.Data.V4.Numeric.Observation qualified as Observation
+import Daml.Finance.Data.V4.Reference.HolidayCalendar qualified as HolidayCalendar
+import Daml.Finance.Data.V4.Time.DateClockUpdate qualified as DateClockUpdate
+import Daml.Finance.Claims.V3.Lifecycle.Rule qualified as LifecycleRule
+import Daml.Finance.Interface.Lifecycle.V4.Rule.Lifecycle qualified as Lifecycle
+import Daml.Finance.Interface.Lifecycle.V4.Observable.NumericObservable qualified as NumericObservable
+import Daml.Finance.Interface.Lifecycle.V4.Event qualified as Event
+import Daml.Finance.Interface.Lifecycle.V4.Effect qualified as Effect
+import Swap.Workflow
+import Setup.CashSetup (CashSetupResult)
+import Setup.InitImpl (InitParties(..), initForParties)
+import Oracle.NYFedProvider (NYFedOracleProvider, PublishHistory(..))
+import Oracle.FloatingRateIndex (FloatingRateIndex(..))
+import Oracle.Types (RateFamily(..), CompoundingMethod(..))
+import Constants
+import Setup.GeneratedRateFamilies
+
+-- `regulator` is the singleton; `regulators = [regulator]` is the list passed to template fields.
+data TestParties = TestParties with
+  operator   : Party
+  partyA     : Party
+  partyB     : Party
+  regulator  : Party
+  regulators : [Party]
+  scheduler  : Party
+
+allocateTestParties : Script TestParties
+allocateTestParties = do
+  operator  <- allocatePartyWithHint "Operator"  (PartyIdHint "Operator")
+  partyA    <- allocatePartyWithHint "PartyA"    (PartyIdHint "PartyA")
+  partyB    <- allocatePartyWithHint "PartyB"    (PartyIdHint "PartyB")
+  regulator <- allocatePartyWithHint "Regulator" (PartyIdHint "Regulator")
+  scheduler <- allocatePartyWithHint "Scheduler" (PartyIdHint "Scheduler")
+  pure TestParties with operator; partyA; partyB; regulator; regulators = [regulator]; scheduler
+
+-- | Seed a USD-SOFR FloatingRateIndex with `lookback = 2`. The IRS
+--   proposal's Accept choice requires a FloatingRateIndex contract id
+--   (post-Phase-3), so every test that calls Accept must create one.
+seedUsdSofrIndex
+  :  TestParties
+  -> Script (ContractId FloatingRateIndex)
+seedUsdSofrIndex tp = seedFloatingRateIndex tp "USD-SOFR" "USD" SOFR 2
+
+-- | Low-level helper: seed a FloatingRateIndex with explicit parameters.
+--   Observer set is partyA+partyB+regulator so Accept can fetch it.
+--   Idempotent: `Init` now seeds USD-SOFR at boot, so tests that call
+--   `runInit` + `seedFloatingRateIndex "USD-SOFR"` would otherwise hit
+--   a DUPLICATE_CONTRACT_KEY on the `(operator, indexId)` template key.
+--   Returns the existing contract id when one is present.
+seedFloatingRateIndex
+  :  TestParties
+  -> Text
+  -> Text
+  -> RateFamily
+  -> Int
+  -> Script (ContractId FloatingRateIndex)
+seedFloatingRateIndex tp indexId currency family lookback = do
+  existing <- queryContractKey @FloatingRateIndex tp.operator (tp.operator, indexId)
+  case existing of
+    Some (cid, _) -> pure cid
+    None -> submit tp.operator do
+      createCmd FloatingRateIndex with
+        operator    = tp.operator
+        subscribers = [tp.partyA, tp.partyB]
+        regulators   = [tp.regulator]
+        indexId
+        currency
+        family
+        compounding = CompoundedInArrears
+        lookback
+        floor       = Some 0.0
+
+-- | Run the shared infrastructure bootstrap for the given TestParties.
+--   Tests that exercise a proposal's Accept choice need the CashSetupRecord
+--   seeded; this calls Setup.InitImpl.initForParties with the test pool.
+runInit : TestParties -> Script ()
+runInit tp = initForParties InitParties with
+  operator  = tp.operator
+  partyA    = tp.partyA
+  partyB    = tp.partyB
+  regulators = [tp.regulator]
+  scheduler = tp.scheduler
+
+-- | Back-fill CDS default-prob + recovery observation history for a
+--   given reference name. Mirrors Init's post-seed for the CDS observables
+--   but lets tests add extra names (or fixing dates) on demand.
+publishCdsHistory
+  :  Party
+  -> ContractId NYFedOracleProvider
+  -> Text
+  -> [Date]
+  -> Decimal
+  -> Decimal
+  -> Script ()
+publishCdsHistory operator providerCid referenceName fixingDates defaultProb recovery = do
+  submit operator $ exerciseCmd providerCid PublishHistory with
+    rateId = "CDS/" <> referenceName <> "/DefaultProb"
+    entries = [ (d, defaultProb) | d <- fixingDates ]
+  submit operator $ exerciseCmd providerCid PublishHistory with
+    rateId = "CDS/" <> referenceName <> "/Recovery"
+    entries = [ (d, recovery) | d <- fixingDates ]
+  pure ()
+
+-- | Run the full IRS instrument creation + lifecycle trigger and return the key pieces.
+-- Returns (workflowCid, effectCids, instrumentKey, lifecycleRuleCid, maturityDate)
+setupIrsThroughLifecycle
+  : TestParties
+  -> CashSetupResult
+  -> Script (ContractId SwapWorkflow, [ContractId Effect.I], InstrumentKey, ContractId Lifecycle.Lifecycle, Date)
+setupIrsThroughLifecycle tp _cashResult =
+  setupIrsThroughLifecycleRate tp _cashResult 0.0530
+
+-- | Like setupIrsThroughLifecycle but with a configurable SOFR fixing rate and pay direction.
+-- ownerReceivesFix=True  → owner (partyA in Workflow) receives fixed, pays floating
+-- ownerReceivesFix=False → owner receives floating, pays fixed
+setupIrsThroughLifecycleRate
+  : TestParties
+  -> CashSetupResult
+  -> Decimal  -- SOFR rate override (e.g. 0.0530)
+  -> Script (ContractId SwapWorkflow, [ContractId Effect.I], InstrumentKey, ContractId Lifecycle.Lifecycle, Date)
+setupIrsThroughLifecycleRate tp _cashResult sofrRate =
+  setupIrsThroughLifecycleWith tp _cashResult sofrRate True
+
+-- | Full-control variant: configurable SOFR rate + ownerReceivesFix flag.
+setupIrsThroughLifecycleWith
+  : TestParties
+  -> CashSetupResult
+  -> Decimal  -- SOFR rate override (e.g. 0.0530)
+  -> Bool     -- ownerReceivesFix
+  -> Script (ContractId SwapWorkflow, [ContractId Effect.I], InstrumentKey, ContractId Lifecycle.Lifecycle, Date)
+setupIrsThroughLifecycleWith tp _cashResult sofrRate ownerReceivesFix = do
+  let
+    operatorSet = Set.singleton tp.operator
+    observerMap = Map.fromList [("observers", Set.fromList [tp.partyA, tp.partyB, tp.regulator, tp.scheduler])]
+
+  -- 1. Holiday calendar
+  _calendarCid <- submit tp.operator do
+    createCmd HolidayCalendar.HolidayCalendar with
+      calendar = HolidayCalendarData with
+        id = usdCalendarId
+        weekend = [Saturday, Sunday]
+        holidays = []
+      observers = observerMap
+      provider = tp.operator
+
+  -- 2. SOFR observations
+  let
+    sofrObsMap = Map.fromList
+      [ (time (date 2026 Apr 16) 0 0 0, sofrRate)
+      , (time (date 2026 Jul 16) 0 0 0, sofrRate)
+      ]
+
+  sofrObsCid <- submit tp.operator do
+    createCmd Observation.Observation with
+      provider = tp.operator
+      id = Id sofrOvernightRateId
+      observations = sofrObsMap
+      observers = observerMap
+
+  -- 3. Instrument keys
+  let
+    instrumentKey = InstrumentKey with
+      depository = tp.operator
+      issuer = tp.operator
+      id = Id "IRS-001"
+      version = "0"
+      holdingStandard = TransferableFungible
+
+    currencyKey = InstrumentKey with
+      depository = tp.operator
+      issuer = tp.operator
+      id = Id usdInstrumentLabel
+      version = "0"
+      holdingStandard = TransferableFungible
+
+  -- 4. IRS factory + instrument
+  irsFactoryCid <- submit tp.operator do
+    createCmd IRSFactoryImpl.Factory with
+      provider = tp.operator
+      observers = observerMap
+
+  let
+    periodicSchedule = PeriodicSchedule with
+      effectiveDate = date 2026 Apr 16
+      terminationDate = date 2026 Jul 16
+      firstRegularPeriodStartDate = None
+      lastRegularPeriodEndDate = None
+      frequency = Periodic Frequency with
+        period = Period with
+          period = M
+          periodMultiplier = 3
+        rollConvention = DOM 16
+      businessDayAdjustment = BusinessDayAdjustment with
+        calendarIds = [usdCalendarId]
+        convention = ModifiedFollowing
+      effectiveDateBusinessDayAdjustment = None
+      terminationDateBusinessDayAdjustment = None
+      stubPeriodType = None
+
+    floatingRate = FloatingRate with
+      referenceRateId = sofrOvernightRateId
+      referenceRateType = CompoundedIndex Act360
+      fixingDates = DateOffset with
+        period = D
+        periodMultiplier = 0
+        dayType = Some Business
+        businessDayConvention = NoAdjustment
+        businessCenters = [usdCalendarId]
+
+    interestRate = InterestRate with
+      instrument = instrumentKey
+      description = "IRS test swap"
+      floatingRate
+      ownerReceivesFix
+      fixRate = 0.0485
+      periodicSchedule
+      holidayCalendarIds = [usdCalendarId]
+      calendarDataProvider = tp.operator
+      dayCountConvention = Act360
+      currency = currencyKey
+      lastEventTimestamp = time (date 2026 Apr 16) 0 0 0
+
+  let irsFactoryInterfaceCid = toInterfaceContractId @IRSFactory.Factory irsFactoryCid
+
+  submit tp.operator do
+    exerciseCmd irsFactoryInterfaceCid IRSFactory.Create with
+      interestRate
+      observers = observerMap
+
+  -- 5. Lifecycle rule
+  lifecycleRuleCid <- submit tp.operator do
+    createCmd LifecycleRule.Rule with
+      providers = operatorSet
+      lifecycler = tp.operator
+      observers = observerMap
+      id = Id "lifecycle-rule-001"
+      description = "IRS lifecycle rule"
+
+  -- 6. SwapWorkflow
+  workflowCid <- submitMulti [tp.partyA, tp.partyB] [] do
+    createCmd SwapWorkflow with
+      swapType = "IRS"
+      operator = tp.operator
+      partyA = tp.partyA
+      partyB = tp.partyB
+      regulators = [tp.regulator]
+      scheduler = tp.scheduler
+      instrumentKey
+      notional = 10_000_000.0
+
+  -- 7. DateClockUpdateEvent
+  eventCid <- submit tp.operator do
+    createCmd DateClockUpdate.DateClockUpdateEvent with
+      providers = operatorSet
+      date = date 2026 Jul 16
+      eventTime = time (date 2026 Jul 16) 0 0 0
+      id = Id "clock-update-001"
+      description = "Coupon date event"
+      observers = operatorSet
+
+  -- 8. TriggerLifecycle
+  let
+    lifecycleRuleInterfaceCid = toInterfaceContractId @Lifecycle.Lifecycle lifecycleRuleCid
+    eventInterfaceCid         = toInterfaceContractId @Event.Event eventCid
+    sofrObsInterfaceCid       = toInterfaceContractId @NumericObservable.NumericObservable sofrObsCid
+
+  (_, effectCids) <- submit tp.operator do
+    exerciseCmd workflowCid TriggerLifecycle with
+      lifecycleRuleCid = lifecycleRuleInterfaceCid
+      eventCid         = eventInterfaceCid
+      observableCids   = [sofrObsInterfaceCid]
+
+  let lifecycleRuleIfaceCid = toInterfaceContractId @Lifecycle.Lifecycle lifecycleRuleCid
+  pure (workflowCid, effectCids, instrumentKey, lifecycleRuleIfaceCid, date 2026 Jul 16)
+
+-- | Advances the ledger clock to 00:00 UTC on the given date so Mature's
+--   `getTime → toDateUTC` gate succeeds.
+advanceClockPastMaturity : Date -> Script ()
+advanceClockPastMaturity maturityDate = do
+  let targetTime = time maturityDate 0 0 0
+  setTime targetTime

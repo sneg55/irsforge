@@ -1,0 +1,91 @@
+module Oracle.Interpolation where
+
+import DA.List (head, last)
+import Oracle.Types (Pillar(..), InterpolationMethod(..), CurveDayCount(..))
+
+-- | Year fraction for a given day count convention.
+yearFrac : CurveDayCount -> Int -> Decimal
+yearFrac Act360 days = intToDecimal days / 360.0
+yearFrac Act365F days = intToDecimal days / 365.0
+
+-- | Interpolate a zero rate at the given tenor (in days).
+interpolateZero : InterpolationMethod -> [Pillar] -> Int -> Decimal
+interpolateZero LinearZero pillars tenorDays = linearZero pillars tenorDays
+interpolateZero LogLinearDF pillars tenorDays =
+  let df = logLinearDF pillars tenorDays
+      t  = intToDecimal tenorDays / 365.0
+  in if t <= 0.0 then 0.0
+     else (1.0 / df - 1.0) / t
+
+-- | Compute a discount factor at the given tenor.
+computeDF : InterpolationMethod -> CurveDayCount -> [Pillar] -> Int -> Decimal
+computeDF LinearZero dayCount pillars tenorDays =
+  let rate = linearZero pillars tenorDays
+      t    = yearFrac dayCount tenorDays
+  in if t <= 0.0 then 1.0 else 1.0 / (1.0 + rate * t)
+computeDF LogLinearDF _dayCount pillars tenorDays =
+  logLinearDF pillars tenorDays
+
+-- LinearZero: linear interpolation on zero rates, flat extrapolation.
+linearZero : [Pillar] -> Int -> Decimal
+linearZero [] _tenorDays = 0.0
+linearZero pillars tenorDays
+  | tenorDays <= (head pillars).tenorDays = (head pillars).zeroRate
+  | tenorDays >= (last pillars).tenorDays = (last pillars).zeroRate
+  | otherwise = findSegment pillars tenorDays
+
+findSegment : [Pillar] -> Int -> Decimal
+findSegment [] _ = 0.0
+findSegment [p] _ = p.zeroRate
+findSegment (p1 :: p2 :: rest) td
+  | td >= p1.tenorDays && td <= p2.tenorDays =
+      let frac = intToDecimal (td - p1.tenorDays) / intToDecimal (p2.tenorDays - p1.tenorDays)
+      in p1.zeroRate + frac * (p2.zeroRate - p1.zeroRate)
+  | otherwise = findSegment (p2 :: rest) td
+
+-- | Pillar-level discount factor: df = 1 / (1 + r * t) using Act/365 for curve storage.
+pillarDF : Pillar -> Decimal
+pillarDF p = 1.0 / (1.0 + p.zeroRate * intToDecimal p.tenorDays / 365.0)
+
+-- LogLinearDF: log-linear interpolation on discount factors.
+-- DF at each pillar: df_i = 1 / (1 + r_i * t_i) where t_i = tenorDays_i / 365
+-- Log-linear between consecutive DFs, flat extrapolation in DF space.
+logLinearDF : [Pillar] -> Int -> Decimal
+logLinearDF [] _tenorDays = 1.0
+logLinearDF pillars tenorDays =
+  let pFirst = head pillars
+      pLast  = last pillars
+  in if tenorDays <= pFirst.tenorDays then pillarDF pFirst
+     else if tenorDays >= pLast.tenorDays then pillarDF pLast
+     else findSegmentDF pillars tenorDays
+
+findSegmentDF : [Pillar] -> Int -> Decimal
+findSegmentDF [] _ = 1.0
+findSegmentDF [p] _ = pillarDF p
+findSegmentDF (p1 :: p2 :: rest) td
+  | td >= p1.tenorDays && td <= p2.tenorDays =
+      let df1  = pillarDF p1
+          df2  = pillarDF p2
+          frac = intToDecimal (td - p1.tenorDays) / intToDecimal (p2.tenorDays - p1.tenorDays)
+          -- log-linear: ln(df) = (1-frac)*ln(df1) + frac*ln(df2)
+          -- => df = df1^(1-frac) * df2^frac
+          -- Use exp/log approximation: df = exp((1-frac)*ln(df1) + frac*ln(df2))
+          lnDf1 = logDecimal df1
+          lnDf2 = logDecimal df2
+      in expDecimal ((1.0 - frac) * lnDf1 + frac * lnDf2)
+  | otherwise = findSegmentDF (p2 :: rest) td
+
+-- Daml doesn't have log/exp for Decimal natively.
+-- We use a Taylor series approximation sufficient for small negative values
+-- (discount factors are near 1.0, so ln(df) is small and negative).
+logDecimal : Decimal -> Decimal
+logDecimal x =
+  -- ln(x) via ln(1+u) where u = x-1, |u| < 1 for 0 < x < 2
+  -- Taylor: u - u^2/2 + u^3/3 - u^4/4 + u^5/5 - u^6/6
+  let u = x - 1.0
+  in u - u*u/2.0 + u*u*u/3.0 - u*u*u*u/4.0 + u*u*u*u*u/5.0 - u*u*u*u*u*u/6.0
+
+expDecimal : Decimal -> Decimal
+expDecimal x =
+  -- e^x via Taylor: 1 + x + x^2/2! + x^3/3! + x^4/4! + x^5/5! + x^6/6!
+  1.0 + x + x*x/2.0 + x*x*x/6.0 + x*x*x*x/24.0 + x*x*x*x*x/120.0 + x*x*x*x*x*x/720.0

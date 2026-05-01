@@ -1,0 +1,167 @@
+-- | Shared fixture for Stage C1 scheduler-delegation tests. Extracts the
+--   ~100-line IRS + calendar + observation + factory + instrument setup
+--   so the tests themselves stay focused on the authority assertion.
+module Setup.TestSchedulerDelegationFixture where
+
+import Daml.Script
+import DA.Date (date, Month(..), DayOfWeek(..))
+import DA.Map qualified as Map
+import DA.Set qualified as Set
+import DA.Time (time)
+import Daml.Finance.Interface.Types.Common.V3.Types (Id(..), InstrumentKey(..), HoldingStandard(..))
+import Daml.Finance.Interface.Types.Date.V3.DayCount (DayCountConventionEnum(..))
+import Daml.Finance.Interface.Types.Date.V3.Calendar (BusinessDayAdjustment(..), BusinessDayConventionEnum(..), HolidayCalendarData(..))
+import Daml.Finance.Interface.Types.Date.V3.Schedule (PeriodicSchedule(..), Frequency(..), ScheduleFrequency(..))
+import Daml.Finance.Interface.Types.Date.V3.RollConvention (PeriodEnum(..), Period(..), RollConventionEnum(..))
+import Daml.Finance.Interface.Types.Date.V3.DateOffset (DateOffset(..), DayTypeEnum(..))
+import Daml.Finance.Interface.Instrument.Types.V2.FloatingRate (FloatingRate(..), ReferenceRateTypeEnum(..))
+import Daml.Finance.Interface.Instrument.Swap.V0.InterestRate.Types (InterestRate(..))
+import Daml.Finance.Interface.Instrument.Swap.V0.InterestRate.Factory qualified as IRSFactory
+import Daml.Finance.Instrument.Swap.V0.InterestRate.Factory qualified as IRSFactoryImpl
+import Daml.Finance.Data.V4.Numeric.Observation qualified as Observation
+import Daml.Finance.Data.V4.Reference.HolidayCalendar qualified as HolidayCalendar
+import Daml.Finance.Data.V4.Time.DateClockUpdate qualified as DateClockUpdate
+import Daml.Finance.Claims.V3.Lifecycle.Rule qualified as LifecycleRule
+import Daml.Finance.Interface.Lifecycle.V4.Observable.NumericObservable qualified as NumericObservable
+import Daml.Finance.Interface.Lifecycle.V4.Event qualified as Event
+import Swap.Workflow
+import Swap.TestHelpers (TestParties(..))
+import Constants
+import Setup.GeneratedRateFamilies
+
+data SchedulerFixture = SchedulerFixture with
+  workflowCid       : ContractId SwapWorkflow
+  operatorRuleCid   : ContractId LifecycleRule.Rule
+  schedulerRuleCid  : ContractId LifecycleRule.Rule
+  eventCid          : ContractId Event.Event
+  observableCid     : ContractId NumericObservable.NumericObservable
+
+-- | Seed calendar + observation + instrument + event + both lifecycle
+--   rules for a single-coupon IRS. `instrumentIdSuffix` lets callers
+--   allocate distinct instrument ids so multiple tests in the same
+--   script namespace don't collide (they don't today, but future-proof).
+seedSchedulerFixture
+  : TestParties
+  -> Text
+  -> Script SchedulerFixture
+seedSchedulerFixture tp instrumentIdSuffix = do
+  let
+    observerMap = Map.fromList
+      [ ("observers", Set.fromList [tp.partyA, tp.partyB, tp.regulator, tp.scheduler]) ]
+
+  _ <- submit tp.operator do
+    createCmd HolidayCalendar.HolidayCalendar with
+      calendar = HolidayCalendarData with
+        id = usdCalendarId; weekend = [Saturday, Sunday]; holidays = []
+      observers = observerMap
+      provider = tp.operator
+
+  sofrObsCid <- submit tp.operator do
+    createCmd Observation.Observation with
+      provider = tp.operator
+      id = Id sofrOvernightRateId
+      observations = Map.fromList
+        [ (time (date 2026 Apr 16) 0 0 0, 0.0530)
+        , (time (date 2026 Jul 16) 0 0 0, 0.0530)
+        ]
+      observers = observerMap
+
+  let
+    instrumentKey = InstrumentKey with
+      depository = tp.operator; issuer = tp.operator
+      id = Id ("IRS-" <> instrumentIdSuffix)
+      version = "0"; holdingStandard = TransferableFungible
+
+    currencyKey = InstrumentKey with
+      depository = tp.operator; issuer = tp.operator
+      id = Id usdInstrumentLabel
+      version = "0"; holdingStandard = TransferableFungible
+
+  irsFactoryCid <- submit tp.operator do
+    createCmd IRSFactoryImpl.Factory with
+      provider = tp.operator; observers = observerMap
+
+  let
+    periodicSchedule = PeriodicSchedule with
+      effectiveDate = date 2026 Apr 16
+      terminationDate = date 2026 Jul 16
+      firstRegularPeriodStartDate = None
+      lastRegularPeriodEndDate = None
+      frequency = Periodic Frequency with
+        period = Period with period = M; periodMultiplier = 3
+        rollConvention = DOM 16
+      businessDayAdjustment = BusinessDayAdjustment with
+        calendarIds = [usdCalendarId]; convention = ModifiedFollowing
+      effectiveDateBusinessDayAdjustment = None
+      terminationDateBusinessDayAdjustment = None
+      stubPeriodType = None
+
+    floatingRate = FloatingRate with
+      referenceRateId = sofrOvernightRateId
+      referenceRateType = CompoundedIndex Act360
+      fixingDates = DateOffset with
+        period = D; periodMultiplier = 0
+        dayType = Some Business
+        businessDayConvention = NoAdjustment
+        businessCenters = [usdCalendarId]
+
+    interestRate = InterestRate with
+      instrument = instrumentKey
+      description = "Stage C1 authority-test IRS"
+      floatingRate
+      ownerReceivesFix = True
+      fixRate = 0.0485
+      periodicSchedule
+      holidayCalendarIds = [usdCalendarId]
+      calendarDataProvider = tp.operator
+      dayCountConvention = Act360
+      currency = currencyKey
+      lastEventTimestamp = time (date 2026 Apr 16) 0 0 0
+
+  submit tp.operator do
+    exerciseCmd (toInterfaceContractId @IRSFactory.Factory irsFactoryCid) IRSFactory.Create with
+      interestRate; observers = observerMap
+
+  -- Operator-authorized rule (manual path).
+  operatorRuleCid <- submit tp.operator do
+    createCmd LifecycleRule.Rule with
+      providers = Set.singleton tp.operator
+      lifecycler = tp.operator
+      observers = observerMap
+      id = Id "lifecycle-rule-op-fixture"
+      description = "Operator-only lifecycle rule (fixture)"
+
+  -- Scheduler-authorized rule (Stage C1 path).
+  schedulerRuleCid <- submitMulti [tp.operator, tp.scheduler] [] do
+    createCmd LifecycleRule.Rule with
+      providers = Set.fromList [tp.operator, tp.scheduler]
+      lifecycler = tp.scheduler
+      observers = observerMap
+      id = Id "lifecycle-rule-scheduler-fixture"
+      description = "Scheduler-authorized lifecycle rule (fixture)"
+
+  workflowCid <- submitMulti [tp.partyA, tp.partyB] [] do
+    createCmd SwapWorkflow with
+      swapType = "IRS"
+      operator = tp.operator
+      partyA = tp.partyA; partyB = tp.partyB
+      regulators = [tp.regulator]
+      scheduler = tp.scheduler
+      instrumentKey
+      notional = 10_000_000.0
+
+  eventCid <- submit tp.operator do
+    createCmd DateClockUpdate.DateClockUpdateEvent with
+      providers = Set.singleton tp.operator
+      date = date 2026 Jul 16
+      eventTime = time (date 2026 Jul 16) 0 0 0
+      id = Id ("clock-update-" <> instrumentIdSuffix)
+      description = "Stage C1 authority-test coupon event"
+      observers = Set.fromList [tp.operator, tp.scheduler]
+
+  pure SchedulerFixture with
+    workflowCid
+    operatorRuleCid
+    schedulerRuleCid
+    eventCid = toInterfaceContractId @Event.Event eventCid
+    observableCid = toInterfaceContractId @NumericObservable.NumericObservable sofrObsCid

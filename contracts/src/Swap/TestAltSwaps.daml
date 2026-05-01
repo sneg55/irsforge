@@ -1,0 +1,268 @@
+-- Tests for CDS, CCY, FX, Asset, and FpML swap proposals
+module Swap.TestAltSwaps where
+
+import Daml.Script
+import DA.Date (date, Month(..))
+import Daml.Finance.Interface.Types.Date.V3.DayCount (DayCountConventionEnum(..))
+import qualified Daml.Finance.Instrument.Swap.V0.Fpml.Instrument
+import Swap.CdsProposal
+import Swap.CcySwapProposal
+import Swap.FxSwapProposal
+import Swap.AssetSwapProposal
+import Swap.FpmlProposal
+import Swap.Types (FpmlLeg(..))
+import Swap.Workflow
+import Swap.TestHelpers
+import Setup.GeneratedRateFamilies
+
+-- ---------------------------------------------------------------------------
+-- CDS
+-- ---------------------------------------------------------------------------
+
+-- | Create CDS proposal then accept; verify SwapWorkflow fields
+cdsAcceptTest : Script ()
+cdsAcceptTest = do
+  tp <- allocateTestParties
+  runInit tp
+
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd CdsProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      notional = 5_000_000.0
+      fixRate = 0.015
+      referenceName = "TSLA"
+      ownerReceivesFix = True
+      startDate = date 2026 Apr 16
+      maturityDate = date 2027 Apr 16
+      dayCountConvention = Act360
+
+  _workflowCid <- submit tp.partyB do
+    exerciseCmd proposalCid CdsAccept with
+      operator = tp.operator
+      regulators = [tp.regulator]
+  workflows <- query @SwapWorkflow tp.partyA
+  assertMsg "Should have 1 CDS workflow" (length workflows == 1)
+
+  case workflows of
+    [(_, wf)] -> do
+      assertMsg "swapType CDS"     (wf.swapType == "CDS")
+      assertMsg "notional 5M"      (wf.notional == 5_000_000.0)
+    _ -> assertFail "Expected exactly 1 workflow"
+
+  debug "cdsAcceptTest passed"
+  pure ()
+
+-- | Create CDS proposal then reject; no proposals should remain
+cdsRejectTest : Script ()
+cdsRejectTest = do
+  tp <- allocateTestParties
+
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd CdsProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      notional = 5_000_000.0
+      fixRate = 0.015
+      referenceName = "TSLA"
+      ownerReceivesFix = True
+      startDate = date 2026 Apr 16
+      maturityDate = date 2027 Apr 16
+      dayCountConvention = Act360
+
+  submit tp.partyB do
+    exerciseCmd proposalCid CdsReject
+
+  proposals <- query @CdsProposal tp.partyB
+  assertMsg "No CDS proposals should remain after reject" (null proposals)
+  pure ()
+
+-- ---------------------------------------------------------------------------
+-- CCY
+-- ---------------------------------------------------------------------------
+
+-- | Create CCY swap proposal then accept; verify SwapWorkflow fields
+ccyAcceptTest : Script ()
+ccyAcceptTest = do
+  tp <- allocateTestParties
+  runInit tp
+
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd CcySwapProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      notional = 10_000_000.0
+      baseRate = 0.03
+      foreignRate = 0.025
+      baseCurrency = "USD"
+      foreignCurrency = "EUR"
+      fxRate = 1.08
+      ownerReceivesBase = True
+      startDate = date 2026 Apr 16
+      maturityDate = date 2027 Apr 16
+      dayCountConvention = Act360
+
+  _workflowCid <- submit tp.partyB do
+    exerciseCmd proposalCid CcyAccept with
+      operator = tp.operator
+      regulators = [tp.regulator]
+  workflows <- query @SwapWorkflow tp.partyA
+  assertMsg "Should have 1 CCY workflow" (length workflows == 1)
+
+  case workflows of
+    [(_, wf)] -> do
+      assertMsg "swapType CCY"  (wf.swapType == "CCY")
+    _ -> assertFail "Expected exactly 1 workflow"
+
+  debug "ccyAcceptTest passed"
+  pure ()
+
+-- ---------------------------------------------------------------------------
+-- FX
+-- ---------------------------------------------------------------------------
+
+-- | Create FX swap proposal then accept; verify SwapWorkflow fields
+fxAcceptTest : Script ()
+fxAcceptTest = do
+  tp <- allocateTestParties
+  runInit tp
+
+  let firstPaymentDate = date 2026 Apr 16
+
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd FxSwapProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      notional = 10_000_000.0
+      baseCurrency = "USD"
+      foreignCurrency = "EUR"
+      firstFxRate = 1.08
+      finalFxRate = 1.085
+      firstPaymentDate
+      maturityDate = date 2026 Oct 16
+
+  _workflowCid <- submit tp.partyB do
+    exerciseCmd proposalCid FxAccept with
+      operator = tp.operator
+      regulators = [tp.regulator]
+  workflows <- query @SwapWorkflow tp.partyA
+  assertMsg "Should have 1 FX workflow" (length workflows == 1)
+
+  case workflows of
+    [(_, wf)] -> do
+      assertMsg "swapType FX"                       (wf.swapType == "FX")
+    _ -> assertFail "Expected exactly 1 workflow"
+
+  debug "fxAcceptTest passed"
+  pure ()
+
+-- ---------------------------------------------------------------------------
+-- Asset
+-- ---------------------------------------------------------------------------
+
+-- | Create Asset swap proposal then accept; verify SwapWorkflow fields
+assetAcceptTest : Script ()
+assetAcceptTest = do
+  tp <- allocateTestParties
+  runInit tp
+  fridCid <- seedUsdSofrIndex tp
+
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd AssetSwapProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      notional = 10_000_000.0
+      fixRate = 0.03
+      ownerReceivesRate = True
+      underlyingAssetIds = ["UST-10Y"]
+      underlyingWeights = [1.0]
+      startDate = date 2026 Apr 16
+      maturityDate = date 2027 Apr 16
+      dayCountConvention = Act360
+
+  _workflowCid <- submit tp.partyB do
+    exerciseCmd proposalCid AssetAccept with
+      operator = tp.operator
+      regulators = [tp.regulator]
+      floatingRateIndexCid = fridCid
+
+  workflows <- query @SwapWorkflow tp.partyA
+  assertMsg "Should have 1 ASSET workflow" (length workflows == 1)
+
+  case workflows of
+    [(_, wf)] -> do
+      assertMsg "swapType ASSET"  (wf.swapType == "ASSET")
+    _ -> assertFail "Expected exactly 1 workflow"
+
+  debug "assetAcceptTest passed"
+  pure ()
+
+-- ---------------------------------------------------------------------------
+-- FpML
+-- ---------------------------------------------------------------------------
+
+-- | Create FpML proposal with 2 legs then accept; verify SwapWorkflow fields
+fpmlAcceptTest : Script ()
+fpmlAcceptTest = do
+  tp <- allocateTestParties
+  runInit tp
+
+  let
+    fixedLeg = FpmlLeg with
+      legType = "fixed"
+      currency = "USD"
+      notional = 25_000_000.0
+      rate = Some 0.0485
+      indexId = None
+      spread = None
+      dayCountConvention = Act360
+
+    floatLeg = FpmlLeg with
+      legType = "float"
+      currency = "USD"
+      notional = 25_000_000.0
+      rate = None
+      indexId = Some sofrIndexRateId
+      spread = Some 0.0010
+      dayCountConvention = Act360
+
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd FpmlProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      legs = [fixedLeg, floatLeg]
+      startDate = date 2026 Apr 16
+      maturityDate = date 2027 Apr 16
+      description = "FpML IRS 2-leg test"
+
+  _workflowCid <- submit tp.partyB do
+    exerciseCmd proposalCid FpmlAccept with
+      operator = tp.operator
+      regulators = [tp.regulator]
+  workflows <- query @SwapWorkflow tp.partyA
+  assertMsg "Should have 1 FpML workflow" (length workflows == 1)
+
+  case workflows of
+    [(_, wf)] -> do
+      assertMsg "swapType FpML"              (wf.swapType == "FpML")
+      assertMsg "notional == sum of legs"    (wf.notional == 50_000_000.0)
+      -- Phase 2 Stage A Task 3: confirm the FpML instrument got real
+      -- swapStreams populated from legs (was `[]` before the adapter).
+      instrs <- query @Daml.Finance.Instrument.Swap.V0.Fpml.Instrument.Instrument tp.operator
+      let matchingInstrs = filter (\(_, i) -> i.id == wf.instrumentKey.id) instrs
+      case matchingInstrs of
+        [(_, instr)] ->
+          assertMsg ("FpML instrument has 2 swapStreams, got " <> show (length instr.swapStreams))
+            (length instr.swapStreams == 2)
+        [] -> assertFail "FpML instrument not on ledger after FpmlAccept"
+        _  -> assertFail "Multiple FpML instruments matched — unexpected"
+    _ -> assertFail "Expected exactly 1 workflow"
+
+  debug "fpmlAcceptTest passed"
+  pure ()

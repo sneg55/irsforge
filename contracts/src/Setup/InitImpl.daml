@@ -1,0 +1,275 @@
+-- Infrastructure bootstrap body (extracted from Setup.Init). Takes
+-- pre-allocated parties so tests can reuse the full init flow without
+-- the demo-only user creation step.
+module Setup.InitImpl where
+
+import Daml.Script
+import DA.Date (DayOfWeek(..))
+import DA.Foldable (forA_)
+import DA.Map qualified as Map
+import DA.Set qualified as Set
+import Daml.Finance.Interface.Types.Common.V3.Types (Id(..))
+import Daml.Finance.Interface.Types.Date.V3.Calendar
+  ( BusinessDayAdjustment(..), BusinessDayConventionEnum(..), HolidayCalendarData(..) )
+import Daml.Finance.Interface.Types.Date.V3.RollConvention (RollConventionEnum(..))
+import Daml.Finance.Interface.Instrument.Swap.V0.InterestRate.Factory    qualified as IRSFactory
+import Daml.Finance.Instrument.Swap.V0.InterestRate.Factory              qualified as IRSFactoryImpl
+import Daml.Finance.Interface.Instrument.Swap.V0.CreditDefault.Factory   qualified as CdsFactory
+import Daml.Finance.Instrument.Swap.V0.CreditDefault.Factory             qualified as CdsFactoryImpl
+import Daml.Finance.Interface.Instrument.Swap.V0.Currency.Factory        qualified as CurrencyFactory
+import Daml.Finance.Instrument.Swap.V0.Currency.Factory                  qualified as CurrencyFactoryImpl
+import Daml.Finance.Interface.Instrument.Swap.V0.ForeignExchange.Factory qualified as FxFactory
+import Daml.Finance.Instrument.Swap.V0.ForeignExchange.Factory           qualified as FxFactoryImpl
+import Daml.Finance.Interface.Instrument.Swap.V0.Asset.Factory           qualified as AssetFactory
+import Daml.Finance.Instrument.Swap.V0.Asset.Factory                     qualified as AssetFactoryImpl
+import Daml.Finance.Interface.Instrument.Swap.V0.Fpml.Factory            qualified as FpmlFactory
+import Daml.Finance.Instrument.Swap.V0.Fpml.Factory                      qualified as FpmlFactoryImpl
+import Daml.Finance.Data.V4.Reference.HolidayCalendar qualified as HolidayCalendar
+import Daml.Finance.Claims.V3.Lifecycle.Rule qualified as LifecycleRule
+import Setup.RoleSetup
+import Setup.CashSetup
+  ( cashSetup, CashSetupRecord(..)
+  , FactoryRegistry(..), ScheduleDefaults(..)
+  )
+import Setup.AddCurrency (addCurrency)
+import Setup.EventFactory (EventFactory(..))
+import Setup.GeneratedConfig qualified as Config
+import Setup.InitSeeds (seedOracleData, seedFloatingRateIndices)
+import Setup.SchedulerRole (SchedulerRole(..))
+import Swap.ProposalDelegation (ProposalDelegation(..))
+import Csa.Csa qualified
+import Csa.Types qualified
+import Operator.Policy (OperatorPolicy(..))
+
+-- | Pre-allocated parties consumed by `initForParties`. Tests allocate
+--   their own pool and call this variant; `init` wraps it with
+--   allocatePartyWithHint + createUser.
+data InitParties = InitParties
+  with
+    operator  : Party
+    partyA    : Party
+    partyB    : Party
+    regulators : [Party]
+    scheduler : Party
+
+-- | Infrastructure bootstrap minus party allocation + user creation.
+initForParties : InitParties -> Script ()
+initForParties ps = do
+  let
+    operator  = ps.operator
+    partyA    = ps.partyA
+    partyB    = ps.partyB
+    regulators = ps.regulators
+    -- Single canonical regulator threaded through helper APIs that still
+    -- accept `Party` (cashSetup, addCurrency, seedOracleData, …). Templates
+    -- accept the full list via `regulators`. ps.regulators is required to
+    -- be non-empty by the config schema (≥1 `role: regulator` org).
+    regulator = case ps.regulators of
+      (r :: _) -> r
+      [] -> error "InitParties.regulators must be non-empty"
+    scheduler = ps.scheduler
+
+    observerMap = Map.fromList
+      [("observers", Set.fromList ([partyA, partyB, scheduler] <> regulators))]
+    operatorSet = Set.singleton operator
+
+  let
+    defaultCcy = case filter (\c -> c.code == Config.defaultCurrencyCode) Config.configuredCurrencies of
+      (c :: _) -> c
+      []       -> error ("defaultCurrencyCode " <> Config.defaultCurrencyCode <>
+                         " not present in configuredCurrencies")
+
+  cashResult <- cashSetup operator partyA partyB regulator
+    defaultCcy.code defaultCcy.label
+
+  -- Delegation contract that lets traders create proposals using only
+  -- their own party authority (production OIDC profile). See
+  -- Swap.ProposalDelegation for the rationale.
+  _proposalDelegationCid <- submit operator do
+    createCmd ProposalDelegation with
+      operator
+      traders = [partyA, partyB]
+
+  let extraCcys = filter (\c -> c.code /= Config.defaultCurrencyCode) Config.configuredCurrencies
+  extraCurrencies <- forA extraCcys $ \c ->
+    addCurrency operator partyA partyB regulator cashResult c.code c.label
+
+  let
+    currenciesMap = Map.fromList $
+      (Config.defaultCurrencyCode, cashResult.defaultInstrumentKey) ::
+      [ (code, key) | (code, key, _, _) <- extraCurrencies ]
+
+  forA_ Config.configuredCurrencies $ \c ->
+    submit operator do
+      createCmd HolidayCalendar.HolidayCalendar with
+        calendar = HolidayCalendarData with
+          id      = c.calendarId
+          weekend = [Saturday, Sunday]
+          holidays = []
+        observers = observerMap
+        provider  = operator
+
+  lifecycleRuleCid <- submit operator do
+    createCmd LifecycleRule.Rule with
+      providers   = operatorSet
+      lifecycler  = operator
+      observers   = observerMap
+      id          = Id "lifecycle-rule-001"
+      description = "IRS lifecycle rule"
+
+  -- Phase 6 Stage C1: scheduler-authorized lifecycle rule. `providers`
+  -- includes operator so Rule's signatory set = {operator, scheduler};
+  -- that makes operator authority available inside every Evolve body
+  -- entered through this rule, which is what `GetCalendar` on
+  -- operator-signed HolidayCalendar needs. The manual-path rule above
+  -- stays as-is so operator-initiated TriggerLifecycle is unchanged.
+  schedulerLifecycleRuleCid <- submitMulti [operator, scheduler] [] do
+    createCmd LifecycleRule.Rule with
+      providers   = Set.fromList [operator, scheduler]
+      lifecycler  = scheduler
+      observers   = observerMap
+      id          = Id "lifecycle-rule-scheduler"
+      description = "Scheduler-authorized IRS lifecycle rule"
+
+  eventFactoryCid <- submit operator do
+    createCmd EventFactory with
+      operator
+      partyA
+      partyB
+      regulators
+      scheduler
+
+  irsFactoryCid <- submit operator do
+    createCmd IRSFactoryImpl.Factory with
+      provider = operator; observers = observerMap
+  cdsFactoryCid <- submit operator do
+    createCmd CdsFactoryImpl.Factory with
+      provider = operator; observers = observerMap
+  ccyFactoryCid <- submit operator do
+    createCmd CurrencyFactoryImpl.Factory with
+      provider = operator; observers = observerMap
+  fxFactoryCid <- submit operator do
+    createCmd FxFactoryImpl.Factory with
+      provider = operator; observers = observerMap
+  assetFactoryCid <- submit operator do
+    createCmd AssetFactoryImpl.Factory with
+      provider = operator; observers = observerMap
+  fpmlFactoryCid <- submit operator do
+    createCmd FpmlFactoryImpl.Factory with
+      provider = operator; observers = observerMap
+
+  let registry = FactoryRegistry with
+        irs   = toInterfaceContractId @IRSFactory.Factory      irsFactoryCid
+        cds   = toInterfaceContractId @CdsFactory.Factory      cdsFactoryCid
+        ccy   = toInterfaceContractId @CurrencyFactory.Factory ccyFactoryCid
+        fx    = toInterfaceContractId @FxFactory.Factory       fxFactoryCid
+        asset = toInterfaceContractId @AssetFactory.Factory    assetFactoryCid
+        fpml  = toInterfaceContractId @FpmlFactory.Factory     fpmlFactoryCid
+
+  -- rollConvention and businessDayAdjustment are uniform across products
+  -- today and not carried by shared-config; the frontend overrides
+  -- rollConvention per trade to match startDate's DOM. Per-product
+  -- frequency + day-count come from scheduleDefaultsEntries in the
+  -- YAML-driven GeneratedConfig.
+  let
+    uniformBda = BusinessDayAdjustment with
+      calendarIds = [Config.defaultCurrencyCode]
+      convention  = ModifiedFollowing
+    toScheduleDefaults : Config.ScheduleDefaultsDef -> ScheduleDefaults
+    toScheduleDefaults d = ScheduleDefaults with
+      frequencyMonths       = d.frequencyMonths
+      rollConvention        = DOM 16
+      dayCountConvention    = d.dayCountConvention
+      businessDayAdjustment = uniformBda
+    scheduleDefaults = Map.fromList
+      [ (k, toScheduleDefaults d) | (k, d) <- Config.scheduleDefaultsEntries ]
+
+  submit operator do
+    createCmd CashSetupRecord with
+      operator
+      partyA
+      partyB
+      regulators
+      scheduler
+      lifecycleRuleCid
+      schedulerLifecycleRuleCid
+      eventFactoryCid
+      settlementFactoryCid = cashResult.settlementFactoryCid
+      routeProviderCid     = cashResult.routeProviderCid
+      partyAAccountKey     = cashResult.partyAAccountKey
+      partyBAccountKey     = cashResult.partyBAccountKey
+      currencies           = currenciesMap
+      defaultCurrencyCode  = Config.defaultCurrencyCode
+      factories            = registry
+      scheduleDefaults
+      cdsReferenceNames    = Config.cdsReferenceNames
+
+  -- Grant scheduler the SchedulerRole marker contract. Not a controller
+  -- gate — JWT topology enforces authority. Regulators query this
+  -- contract to confirm automation was active at a given time.
+  _ <- submit operator do
+    createCmd SchedulerRole with
+      operator
+      scheduler
+      regulators
+
+  -- Seed one OperatorPolicy contract per swap family from YAML defaults.
+  -- After bootstrap the ledger is the runtime source of truth — the
+  -- operator flips co-sign mode via SetMode, not by editing irsforge.yaml.
+  -- traders mirror the ProposalDelegation seed so trader-side
+  -- swap-actions can read policy before deciding Accept vs ProposeAccept.
+  forA_ Config.operatorPolicySeeds $ \(family, mode) ->
+    submit operator do
+      createCmd OperatorPolicy with
+        operator
+        regulators
+        traders = [partyA, partyB]
+        family
+        mode
+
+  seedOracleData operator partyA partyB regulator
+  seedFloatingRateIndices operator partyA partyB regulator
+
+  -- Phase 5: per-counterparty CSA replaces per-party MarginAccount.
+  -- Funded from demoCsaInitialFunding (empty list under production profile).
+  let csaThresholdMap = Map.fromList
+        [ (Csa.Types.DirA, Config.csaThresholdDirA)
+        , (Csa.Types.DirB, Config.csaThresholdDirB)
+        ]
+      eligibleList =
+        [ Csa.Types.EligibleCollateral with currency = c; haircut = h
+        | (c, h) <- Config.csaEligibleCollateral
+        ]
+      -- `demoCsaInitialFunding` is a zero-or-empty seed under the signed-CSB
+      -- model: there's no way to pre-seed "both sides posted" (which would
+      -- double-count collateral anyway). Demos that want a non-flat opening
+      -- CSB can Post via the UI or amend the config to bias one direction.
+      seedCsbMap =
+        Map.fromList Config.demoCsaInitialFunding
+  submitMulti [partyA, partyB, operator] [] do
+    createCmd Csa.Csa.Csa with
+      operator
+      partyA
+      partyB
+      regulators
+      scheduler
+      threshold    = csaThresholdMap
+      mta          = Config.csaMta
+      rounding     = Config.csaRounding
+      eligible     = eligibleList
+      valuationCcy = Config.csaValuationCcy
+      csb          = seedCsbMap
+      state        = Csa.Types.Active
+      lastMarkCid  = None
+      isdaMasterAgreementRef = ""
+      governingLaw           = Csa.Types.NewYork
+      imAmount               = 0.0
+      activeDispute          = None
+
+  submit operator do
+    createCmd RoleSetup with
+      operator    = operator
+      description = "IRSForge infrastructure initialised"
+
+  debug "IRSForge initialization complete"
+  pure ()

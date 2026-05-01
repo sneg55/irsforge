@@ -1,0 +1,54 @@
+-- Regression: CashSetupRecord key used to be (operator, proposer, counterparty).
+-- Init only creates one record with (Op, PartyA, PartyB); when PartyB proposed
+-- to PartyA the Accept's fetchByKey produced (Op, PartyB, PartyA) → NOT_FOUND.
+-- The canonical key and `cashSetupKey` helper fix that — this test locks it in.
+module Swap.TestBidirectional where
+
+import Daml.Script
+import DA.Date (date, Month(..))
+import Daml.Finance.Interface.Types.Date.V3.DayCount (DayCountConventionEnum(..))
+import Swap.Proposal
+import Swap.Types (TenorEnum(..))
+import Swap.Workflow
+import Swap.TestHelpers
+
+-- PartyB proposes IRS to PartyA; PartyA accepts. Uses Jan 16 to avoid the
+-- DOM-stub path so the regression is isolated to the key lookup.
+irsPartyBProposerTest : Script ()
+irsPartyBProposerTest = do
+  tp <- allocateTestParties
+  runInit tp
+  fridCid <- seedUsdSofrIndex tp
+
+  proposalCid <- submitMulti [tp.partyB, tp.operator] [] do
+    createCmd SwapProposal with
+      operator = tp.operator
+      proposer = tp.partyB
+      counterparty = tp.partyA
+      notional = 7_500_000.0
+      fixRate = 0.042
+      tenor = Y1
+      startDate = date 2026 Jan 16
+      dayCountConvention = Act360
+
+  _workflowCid <- submit tp.partyA do
+    exerciseCmd proposalCid Accept with
+      operator = tp.operator
+      regulators = [tp.regulator]
+      floatingRateIndexCid = fridCid
+
+  workflows <- query @SwapWorkflow tp.partyA
+  assertMsg "Exactly one IRS workflow after B->A accept" (length workflows == 1)
+
+  case workflows of
+    [(_, wf)] -> do
+      -- SwapWorkflow.partyA = proposal.proposer by convention (see
+      -- Swap/Proposal.daml line 148). So when PartyB proposes, wf.partyA
+      -- holds PartyB and wf.partyB holds PartyA.
+      assertMsg "wf.partyA = proposer (PartyB)" (wf.partyA == tp.partyB)
+      assertMsg "wf.partyB = counterparty (PartyA)" (wf.partyB == tp.partyA)
+      assertMsg "notional carried through" (wf.notional == 7_500_000.0)
+    _ -> assertFail "Expected exactly 1 workflow"
+
+  debug "irsPartyBProposerTest passed"
+  pure ()

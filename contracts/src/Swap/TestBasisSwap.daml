@@ -1,0 +1,155 @@
+-- BasisSwap proposal lifecycle tests: create / reject / withdraw / accept.
+-- BasisSwap rides on the FpmlFactory (two floating legs, single currency,
+-- two different FloatingRateIndex contracts).
+module Swap.TestBasisSwap where
+
+import Daml.Script
+import DA.Date (date, Month(..))
+import DA.Text (isPrefixOf)
+import Daml.Finance.Interface.Types.Common.V3.Types (Id(..))
+import Daml.Finance.Interface.Types.Date.V3.DayCount (DayCountConventionEnum(..))
+import Oracle.Types (RateFamily(..))
+import Swap.BasisSwapProposal
+import Swap.Workflow
+import Swap.TestHelpers
+
+proposalCreateTest : Script ()
+proposalCreateTest = do
+  tp <- allocateTestParties
+
+  _ <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd BasisSwapProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      notional = 25_000_000.0
+      currency = "USD"
+      leg0Spread = 0.0
+      leg1Spread = 0.0025
+      startDate = date 2026 Apr 16
+      maturityDate = date 2031 Apr 16
+      dayCountConvention = Act360
+
+  proposals <- query @BasisSwapProposal tp.partyB
+  assertMsg "PartyB should see 1 BasisSwap proposal" (length proposals == 1)
+  pure ()
+
+proposalRejectTest : Script ()
+proposalRejectTest = do
+  tp <- allocateTestParties
+
+  propCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd BasisSwapProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      notional = 25_000_000.0
+      currency = "USD"
+      leg0Spread = 0.0
+      leg1Spread = 0.0025
+      startDate = date 2026 Apr 16
+      maturityDate = date 2031 Apr 16
+      dayCountConvention = Act360
+
+  submit tp.partyB do exerciseCmd propCid BasisReject
+
+  proposals <- query @BasisSwapProposal tp.partyB
+  assertMsg "No proposals remain after BasisReject" (null proposals)
+  pure ()
+
+proposalWithdrawTest : Script ()
+proposalWithdrawTest = do
+  tp <- allocateTestParties
+
+  propCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd BasisSwapProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      notional = 25_000_000.0
+      currency = "USD"
+      leg0Spread = 0.0
+      leg1Spread = 0.0025
+      startDate = date 2026 Apr 16
+      maturityDate = date 2031 Apr 16
+      dayCountConvention = Act360
+
+  submit tp.partyA do exerciseCmd propCid BasisWithdraw
+
+  proposals <- query @BasisSwapProposal tp.partyA
+  assertMsg "No proposals remain after BasisWithdraw" (null proposals)
+  pure ()
+
+-- | Happy path: two FloatingRateIndex contracts, proposer creates, counterparty
+--   accepts, SwapWorkflow emerges with swapType = "BASIS".
+proposalAcceptTest : Script ()
+proposalAcceptTest = do
+  tp <- allocateTestParties
+  runInit tp
+  -- USD-SOFR is Init-seeded; USD-EFFR is a second index for the basis leg.
+  sofrCid <- seedUsdSofrIndex tp
+  effrCid <- seedFloatingRateIndex tp "USD-EFFR" "USD" SOFR 0
+
+  propCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd BasisSwapProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      notional = 50_000_000.0
+      currency = "USD"
+      leg0Spread = 0.0
+      leg1Spread = 0.0025
+      startDate = date 2026 Apr 16
+      maturityDate = date 2031 Apr 16
+      dayCountConvention = Act360
+
+  _ <- submitMulti [tp.partyB, tp.operator] [] do
+    exerciseCmd propCid BasisAccept with
+      operator = tp.operator
+      regulators = [tp.regulator]
+      leg0FloatingRateIndexCid = sofrCid
+      leg1FloatingRateIndexCid = effrCid
+
+  workflows <- query @SwapWorkflow tp.partyA
+  assertMsg "Should have 1 BASIS workflow" (length workflows == 1)
+  case workflows of
+    [(_, wf)] -> do
+      assertMsg "swapType = BASIS" (wf.swapType == "BASIS")
+      assertMsg "notional = 50M" (wf.notional == 50_000_000.0)
+      let (Id instrId) = wf.instrumentKey.id
+      assertMsg ("instrumentKey.id has BASIS- prefix: " <> instrId)
+        (isPrefixOf "BASIS-" instrId)
+    _ -> assertFail "Expected exactly 1 workflow"
+
+  pure ()
+
+-- | Currency-mismatch guard: both FloatingRateIndex contracts must share
+--   the proposal's currency.
+proposalCurrencyMismatchTest : Script ()
+proposalCurrencyMismatchTest = do
+  tp <- allocateTestParties
+  runInit tp
+  sofrCid <- seedUsdSofrIndex tp
+  -- A EUR-flavored index to force the mismatch assertion.
+  eurCid <- seedFloatingRateIndex tp "EUR-ESTR" "EUR" ESTR 0
+
+  propCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd BasisSwapProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      notional = 10_000_000.0
+      currency = "USD"
+      leg0Spread = 0.0
+      leg1Spread = 0.0
+      startDate = date 2026 Apr 16
+      maturityDate = date 2031 Apr 16
+      dayCountConvention = Act360
+
+  submitMultiMustFail [tp.partyB, tp.operator] [] do
+    exerciseCmd propCid BasisAccept with
+      operator = tp.operator
+      regulators = [tp.regulator]
+      leg0FloatingRateIndexCid = sofrCid
+      leg1FloatingRateIndexCid = eurCid
+  pure ()

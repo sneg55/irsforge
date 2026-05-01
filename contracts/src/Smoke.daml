@@ -1,0 +1,11 @@
+module Smoke where
+
+import Daml.Script
+import Constants
+import Setup.GeneratedRateFamilies
+
+smokeTest : Script ()
+smokeTest = do
+  debug $ "IRSForge constants loaded: " <> sofrIndexRateId
+  debug $ "Currency: " <> usdInstrumentLabel
+  pure ()

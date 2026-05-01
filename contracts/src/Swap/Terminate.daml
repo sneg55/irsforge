@@ -1,0 +1,112 @@
+-- Termination proposal flow: Bloomberg SWPM-style propose/accept for early termination.
+module Swap.Terminate where
+
+import DA.Date (toDateUTC)
+import Daml.Finance.Interface.Types.Common.V3.Types (InstrumentKey, AccountKey, Quantity(..))
+import Daml.Finance.Interface.Settlement.V4.Factory qualified as SettlementFactory
+import Daml.Finance.Interface.Settlement.V4.RouteProvider qualified as RouteProvider
+import Daml.Finance.Interface.Settlement.V4.Batch qualified as Batch
+import Daml.Finance.Interface.Settlement.V4.Types (Step(..))
+import Daml.Finance.Interface.Holding.V4.Holding qualified as Holding
+import Daml.Finance.Interface.Holding.V4.Fungible qualified as Fungible
+import Swap.Workflow (SwapWorkflow(..))
+import Swap.Settlement (runSettlementChain)
+
+template TerminatedSwap
+  with
+    operator             : Party
+    partyA               : Party
+    partyB               : Party
+    regulators            : [Party]
+    swapType             : Text
+    instrumentKey        : InstrumentKey
+    notional             : Decimal
+    terminationDate      : Date
+    agreedPvAmount       : Decimal
+    reason               : Text
+    terminatedByParty    : Party
+    settleBatchCid       : Optional (ContractId Batch.I)
+  where
+    signatory partyA, partyB
+    observer operator, regulators
+
+template TerminateProposal
+  with
+    operator          : Party
+    proposer          : Party
+    counterparty      : Party
+    regulators         : [Party]
+    workflowCid       : ContractId SwapWorkflow
+    proposedPvAmount  : Decimal
+    reason            : Text
+    proposedAt        : Time
+  where
+    signatory proposer, operator
+    observer counterparty, regulators
+
+    choice TpAccept : ContractId TerminatedSwap
+      with
+        settlementFactoryCid   : ContractId SettlementFactory.I
+        routeProviderCid       : ContractId RouteProvider.I
+        proposerHoldingCid     : ContractId Holding.I
+        counterpartyHoldingCid : ContractId Holding.I
+        proposerAccountKey     : AccountKey
+        counterpartyAccountKey : AccountKey
+        usdInstrumentKey       : InstrumentKey
+      controller counterparty
+      do
+        now <- getTime
+        let todayDate = toDateUTC now
+
+        workflow <- fetch workflowCid
+
+        let absAmount = abs proposedPvAmount
+            (sender, receiver, senderHoldingCid, receiverAccountKey) =
+              if proposedPvAmount >= 0.0
+                then (proposer, counterparty, proposerHoldingCid, counterpartyAccountKey)
+                else (counterparty, proposer, counterpartyHoldingCid, proposerAccountKey)
+
+        settleBatchCid <-
+          if absAmount > 0.0
+            then do
+              let senderFungibleCid : ContractId Fungible.I = coerceContractId senderHoldingCid
+              splitResult <- exercise senderFungibleCid Fungible.Split with
+                amounts = [absAmount]
+              let (exactFungibleCid :: _) = splitResult.splitCids
+              let exactHoldingCid = toInterfaceContractId @Holding.I exactFungibleCid
+              let step = Step with
+                    sender
+                    receiver
+                    quantity = Quantity with { unit = usdInstrumentKey, amount = absAmount }
+              batchCid <- runSettlementChain
+                operator workflow.partyA workflow.partyB
+                "terminate"
+                settlementFactoryCid routeProviderCid
+                exactHoldingCid receiverAccountKey
+                sender receiver [step]
+              pure (Some batchCid)
+            else pure None
+
+        archive workflowCid
+
+        create TerminatedSwap with
+          operator
+          partyA            = workflow.partyA
+          partyB            = workflow.partyB
+          regulators         = workflow.regulators
+          swapType          = workflow.swapType
+          instrumentKey     = workflow.instrumentKey
+          notional          = workflow.notional
+          terminationDate   = todayDate
+          agreedPvAmount    = proposedPvAmount
+          reason
+          terminatedByParty = counterparty
+          settleBatchCid
+
+    choice TpReject : ()
+      controller counterparty
+      do pure ()
+
+    choice TpWithdraw : ()
+      controller proposer
+      do pure ()

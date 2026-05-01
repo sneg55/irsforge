@@ -1,0 +1,45 @@
+-- Pure helper math for the Csa template — computeRequired, targetCsb,
+-- gateCall, and the RequiredPair record. Split from Csa.Csa so the
+-- template module stays under the 300-line cap when additive metadata
+-- fields land. No template/choice code lives here.
+module Csa.Math where
+
+import DA.Map qualified as Map
+import DA.Optional (fromOptional)
+import qualified Csa.Types as T
+
+-- Per-direction required pledge given exposure + thresholds, kept split
+-- for callers that care about the per-side breakdown (e.g. shortfall
+-- attribution or audit views). Sign convention: exposure > 0 means A
+-- owes B, so `fromA` is the pledge A must provide.
+data RequiredPair = RequiredPair with
+    fromA : Decimal
+    fromB : Decimal
+  deriving (Eq, Show)
+
+computeRequired : Decimal -> Map.Map T.Direction Decimal -> RequiredPair
+computeRequired exposure thr =
+  let
+    thrA = fromOptional 0.0 (Map.lookup T.DirA thr)
+    thrB = fromOptional 0.0 (Map.lookup T.DirB thr)
+  in RequiredPair with
+       fromA = max 0.0 (exposure - thrB)
+       fromB = max 0.0 ((-exposure) - thrA)
+
+-- Target CSB for the current mark/thresholds. Signed: > 0 ⇒ A should be
+-- pledgor, < 0 ⇒ B should be pledgor, 0 ⇒ neither. Equivalent to
+-- `req.fromA - req.fromB`, since at most one of those is non-zero for
+-- any given exposure.
+targetCsb : Decimal -> Map.Map T.Direction Decimal -> Decimal
+targetCsb exposure thr =
+  let r = computeRequired exposure thr
+  in r.fromA - r.fromB
+
+-- Snap call to nearest `rounding` increment, gated by MTA. No-op below MTA.
+gateCall : Decimal -> Decimal -> Decimal -> Decimal
+gateCall raw mta rounding =
+  if abs raw < mta then 0.0
+  else if rounding == 0.0 then raw
+  else
+    let n = roundCommercial 0 (raw / rounding)
+    in n * rounding

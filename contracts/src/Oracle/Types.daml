@@ -1,0 +1,60 @@
+module Oracle.Types where
+
+data OracleView = OracleView
+  with
+    id : Text
+    publisher : Party
+    subscribers : [Party]
+    regulators : [Party]
+    supportedRateIds : [Text]
+  deriving (Eq, Show)
+
+data PublishRateArgs = PublishRateArgs
+  with
+    rateId : Text
+    effectiveDate : Date
+    value : Decimal
+  deriving (Eq, Show)
+
+data CurvePoint = CurvePoint
+  with
+    rateId : Text
+    value : Decimal
+  deriving (Eq, Show)
+
+data PublishCurveArgs = PublishCurveArgs
+  with
+    effectiveDate : Date
+    points : [CurvePoint]
+  deriving (Eq, Show)
+
+data CurveType = Discount | Projection
+  deriving (Eq, Show)
+
+data InterpolationMethod = LinearZero | LogLinearDF
+  deriving (Eq, Show)
+
+data CurveDayCount = Act360 | Act365F
+  deriving (Eq, Show)
+
+data RateFamily = SOFR | ESTR | SONIA | TONA | SARON | TIIE | CORRA | BBSW | HONIA
+  deriving (Eq, Show)
+
+data CompoundingMethod = Simple | CompoundedInArrears | OvernightAverage
+  deriving (Eq, Show)
+
+data Pillar = Pillar
+  with
+    tenorDays : Int
+    zeroRate  : Decimal
+  deriving (Eq, Ord, Show)
+
+data PublishDiscountCurveArgs = PublishDiscountCurveArgs
+  with
+    currency : Text
+    asOf     : Time
+    pillars  : [Pillar]
+    interpolation : InterpolationMethod
+    dayCount      : CurveDayCount
+    constructionMetadata : Text
+  deriving (Eq, Show)

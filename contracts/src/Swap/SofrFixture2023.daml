@@ -1,0 +1,88 @@
+-- 2023-Q4 SOFR daily series — verbatim mirror of
+-- app/src/shared/pricing/__tests__/fixtures/sofr-index-2023.json. Used by
+-- Swap.TestCompoundedLifecycle to seed Daml Finance Observation contracts
+-- so the on-chain CompoundedIndex lifecycle rule sees the same publication
+-- grid the TS pricer iterates. Keeping this in its own module keeps
+-- TestCompoundedLifecycle.daml under the 200-line target.
+--
+-- Window aligns with the IRS schedule's quarterly DOM-2 roll convention:
+-- effectiveDate = 2023-10-02, terminationDate = 2024-01-02.
+module Swap.SofrFixture2023 where
+
+import DA.Date (date, Month(..))
+
+-- 63 NY Fed publication days from 2023-10-02 → 2024-01-02 inclusive.
+-- Source: markets.newyorkfed.org/api/rates/secured/sofr/search.json.
+sofrSeries : [(Date, Decimal)]
+sofrSeries =
+  [ (date 2023 Oct 2, 0.053200)
+  , (date 2023 Oct 3, 0.053300)
+  , (date 2023 Oct 4, 0.053200)
+  , (date 2023 Oct 5, 0.053200)
+  , (date 2023 Oct 6, 0.053100)
+  , (date 2023 Oct 10, 0.053100)
+  , (date 2023 Oct 11, 0.053100)
+  , (date 2023 Oct 12, 0.053100)
+  , (date 2023 Oct 13, 0.053100)
+  , (date 2023 Oct 16, 0.053100)
+  , (date 2023 Oct 17, 0.053100)
+  , (date 2023 Oct 18, 0.053000)
+  , (date 2023 Oct 19, 0.053000)
+  , (date 2023 Oct 20, 0.053000)
+  , (date 2023 Oct 23, 0.053000)
+  , (date 2023 Oct 24, 0.053000)
+  , (date 2023 Oct 25, 0.053000)
+  , (date 2023 Oct 26, 0.053100)
+  , (date 2023 Oct 27, 0.053100)
+  , (date 2023 Oct 30, 0.053100)
+  , (date 2023 Oct 31, 0.053500)
+  , (date 2023 Nov 1, 0.053200)
+  , (date 2023 Nov 2, 0.053300)
+  , (date 2023 Nov 3, 0.053200)
+  , (date 2023 Nov 6, 0.053200)
+  , (date 2023 Nov 7, 0.053200)
+  , (date 2023 Nov 8, 0.053200)
+  , (date 2023 Nov 9, 0.053200)
+  , (date 2023 Nov 10, 0.053200)
+  , (date 2023 Nov 13, 0.053200)
+  , (date 2023 Nov 14, 0.053200)
+  , (date 2023 Nov 15, 0.053200)
+  , (date 2023 Nov 16, 0.053200)
+  , (date 2023 Nov 17, 0.053200)
+  , (date 2023 Nov 20, 0.053100)
+  , (date 2023 Nov 21, 0.053100)
+  , (date 2023 Nov 22, 0.053100)
+  , (date 2023 Nov 24, 0.053200)
+  , (date 2023 Nov 27, 0.053200)
+  , (date 2023 Nov 28, 0.053200)
+  , (date 2023 Nov 29, 0.053100)
+  , (date 2023 Nov 30, 0.053300)
+  , (date 2023 Dec 1, 0.053900)
+  , (date 2023 Dec 4, 0.053700)
+  , (date 2023 Dec 5, 0.053300)
+  , (date 2023 Dec 6, 0.053200)
+  , (date 2023 Dec 7, 0.053200)
+  , (date 2023 Dec 8, 0.053200)
+  , (date 2023 Dec 11, 0.053200)
+  , (date 2023 Dec 12, 0.053100)
+  , (date 2023 Dec 13, 0.053100)
+  , (date 2023 Dec 14, 0.053100)
+  , (date 2023 Dec 15, 0.053200)
+  , (date 2023 Dec 18, 0.053200)
+  , (date 2023 Dec 19, 0.053100)
+  , (date 2023 Dec 20, 0.053100)
+  , (date 2023 Dec 21, 0.053100)
+  , (date 2023 Dec 22, 0.053200)
+  , (date 2023 Dec 26, 0.053500)
+  , (date 2023 Dec 27, 0.053900)
+  , (date 2023 Dec 28, 0.054000)
+  , (date 2023 Dec 29, 0.053800)
+  , (date 2024 Jan 2, 0.054000)
+  ]
+
+-- NY Fed published SOFR Index values bracketing the window.
+sofrIndexStart : Decimal
+sofrIndexStart = 1.10021067
+
+sofrIndexEnd : Decimal
+sofrIndexEnd = 1.11527807

@@ -1,0 +1,47 @@
+{
+  "name": "canton-party-directory",
+  "version": "0.1.0",
+  "description": "Human-readable party names for Canton Network apps",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/core.js",
+      "types": "./dist/core.d.ts"
+    },
+    "./react": {
+      "import": "./dist/react.js",
+      "types": "./dist/react.d.ts"
+    },
+    "./ui": {
+      "import": "./dist/ui.js",
+      "types": "./dist/ui.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "peerDependencies": {
+    "react": "^18 || ^19"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.0.0",
+    "@types/react": "^19.0.0",
+    "jsdom": "^25.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^3.0.0"
+  }
+}

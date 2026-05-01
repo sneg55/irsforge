@@ -1,0 +1,15 @@
+-- Idempotency sentinel for `Setup.DemoSeed:seed`. Created as the final
+-- step of a successful demo seed; the seed script's prelude queries by
+-- key and short-circuits if the sentinel is already present. Makes
+-- `make demo` and `scripts/demo.sh start` safe to rerun without
+-- DUPLICATE_CONTRACT_KEY failures, independent of the `.demo/seeded`
+-- file marker on the host.
+module Setup.SeedSentinel where
+
+template DemoSeedComplete
+  with
+    operator : Party
+  where
+    signatory operator
+    key operator : Party
+    maintainer key

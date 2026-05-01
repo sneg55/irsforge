@@ -1,0 +1,109 @@
+---
+import t1 from '../../assets/screenshots/tour-1.png'
+import t2 from '../../assets/screenshots/tour-2.png'
+import t3 from '../../assets/screenshots/tour-3.png'
+import t4 from '../../assets/screenshots/tour-4.png'
+import t5 from '../../assets/screenshots/tour-5.png'
+import t6 from '../../assets/screenshots/tour-6.png'
+import ScreenshotFrame from '../../components/ScreenshotFrame.astro'
+import Section from '../../components/Section.astro'
+
+const imgs = [t1, t2, t3, t4, t5, t6]
+
+const tour = [
+  {
+    title: 'Build a swap in seconds.',
+    body: 'Currency, notional, day-count, frequency, index. The leg composer covers what SWPM users expect, in ISDA-shaped form. Cashflows, valuation, and risk update live as you type.',
+    caption: 'Workspace, risk tab. Key-rate DV01 and sensitivities recompute on every keystroke.',
+    alt: 'Workspace, risk tab',
+  },
+  {
+    title: 'Propose to a counterparty.',
+    body: 'Build from the composer or paste FpML straight from your booking system. Either way the trade lands as a Daml Finance instrument and waits for counterparty acceptance. Proposed, accepted, or rejected, all onchain.',
+    caption: 'FpML import. Paste the XML from your booking system, no re-keying.',
+    alt: 'FpML import modal',
+  },
+  {
+    title: 'CSAs, onchain.',
+    body: 'Every counterparty pair tracks variation margin, posted collateral, threshold, and minimum transfer amount in a signed CSA contract. Calls fire when exposure drifts. The operator countersigns.',
+    caption: 'CSA. Counterparty drawer with the variation-margin schedule.',
+    alt: 'CSA, counterparty management',
+  },
+  {
+    title: 'Risk on every leg.',
+    body: "Key-rate DV01, bucketed sensitivities, theta. Inspect a position's exposure against a parallel rate shock, a curve shift, or a custom scenario. The same numbers a rates desk runs in MARS.",
+    caption: 'Risk. Key-rate DV01 across the curve plus bucketed sensitivities.',
+    alt: 'Workspace, risk tab key-rate DV01 sensitivities',
+  },
+  {
+    title: 'Cash and rate effects settle separately, by design.',
+    body: "TriggerLifecycle posts the rate effects, Settle moves the cash. Two transactions, atomic per leg, the way ISDA describes IRS settlement. We don't claim atomicity we can't deliver.",
+    caption: 'Lifecycle. Trigger then Settle, two transactions, both on Canton.',
+    alt: 'Lifecycle, trigger settle',
+  },
+  {
+    title: 'The regulator sees everything. Counterparties only see their book.',
+    body: "Every swap-related contract carries the regulator party as observer. They get the full lifecycle and every cashflow. Counterparties never see across each other's books. Sub-transaction privacy is Canton's, not ours.",
+    caption: 'Regulator view. Full audit trail with no cross-counterparty leakage.',
+    alt: 'Operator, on-chain audit log',
+  },
+]
+---
+<Section
+  id="tour"
+  label="Tour"
+  headline="What the reference implementation looks like."
+  variant="wide"
+>
+  <div class="stack">
+    {tour.map((t, i) => (
+      <div class={`row row-${i % 2}`}>
+        <div class="frame-col">
+          <ScreenshotFrame src={imgs[i]} alt={t.alt} caption={t.caption} />
+        </div>
+        <div class="text-col">
+          <h3>{t.title}</h3>
+          <p>{t.body}</p>
+        </div>
+      </div>
+    ))}
+  </div>
+</Section>
+
+<style>
+  .stack { display: flex; flex-direction: column; gap: 5rem; max-width: 1200px; margin: 0 auto; }
+  .row {
+    display: grid;
+    grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+    gap: 3rem;
+    align-items: center;
+  }
+  .row-1 { grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); }
+  .row-1 .frame-col { order: 2; }
+  .row-1 .text-col { order: 1; }
+  .frame-col { width: 100%; }
+  .text-col h3 {
+    font-family: var(--font-display);
+    font-size: 1.75rem;
+    line-height: 1.15;
+    margin: 0 0 0.875rem;
+    max-width: 22ch;
+    color: var(--color-fg);
+    font-weight: 400;
+  }
+  .text-col p {
+    font-size: 1rem;
+    line-height: 1.6;
+    color: var(--color-fg-body);
+    margin: 0;
+    max-width: 38ch;
+  }
+  @media (max-width: 900px) {
+    .stack { gap: 4rem; }
+    .row, .row-1 { grid-template-columns: 1fr; gap: 1.5rem; }
+    .row-1 .frame-col { order: unset; }
+    .row-1 .text-col { order: unset; }
+    .text-col h3 { max-width: none; }
+    .text-col p { max-width: none; }
+  }
+</style>

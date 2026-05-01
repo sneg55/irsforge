@@ -1,0 +1,32 @@
+-- MarkToMarket: immutable per-asOf snapshot of CSA exposure.
+--
+-- Emitted by the Csa template each time MarkValuation is run. Counterparties
+-- consented to the operator at Csa inception, so per-tick marks are signed by
+-- the operator alone with the counterparties + regulator as observers.
+--
+-- Back-reference design: `csaCid` stores the originating Csa contract ID as
+-- Text (stringified) rather than a typed `ContractId Csa.Csa.Csa`. This avoids
+-- a mutual import between Csa.Csa and Csa.Mark, since the Csa template
+-- creates MarkToMarket records and MarkToMarket would otherwise need to
+-- import Csa.Csa to type the back-reference. Daml's JSON API serializes
+-- contract IDs as strings on the wire anyway; the frontend re-resolves the
+-- typed ContractId via /v1/fetch when it needs to exercise a Csa choice.
+-- (No precedent in the codebase for typed cross-module back-references —
+--  Swap.Workflow.MaturedSwap embeds the originating fields directly rather
+--  than holding a back-reference at all.)
+module Csa.Mark where
+
+template MarkToMarket
+  with
+    operator  : Party
+    partyA    : Party
+    partyB    : Party
+    regulators : [Party]
+    scheduler : Party
+    csaCid    : Text     -- stringified ContractId of the originating Csa
+    asOf      : Time
+    exposure  : Decimal  -- signed; positive => A owes B
+    snapshot  : Text     -- JSON replay key: curve cids, index cids, observation cutoff, swap cids
+  where
+    signatory operator
+    observer partyA, partyB, regulators, scheduler

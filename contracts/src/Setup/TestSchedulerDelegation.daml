@@ -1,0 +1,71 @@
+-- | Phase 6 Stage C1 — end-to-end authority test.
+--
+-- reference_scheduler_authority.md documents that Stage A's
+-- `TriggerLifecycleByScheduler` passes the controller check but its body
+-- fails with `"missing authorization from 'Operator'"` because
+-- `Lifecycle.Evolve` traverses operator-signed HolidayCalendar /
+-- Instrument contracts. Stage C1's fix: a second LifecycleRule whose
+-- providers set is {operator, scheduler}, so Rule's signatory set carries
+-- operator authority into every Evolve body entered through this rule.
+--
+-- Green here ⇒ Mechanism D (dual LifecycleRule) is sufficient.
+-- Red here ⇒ Task 6's SchedulerDelegation fallback is required.
+module Setup.TestSchedulerDelegation where
+
+import Daml.Script
+import Daml.Finance.Interface.Lifecycle.V4.Rule.Lifecycle qualified as Lifecycle
+import Swap.Workflow
+import Swap.TestHelpers (allocateTestParties)
+import Setup.TestSchedulerDelegationFixture
+
+-- | Scheduler-alone JWT drives `TriggerLifecycleByScheduler` through the
+--   scheduler-authorized LifecycleRule. Evolve body has operator authority
+--   (via Rule.providers = {operator, scheduler}), so `GetCalendar` on the
+--   operator-signed HolidayCalendar succeeds.
+--
+--   This is the acceptance criterion for Stage C1: scheduler can fire
+--   lifecycle without operator in actAs.
+testSchedulerCanTriggerLifecycleEndToEnd : Script ()
+testSchedulerCanTriggerLifecycleEndToEnd = do
+  tp <- allocateTestParties
+  fx <- seedSchedulerFixture tp "SchedDelegation-001"
+
+  (_newInstrumentKeyOpt, effectCids) <- submit tp.scheduler do
+    exerciseCmd fx.workflowCid TriggerLifecycleByScheduler with
+      lifecycleRuleCid = toInterfaceContractId @Lifecycle.Lifecycle fx.schedulerRuleCid
+      eventCid         = fx.eventCid
+      observableCids   = [fx.observableCid]
+
+  assertMsg "scheduler-driven Evolve produces effects" (not (null effectCids))
+
+-- | Negative: scheduler JWT cannot fire Evolve through the operator-only
+--   rule. Scheduler is not the Rule's lifecycler, so Evolve's controller
+--   check rejects the call before we even reach the body. Validates the
+--   failure mode Stage C1 is fixing — if this passed, Mechanism D would
+--   be unnecessary.
+testSchedulerCannotUseOperatorRule : Script ()
+testSchedulerCannotUseOperatorRule = do
+  tp <- allocateTestParties
+  fx <- seedSchedulerFixture tp "OperatorOnly-001"
+
+  submitMustFail tp.scheduler do
+    exerciseCmd fx.workflowCid TriggerLifecycleByScheduler with
+      lifecycleRuleCid = toInterfaceContractId @Lifecycle.Lifecycle fx.operatorRuleCid
+      eventCid         = fx.eventCid
+      observableCids   = [fx.observableCid]
+
+-- | Positive control: operator can fire TriggerLifecycle through the
+--   operator-only rule — the manual path remains unaffected by the
+--   scheduler-rule addition.
+testOperatorStillDrivesManualPath : Script ()
+testOperatorStillDrivesManualPath = do
+  tp <- allocateTestParties
+  fx <- seedSchedulerFixture tp "ManualPath-001"
+
+  (_k, effectCids) <- submit tp.operator do
+    exerciseCmd fx.workflowCid TriggerLifecycle with
+      lifecycleRuleCid = toInterfaceContractId @Lifecycle.Lifecycle fx.operatorRuleCid
+      eventCid         = fx.eventCid
+      observableCids   = [fx.observableCid]
+
+  assertMsg "operator-driven Evolve still produces effects" (not (null effectCids))

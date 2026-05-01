@@ -1,0 +1,99 @@
+---
+import { Code } from 'astro:components'
+
+interface Props {
+  code: string
+  lang?: string
+  filename?: string
+}
+const { code, lang = 'yaml', filename } = Astro.props
+---
+<div class="codeblock" data-code={code}>
+  <div class="head">
+    {filename && <div class="filename mono">{filename}</div>}
+    <button type="button" class="copy" aria-label="Copy code to clipboard">
+      <span class="copy-default">Copy</span>
+      <span class="copy-done" aria-hidden="true">Copied</span>
+    </button>
+  </div>
+  {/* github-dark-default has brighter comment color (#8b949e on #0d1117 = 4.7:1), passes lhci a11y gate */}
+  <Code code={code} lang={lang as any} theme="github-dark-default" />
+</div>
+
+<script>
+  if (typeof window !== 'undefined') {
+    document.querySelectorAll<HTMLElement>('.codeblock').forEach((block) => {
+      const btn = block.querySelector<HTMLButtonElement>('button.copy')
+      if (!btn) return
+      btn.addEventListener('click', async () => {
+        const code = block.dataset.code ?? ''
+        try {
+          await navigator.clipboard.writeText(code)
+        } catch {
+          const ta = document.createElement('textarea')
+          ta.value = code
+          ta.setAttribute('readonly', '')
+          ta.style.position = 'fixed'
+          ta.style.opacity = '0'
+          document.body.appendChild(ta)
+          ta.select()
+          try { document.execCommand('copy') } catch { /* swallow: best-effort fallback */ }
+          ta.remove()
+        }
+        btn.classList.add('copied')
+        window.setTimeout(() => btn.classList.remove('copied'), 1200)
+      })
+    })
+  }
+</script>
+
+<style>
+  .codeblock {
+    position: relative;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    overflow: hidden;
+    background: var(--color-bg-elevated);
+    transition: border-color .25s ease;
+  }
+  .codeblock:hover { border-color: rgba(201, 169, 97, 0.25); }
+  .head {
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-bg);
+    min-height: 2.25rem;
+  }
+  .filename {
+    padding: 0.5rem 1rem;
+    font-size: 0.75rem;
+    color: var(--color-fg-muted);
+  }
+  .copy {
+    appearance: none;
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: 2px;
+    color: var(--color-fg-muted);
+    font-family: var(--font-body);
+    font-size: 0.6875rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.3rem 0.6rem;
+    margin: 0.4rem 0.6rem;
+    cursor: pointer;
+    opacity: 0;
+    transform: translateY(-1px);
+    transition: opacity .2s ease, color .2s ease, border-color .2s ease, background-color .2s ease, transform .2s ease;
+  }
+  .codeblock:hover .copy,
+  .copy:focus-visible { opacity: 1; transform: translateY(0); }
+  .copy:hover {
+    color: var(--color-fg);
+    border-color: var(--color-accent);
+  }
+  .copy-done { display: none; color: var(--color-pay); }
+  .copy.copied { background: rgba(16, 185, 129, 0.08); border-color: var(--color-pay); }
+  .copy.copied .copy-default { display: none; }
+  .copy.copied .copy-done { display: inline; }
+  .codeblock :global(pre) { padding: 1.25rem; margin: 0; font-size: 0.8125rem; overflow-x: auto; max-width: 100%; }
+</style>

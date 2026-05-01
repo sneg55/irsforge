@@ -1,0 +1,33 @@
+# Build context excludes — keep image clean and prevent leaking local
+# runtime state into the container layer.
+
+.git/
+.gitignore
+
+# Local node + build outputs (rebuilt inside container)
+**/node_modules/
+**/dist/
+app/.next/
+
+# Runtime state from local `make demo`
+.demo/
+.demo/**
+
+# Marketing/docs sites — not used by the runtime container
+site/.astro/
+site/dist/
+site/test-results/
+site/tests/visual.spec.ts-snapshots/
+docs-site/build/
+docs-site/.docusaurus/
+
+# IDE / OS metadata
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.log
+
+# Tooling that doesn't belong in container
+.husky/
+.claude/

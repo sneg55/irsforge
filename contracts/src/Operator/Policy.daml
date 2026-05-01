@@ -1,0 +1,50 @@
+-- OperatorPolicy: per-swap-family auto/manual co-sign mode, on-ledger.
+--
+-- The proposer → operator co-sign two-step (Family.ProposeAccept →
+-- Family.ConfirmAccept) is a real Daml lifecycle that exists for every
+-- family. Whether traders take that path or the single-step Accept path
+-- is decided by the operator: `auto` skips co-sign, `manual` routes the
+-- proposal through the operator queue. Storing that decision on-ledger
+-- (rather than in YAML or browser state) means:
+--   - the regulator sees policy changes in /timeline as ledger events
+--   - the operator UI is a thin wrapper around SetMode, not a YAML editor
+--   - bootstrap seeds defaults from shared-config; runtime changes are
+--     ledger commits, not file mutations
+--
+-- One contract per family, keyed by (operator, family). SetMode archives
+-- and recreates with the new mode (cid rotates per memory rule
+-- `reference_daml_cid_rotation`).
+module Operator.Policy where
+
+-- | Per-family co-sign mode. Mirrors shared-config `OperatorPolicyMode`.
+data PolicyMode
+  = Auto
+  | Manual
+  deriving (Eq, Show)
+
+template OperatorPolicy
+  with
+    operator   : Party
+    regulators : [Party]
+    traders    : [Party]
+    family     : Text
+    mode       : PolicyMode
+  where
+    signatory operator
+    -- Traders observe so swap-actions can read policy before deciding
+    -- between Accept and ProposeAccept on a swap proposal. Adding a
+    -- new trader requires recreating with the expanded list (same
+    -- shape as Swap.ProposalDelegation).
+    observer regulators, traders
+
+    key (operator, family) : (Party, Text)
+    maintainer key._1
+
+    -- | Switch the co-sign mode for this family. Operator-only — the
+    --   trader-facing reads on the other end are pure observation.
+    choice SetMode : ContractId OperatorPolicy
+      with
+        newMode : PolicyMode
+      controller operator
+      do
+        create this with mode = newMode

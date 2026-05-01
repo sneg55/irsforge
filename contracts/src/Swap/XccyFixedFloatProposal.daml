@@ -1,0 +1,201 @@
+-- Cross-currency fixed-float swap proposal. Rides on the shared FpmlFactory
+-- + FpmlAdapter — leg 0 is a fixed leg in `fixedCurrency`, leg 1 is a
+-- compounded-in-arrears float leg in `floatCurrency`. Principal exchanges
+-- are forced on (initial + final, no intermediate) via record-update on
+-- the SwapStream produced by legToSwapStream.
+module Swap.XccyFixedFloatProposal where
+
+import DA.Map qualified as Map
+import DA.Set qualified as Set
+import Daml.Finance.Interface.Types.Common.V3.Types (Id(..), InstrumentKey(..), HoldingStandard(..))
+import Daml.Finance.Interface.Types.Date.V3.DayCount (DayCountConventionEnum(..))
+import Daml.Finance.Interface.Instrument.Swap.V0.Fpml.Types (Fpml(..))
+import Daml.Finance.Interface.Instrument.Swap.V0.Fpml.Factory qualified as FpmlFactory
+import Daml.Finance.Interface.Instrument.Swap.V0.Fpml.FpmlTypes qualified as FT
+import Oracle.FloatingRateIndex (FloatingRateIndex(..))
+import Setup.CashSetup (CashSetupRecord(..), cashSetupKey)
+import Swap.FpmlAdapter (legToSwapStream)
+import Swap.Types (FpmlLeg(..))
+import Swap.Workflow (SwapWorkflow(..))
+
+template XccyFixedFloatProposal
+  with
+    operator           : Party
+    proposer           : Party
+    counterparty       : Party
+    fixedCurrency      : Text
+    fixedNotional      : Decimal
+    fixedRate          : Decimal
+    floatCurrency      : Text
+    floatNotional      : Decimal
+    startDate          : Date
+    maturityDate       : Date
+    dayCountConvention : DayCountConventionEnum
+  where
+    signatory proposer, operator
+    observer counterparty
+
+    ensure fixedNotional > 0.0
+        && floatNotional > 0.0
+        && maturityDate > startDate
+        && fixedCurrency /= floatCurrency
+
+    choice XccyAccept : ContractId SwapWorkflow
+      with
+        operator                  : Party
+        regulators                 : [Party]
+        floatFloatingRateIndexCid : ContractId FloatingRateIndex
+      controller counterparty
+      do
+        assertMsg "operator arg must match proposal's operator signatory"
+          (operator == this.operator)
+        (_, setup) <- fetchByKey @CashSetupRecord
+          (cashSetupKey operator this.proposer this.counterparty)
+
+        floatFrid <- fetch floatFloatingRateIndexCid
+        assertMsg ("Float-leg FloatingRateIndex currency must be " <> this.floatCurrency <>
+                   ", got " <> floatFrid.currency)
+          (floatFrid.currency == this.floatCurrency)
+
+        let
+          fixedCcyKey = case Map.lookup this.fixedCurrency setup.currencies of
+            Some k -> k
+            None   -> error ("Currency " <> this.fixedCurrency <>
+                             " not seeded — operator must add it to config")
+          floatCcyKey = case Map.lookup this.floatCurrency setup.currencies of
+            Some k -> k
+            None   -> error ("Currency " <> this.floatCurrency <>
+                             " not seeded — operator must add it to config")
+          schedDef = case Map.lookup "XCCY" setup.scheduleDefaults of
+            Some s -> s
+            None   -> error "Schedule defaults for XCCY not seeded — \
+                            \operator must add them to config"
+
+          fixedLeg = FpmlLeg with
+            legType = "fixed"
+            currency = this.fixedCurrency
+            notional = this.fixedNotional
+            rate = Some this.fixedRate
+            indexId = None
+            spread = None
+            dayCountConvention = this.dayCountConvention
+
+          floatLeg = FpmlLeg with
+            legType = "float"
+            currency = this.floatCurrency
+            notional = this.floatNotional
+            rate = None
+            indexId = Some floatFrid.indexId
+            spread = Some 0.0
+            dayCountConvention = this.dayCountConvention
+
+          rawStream0 = legToSwapStream 0 fixedLeg this.startDate this.maturityDate
+                         schedDef None this.proposer this.counterparty
+          rawStream1 = legToSwapStream 1 floatLeg this.startDate this.maturityDate
+                         schedDef (Some floatFrid) this.proposer this.counterparty
+
+          principalExchanges = FT.PrincipalExchanges with
+            initialExchange      = True
+            finalExchange        = True
+            intermediateExchange = False
+
+          stream0 = rawStream0 with principalExchanges = Some principalExchanges
+          stream1 = rawStream1 with principalExchanges = Some principalExchanges
+
+        now <- getTime
+
+        let
+          instrumentId =
+            "XCCY-" <> show this.proposer <> "-" <> show this.counterparty
+              <> "-" <> show this.startDate <> "-" <> show this.fixedNotional
+
+          instrumentKey = InstrumentKey with
+            depository      = operator
+            issuer          = operator
+            id              = Id instrumentId
+            version         = "0"
+            holdingStandard = TransferableFungible
+
+          observerMap = Map.fromList
+            [("observers", Set.fromList ([this.proposer, this.counterparty] <> regulators))]
+
+          fpml = Fpml with
+            instrument           = instrumentKey
+            description          = "XCCY " <> instrumentId
+            swapStreams          = [stream0, stream1]
+            issuerPartyRef       = show this.proposer
+            calendarDataProvider = operator
+            -- Fpml.currencies carries one InstrumentKey per stream. XCCY
+            -- has one per currency; leg 0 = fixed/fixedCcy, leg 1 = float/
+            -- floatCcy, so order matches the swapStreams list.
+            currencies           = [fixedCcyKey, floatCcyKey]
+            lastEventTimestamp   = now
+
+        exercise setup.factories.fpml FpmlFactory.Create with
+          fpml
+          observers = observerMap
+
+        create SwapWorkflow with
+          swapType = "XCCY"
+          operator
+          partyA = this.proposer
+          partyB = this.counterparty
+          regulators
+          scheduler = setup.scheduler
+          instrumentKey
+          notional = this.fixedNotional
+
+    -- Manual operator co-sign path: counterparty fires this instead of XccyAccept.
+    nonconsuming choice XccyProposeAccept : ContractId XccyAcceptAck
+      with
+        operator                  : Party
+        regulators                 : [Party]
+        floatFloatingRateIndexCid : ContractId FloatingRateIndex
+      controller counterparty
+      do
+        assertMsg "operator arg must match proposal's operator signatory"
+          (operator == this.operator)
+        create XccyAcceptAck with
+          proposer                  = this.proposer
+          counterparty              = this.counterparty
+          operator
+          regulators
+          proposalCid               = self
+          floatFloatingRateIndexCid
+
+    choice XccyReject : ()
+      controller counterparty
+      do pure ()
+
+    choice XccyWithdraw : ()
+      controller proposer
+      do pure ()
+
+-- | XccyAcceptAck: pending ack awaiting operator confirmation.
+template XccyAcceptAck
+  with
+    proposer                  : Party
+    counterparty              : Party
+    operator                  : Party
+    regulators                 : [Party]
+    proposalCid               : ContractId XccyFixedFloatProposal
+    floatFloatingRateIndexCid : ContractId FloatingRateIndex
+  where
+    signatory proposer, counterparty, operator
+    observer  regulators
+
+    choice XccyConfirmAccept : ContractId SwapWorkflow
+      controller operator
+      do
+        exercise proposalCid XccyAccept with
+          operator
+          regulators
+          floatFloatingRateIndexCid
+
+    choice XccyAcceptAckCancelByCounterparty : ()
+      controller counterparty
+      do pure ()
+
+    choice XccyAcceptAckCancelByOperator : ()
+      controller operator
+      do pure ()

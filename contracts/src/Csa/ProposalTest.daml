@@ -1,0 +1,128 @@
+module Csa.ProposalTest where
+
+import Daml.Script
+import DA.Map qualified as Map
+import qualified Csa.Types as T
+import qualified Csa.Csa as C
+import qualified Csa.Proposal as P
+
+allocateParties : Script (Party, Party, Party, Party, Party)
+allocateParties = do
+  proposer     <- allocatePartyWithHint "Proposer"     (PartyIdHint "Proposer")
+  counterparty <- allocatePartyWithHint "Counterparty" (PartyIdHint "Counterparty")
+  operator     <- allocatePartyWithHint "Operator"     (PartyIdHint "Operator")
+  regulator    <- allocatePartyWithHint "Regulator"    (PartyIdHint "Regulator")
+  scheduler    <- allocatePartyWithHint "Scheduler"    (PartyIdHint "Scheduler")
+  pure (proposer, counterparty, operator, regulator, scheduler)
+
+baseEligible : [T.EligibleCollateral]
+baseEligible =
+  [ T.EligibleCollateral with currency = "USD"; haircut = 0.02
+  , T.EligibleCollateral with currency = "EUR"; haircut = 0.03
+  ]
+
+baseProposal : Party -> Party -> Party -> Party -> P.CsaProposal
+baseProposal proposer counterparty operator regulator =
+  P.CsaProposal with
+    operator
+    regulators = [regulator]
+    proposer
+    counterparty
+    thresholdDirA = 500_000.0
+    thresholdDirB = 750_000.0
+    mta           = 100_000.0
+    rounding      = 10_000.0
+    eligible      = baseEligible
+    valuationCcy  = "USD"
+    isdaMasterAgreementRef = ""
+    governingLaw           = T.NewYork
+    imAmount               = 0.0
+
+-- 1. Happy path: propose → accept → assert Csa fields.
+testProposeAndAccept : Script ()
+testProposeAndAccept = do
+  (proposer, counterparty, operator, regulator, scheduler) <- allocateParties
+  let prop = baseProposal proposer counterparty operator regulator
+  proposalCid <- submitMulti [proposer, operator] [] do createCmd prop
+  csaCid <- submit counterparty do
+    exerciseCmd proposalCid P.CsaProposalAccept with scheduler
+  Some csa <- queryContractId counterparty csaCid
+  assert (csa.partyA       == proposer)
+  assert (csa.partyB       == counterparty)
+  assert (csa.operator     == operator)
+  assert (csa.regulators    == [regulator])
+  assert (csa.scheduler    == scheduler)
+  assert (csa.mta          == 100_000.0)
+  assert (csa.rounding     == 10_000.0)
+  assert (csa.valuationCcy == "USD")
+  assert (csa.state        == T.Active)
+  assert (csa.lastMarkCid  == None)
+  assert (Map.size csa.csb == 0)
+  assert (Map.lookup T.DirA csa.threshold == Some 500_000.0)
+  assert (Map.lookup T.DirB csa.threshold == Some 750_000.0)
+  assert (length csa.eligible == 2)
+  assert (any (\e -> e.currency == "USD" && e.haircut == 0.02) csa.eligible)
+  assert (any (\e -> e.currency == "EUR" && e.haircut == 0.03) csa.eligible)
+
+-- 2. Reject: no Csa created, proposal is consumed.
+testReject : Script ()
+testReject = do
+  (proposer, counterparty, operator, regulator, _scheduler) <- allocateParties
+  let prop = baseProposal proposer counterparty operator regulator
+  proposalCid <- submitMulti [proposer, operator] [] do createCmd prop
+  submit counterparty do exerciseCmd proposalCid P.CsaProposalReject
+  csas <- query @C.Csa counterparty
+  assert (null csas)
+
+-- 3. Withdraw: no Csa created, proposal is consumed.
+testWithdraw : Script ()
+testWithdraw = do
+  (proposer, counterparty, operator, regulator, _scheduler) <- allocateParties
+  let prop = baseProposal proposer counterparty operator regulator
+  proposalCid <- submitMulti [proposer, operator] [] do createCmd prop
+  submit proposer do exerciseCmd proposalCid P.CsaProposalWithdraw
+  csas <- query @C.Csa proposer
+  assert (null csas)
+
+-- 4. Ensure guard rejects negative mta.
+testEnsureFailsOnNegativeMta : Script ()
+testEnsureFailsOnNegativeMta = do
+  (proposer, counterparty, operator, regulator, _scheduler) <- allocateParties
+  let bad = (baseProposal proposer counterparty operator regulator) with mta = -1.0
+  submitMultiMustFail [proposer, operator] [] do createCmd bad
+
+-- 5. Metadata fields (isdaMasterAgreementRef + governingLaw) thread through
+--    Accept and persist on the resulting Csa.
+testProposalThreadsMetadata : Script ()
+testProposalThreadsMetadata = do
+  (proposer, counterparty, operator, regulator, scheduler) <- allocateParties
+  let prop = (baseProposal proposer counterparty operator regulator) with
+        isdaMasterAgreementRef = "ISDA-2002-Goldman-DB-2024-01-15"
+        governingLaw           = T.English
+  proposalCid <- submitMulti [proposer, operator] [] do createCmd prop
+  csaCid <- submit counterparty do
+    exerciseCmd proposalCid P.CsaProposalAccept with scheduler
+  Some csa <- queryContractId counterparty csaCid
+  assertMsg "ISDA MA ref persisted"
+    (csa.isdaMasterAgreementRef == "ISDA-2002-Goldman-DB-2024-01-15")
+  assertMsg "governing law persisted" (csa.governingLaw == T.English)
+
+-- 6. imAmount threads through Accept and persists on the resulting Csa.
+testProposalThreadsIm : Script ()
+testProposalThreadsIm = do
+  (proposer, counterparty, operator, regulator, scheduler) <- allocateParties
+  let prop = (baseProposal proposer counterparty operator regulator) with
+        imAmount = 10_000_000.0
+  proposalCid <- submitMulti [proposer, operator] [] do createCmd prop
+  csaCid <- submit counterparty do
+    exerciseCmd proposalCid P.CsaProposalAccept with scheduler
+  Some csa <- queryContractId counterparty csaCid
+  assertMsg "IM amount persisted on resulting Csa"
+    (csa.imAmount == 10_000_000.0)
+
+-- 7. Ensure guard rejects negative imAmount.
+testEnsureFailsOnNegativeIm : Script ()
+testEnsureFailsOnNegativeIm = do
+  (proposer, counterparty, operator, regulator, _scheduler) <- allocateParties
+  let bad = (baseProposal proposer counterparty operator regulator) with imAmount = -1.0
+  submitMultiMustFail [proposer, operator] [] do createCmd bad

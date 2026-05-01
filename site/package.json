@@ -1,0 +1,28 @@
+{
+  "name": "site",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "check": "astro check",
+    "test": "playwright test",
+    "qa": "npm run build && lhci autorun --config=lighthouserc.cjs && bash scripts/check-links.sh && playwright test"
+  },
+  "dependencies": {
+    "@astrojs/mdx": "^4.0.0",
+    "@astrojs/sitemap": "^3.2.0",
+    "@tailwindcss/vite": "^4.0.0",
+    "astro": "^5.0.0",
+    "tailwindcss": "^4.0.0"
+  },
+  "devDependencies": {
+    "@lhci/cli": "^0.15.1",
+    "@playwright/test": "^1.49.0",
+    "linkinator": "^7.6.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.7.0"
+  }
+}

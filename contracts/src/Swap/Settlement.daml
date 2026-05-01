@@ -1,0 +1,151 @@
+-- Settlement helpers: shared by SwapWorkflow choices and TerminateProposal.
+module Swap.Settlement where
+
+import DA.Foldable (forA_)
+import DA.Set qualified as Set
+import Daml.Finance.Interface.Types.Common.V3.Types (Id(..), InstrumentKey, AccountKey, Quantity(..))
+import Daml.Finance.Interface.Lifecycle.V4.Effect qualified as Effect
+import Daml.Finance.Interface.Settlement.V4.Factory qualified as SettlementFactory
+import Daml.Finance.Interface.Settlement.V4.RouteProvider qualified as RouteProvider
+import Daml.Finance.Interface.Settlement.V4.Batch qualified as Batch
+import Daml.Finance.Interface.Settlement.V4.Instruction qualified as Instruction
+import Daml.Finance.Interface.Settlement.V4.Types (Step(..), Allocation(..), Approval(..))
+import Daml.Finance.Interface.Holding.V4.Holding qualified as Holding
+import Daml.Finance.Interface.Holding.V4.Fungible qualified as Fungible
+
+-- | Folds `Effect.Calculate` over a list of Effect cids, summing the net
+--   USD-denominated cashflow (produced minus consumed) implied by the
+--   lifecycle events. Positive = instrument owner receives; negative = owes.
+computeNetUsdAmount
+  : Party           -- actor (operator holding lifecycler role)
+  -> InstrumentKey  -- instrument the calculation is against (swap instrument)
+  -> InstrumentKey  -- USD instrument key for filtering the result quantities
+  -> [ContractId Effect.I]
+  -> Update Decimal
+computeNetUsdAmount actor instrumentKey usdKey effectCids = do
+  calcResults <- forA effectCids \eCid ->
+    exercise eCid Effect.Calculate with
+      actor
+      quantity = Quantity with unit = instrumentKey; amount = 1.0
+  pure $ sum
+    [ getUsdAmount c.produced usdKey - getUsdAmount c.consumed usdKey
+    | c <- calcResults
+    ]
+
+-- Helper: sum amounts of quantities whose unit matches the given instrument key.
+getUsdAmount : [Quantity InstrumentKey Decimal] -> InstrumentKey -> Decimal
+getUsdAmount quantities usdKey =
+  sum [q.amount | q <- quantities, q.unit == usdKey]
+
+-- | Runs the Daml Finance settlement chain for a pre-built list of Steps.
+--   Handles Discover → Instruct → Allocate → Approve → Batch.Settle.
+--   Payer's holding must exactly cover each step's amount (caller handles Split).
+runSettlementChain
+  :  Party                           -- operator
+  -> Party                           -- partyA (for consenter set)
+  -> Party                           -- partyB (for consenter set)
+  -> Text                            -- description prefix (e.g. swapType)
+  -> ContractId SettlementFactory.I
+  -> ContractId RouteProvider.I
+  -> ContractId Holding.I            -- payer's holding (already split to exact amount)
+  -> AccountKey                      -- receiver's account key
+  -> Party                           -- sender (payer)
+  -> Party                           -- receiver
+  -> [Step]
+  -> Update (ContractId Batch.I)
+runSettlementChain operator partyA partyB description
+    settlementFactoryCid routeProviderCid
+    payerHoldingCid receiverAccount sender receiver steps = do
+  let absAmount = sum [s.quantity.amount | s <- steps]
+
+  -- DISCOVER: route provider adds custodian info.
+  routedSteps <- exercise routeProviderCid RouteProvider.Discover with
+    discoverors = Set.singleton operator
+    contextId   = None
+    steps
+
+  -- INSTRUCT: factory produces Batch + Instruction(s).
+  (batchCid, instructionCids) <- exercise settlementFactoryCid SettlementFactory.Instruct with
+    instructor     = operator
+    consenters     = Set.fromList [partyA, partyB]
+    settlers       = Set.singleton operator
+    id             = Id ("settle-" <> show absAmount)
+    description    = description <> " settlement"
+    contextId      = None
+    routedSteps
+    settlementTime = None
+
+  -- ALLOCATE + APPROVE each instruction.
+  forA_ instructionCids \instrCid -> do
+    (allocatedInstrCid, _) <- exercise instrCid Instruction.Allocate with
+      actors     = Set.singleton sender
+      allocation = Pledge payerHoldingCid
+
+    exercise allocatedInstrCid Instruction.Approve with
+      actors   = Set.singleton receiver
+      approval = TakeDelivery receiverAccount
+
+  -- SETTLE atomically.
+  _ <- exercise batchCid Batch.Settle with
+    actors = Set.fromList [operator, partyA, partyB]
+
+  pure batchCid
+
+-- | Core settlement logic shared by Settle choice and Mature choice.
+--   Returns (batchCid, netAmount).
+executeSettlement
+  : Party                          -- operator
+  -> Party                          -- partyA
+  -> Party                          -- partyB
+  -> Text                           -- swapType (for description)
+  -> InstrumentKey                  -- swap instrument key
+  -> [ContractId Effect.I]
+  -> ContractId SettlementFactory.I
+  -> ContractId RouteProvider.I
+  -> ContractId Fungible.I          -- partyA holding
+  -> ContractId Fungible.I          -- partyB holding
+  -> AccountKey                     -- partyA account
+  -> AccountKey                     -- partyB account
+  -> InstrumentKey                  -- USD instrument
+  -> Update (ContractId Batch.I, Decimal)
+executeSettlement operator partyA partyB swapType instrumentKey
+    effectCids settlementFactoryCid routeProviderCid
+    partyAHoldingCid partyBHoldingCid
+    partyAAccountKey partyBAccountKey usdInstrumentKey = do
+  assertMsg "At least one effect required" (not (null effectCids))
+
+  -- CALCULATE: compute net USD settlement amount.
+  netAmount <- computeNetUsdAmount operator instrumentKey usdInstrumentKey effectCids
+  let
+    (sender, receiver, absAmount) =
+      if netAmount >= 0.0
+        then (partyB, partyA, netAmount)
+        else (partyA, partyB, - netAmount)
+
+  assertMsg "Net settlement amount is zero — nothing to transfer" (absAmount > 0.0)
+
+  let
+    step = Step with
+      sender
+      receiver
+      quantity = Quantity with
+        unit   = usdInstrumentKey
+        amount = absAmount
+    payerFungibleCid =
+      if sender == partyA then partyAHoldingCid else partyBHoldingCid
+    receiverAccount =
+      if receiver == partyA then partyAAccountKey else partyBAccountKey
+
+  -- Split payer's holding to exact amount before entering the chain.
+  splitResult <- exercise payerFungibleCid Fungible.Split with
+    amounts = [absAmount]
+
+  let
+    [exactFungibleCid] = splitResult.splitCids
+    pledgeHolding = toInterfaceContractId @Holding.I exactFungibleCid
+
+  batchCid <- runSettlementChain operator partyA partyB swapType
+    settlementFactoryCid routeProviderCid
+    pledgeHolding receiverAccount sender receiver [step]
+
+  pure (batchCid, netAmount)

@@ -1,0 +1,79 @@
+---
+import Default from '../layouts/Default.astro'
+import Hero from '../sections/01-hero/Hero.astro'
+import Gap from '../sections/02-gap/Gap.astro'
+import What from '../sections/03-what/What.astro'
+import Parity from '../sections/04-parity/Parity.astro'
+import Tour from '../sections/05-tour/Tour.astro'
+import Pedigree from '../sections/06-pedigree/Pedigree.astro'
+import Architecture from '../sections/07-architecture/Architecture.astro'
+import Audience from '../sections/08-audience/Audience.astro'
+import Vs from '../sections/09-vs/Vs.astro'
+import Deploy from '../sections/10-deploy/Deploy.astro'
+import Faq from '../sections/11-faq/Faq.astro'
+---
+<Default>
+  <Hero />
+  <Gap />
+  <What />
+  <Parity />
+  <Pedigree />
+  <Tour />
+  <Architecture />
+  <Vs />
+  <Audience />
+  <Deploy />
+  <Faq />
+</Default>
+
+<script>
+  try {
+    if (typeof window !== "undefined" && "IntersectionObserver" in window) {
+      const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      if (!reduce) {
+        const fadeTargets = document.querySelectorAll(
+          "section:not(.hero) .section-header, article.card, article.persona, .codeblock, figure.frame:not(.hero figure.frame)"
+        )
+        fadeTargets.forEach((t, i) => {
+          t.classList.add("fade-init")
+          ;(t as HTMLElement).style.setProperty("--reveal-delay", `${Math.min(i % 6, 5) * 60}ms`)
+        })
+        const fadeIo = new IntersectionObserver(entries => {
+          for (const e of entries) {
+            if (e.isIntersecting) {
+              e.target.classList.add("fade-in")
+              fadeIo.unobserve(e.target)
+            }
+          }
+        }, { threshold: 0.12 })
+        fadeTargets.forEach(t => fadeIo.observe(t))
+
+        window.setTimeout(() => {
+          document.querySelectorAll(".fade-init:not(.fade-in)").forEach(t => {
+            t.classList.add("fade-in")
+          })
+        }, 800)
+
+        const stripIo = new IntersectionObserver(entries => {
+          for (const e of entries) {
+            if (e.isIntersecting) {
+              e.target.classList.add("in-view")
+              stripIo.unobserve(e.target)
+            }
+          }
+        }, { threshold: 0.4 })
+        document.querySelectorAll(".strip").forEach(s => stripIo.observe(s))
+      }
+    }
+  } catch {
+    document.querySelectorAll(".fade-init").forEach(t => t.classList.remove("fade-init"))
+  }
+</script>
+
+<style is:global>
+  .fade-init { opacity: 0; transform: translateY(8px); }
+  .fade-in {
+    opacity: 1; transform: translateY(0);
+    transition: opacity .5s ease-out var(--reveal-delay, 0ms), transform .5s ease-out var(--reveal-delay, 0ms);
+  }
+</style>

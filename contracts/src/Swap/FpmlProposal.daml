@@ -1,0 +1,152 @@
+module Swap.FpmlProposal where
+
+import DA.Map qualified as Map
+import DA.Set qualified as Set
+import Daml.Finance.Interface.Types.Common.V3.Types (Id(..), InstrumentKey(..), HoldingStandard(..))
+import Daml.Finance.Interface.Instrument.Swap.V0.Fpml.Types (Fpml(..))
+import Daml.Finance.Interface.Instrument.Swap.V0.Fpml.Factory qualified as FpmlFactory
+import Setup.CashSetup (CashSetupRecord(..), cashSetupKey)
+import Swap.FpmlAdapter (legToSwapStream)
+import Swap.Types (FpmlLeg(..))
+import Swap.Workflow (SwapWorkflow(..))
+
+template FpmlProposal
+  with
+    operator : Party
+    proposer : Party
+    counterparty : Party
+    legs : [FpmlLeg]
+    startDate : Date
+    maturityDate : Date
+    description : Text
+  where
+    -- Operator co-signs so FpmlAccept inherits factory auth.
+    signatory proposer, operator
+    observer counterparty
+
+    ensure length legs > 0
+
+    choice FpmlAccept : ContractId SwapWorkflow
+      with
+        operator : Party
+        regulators : [Party]
+      controller counterparty
+      do
+        assertMsg "operator arg must match proposal's operator signatory"
+          (operator == this.operator)
+        (_, setup) <- fetchByKey @CashSetupRecord (cashSetupKey operator this.proposer this.counterparty)
+
+        let
+          lookupCcy : Text -> InstrumentKey
+          lookupCcy code = case Map.lookup code setup.currencies of
+            Some k -> k
+            None   -> error ("Currency " <> code <> " not seeded — operator must add it to config")
+
+          -- One currency key per leg, mirroring the library shape
+          -- (Fpml.currencies : [InstrumentKey], one for each swapStream).
+          legCurrencies = map (\l -> lookupCcy l.currency) this.legs
+
+          totalNotional = foldl (\acc l -> acc + l.notional) 0.0 this.legs
+
+        now <- getTime
+
+        let
+          instrumentId =
+            "FpML-" <> show this.proposer <> "-" <> show this.counterparty
+              <> "-" <> show this.startDate <> "-" <> show totalNotional
+
+          instrumentKey = InstrumentKey with
+            depository      = operator
+            issuer          = operator
+            id              = Id instrumentId
+            version         = "0"
+            holdingStandard = TransferableFungible
+
+          observerMap = Map.fromList
+            [("observers", Set.fromList ([this.proposer, this.counterparty] <> regulators))]
+
+          schedDef = case Map.lookup "FPML" setup.scheduleDefaults of
+            Some s -> s
+            None   -> error "Schedule defaults for FPML not seeded — operator must add them to config"
+
+          -- Map each FpmlLeg to a Daml Finance SwapStream via the adapter.
+          -- Convention: even leg index → proposer pays, odd → counterparty pays.
+          -- See Swap.FpmlAdapter for the projection logic.
+          swapStreams =
+            map (\(idx, l) -> legToSwapStream idx l this.startDate this.maturityDate
+                                              schedDef None this.proposer this.counterparty)
+                (zip [0..length this.legs - 1] this.legs)
+
+          fpml = Fpml with
+            instrument           = instrumentKey
+            description          = this.description
+            swapStreams          = swapStreams
+            issuerPartyRef       = show this.proposer
+            calendarDataProvider = operator
+            currencies           = legCurrencies
+            lastEventTimestamp   = now
+
+        exercise setup.factories.fpml FpmlFactory.Create with
+          fpml
+          observers = observerMap
+
+        create SwapWorkflow with
+          swapType = "FpML"
+          operator
+          partyA = this.proposer
+          partyB = this.counterparty
+          regulators
+          scheduler = setup.scheduler
+          instrumentKey
+          notional = totalNotional
+
+    -- Manual operator co-sign path: counterparty fires this instead of FpmlAccept.
+    nonconsuming choice FpmlProposeAccept : ContractId FpmlAcceptAck
+      with
+        operator  : Party
+        regulators : [Party]
+      controller counterparty
+      do
+        assertMsg "operator arg must match proposal's operator signatory"
+          (operator == this.operator)
+        create FpmlAcceptAck with
+          proposer     = this.proposer
+          counterparty = this.counterparty
+          operator
+          regulators
+          proposalCid  = self
+
+    choice FpmlReject : ()
+      controller counterparty
+      do pure ()
+
+    choice FpmlWithdraw : ()
+      controller proposer
+      do pure ()
+
+-- | FpmlAcceptAck: pending ack awaiting operator confirmation.
+template FpmlAcceptAck
+  with
+    proposer     : Party
+    counterparty : Party
+    operator     : Party
+    regulators    : [Party]
+    proposalCid  : ContractId FpmlProposal
+  where
+    signatory proposer, counterparty, operator
+    observer  regulators
+
+    choice FpmlConfirmAccept : ContractId SwapWorkflow
+      controller operator
+      do
+        exercise proposalCid FpmlAccept with
+          operator
+          regulators
+
+    choice FpmlAcceptAckCancelByCounterparty : ()
+      controller counterparty
+      do pure ()
+
+    choice FpmlAcceptAckCancelByOperator : ()
+      controller operator
+      do pure ()

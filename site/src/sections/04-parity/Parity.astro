@@ -1,0 +1,23 @@
+---
+import blotter from '../../assets/screenshots/blotter.png'
+import csa from '../../assets/screenshots/csa.png'
+import lifecycle from '../../assets/screenshots/lifecycle.png'
+import workspace from '../../assets/screenshots/workspace.png'
+import ScreenshotFrame from '../../components/ScreenshotFrame.astro'
+import ScreenshotGrid from '../../components/ScreenshotGrid.astro'
+import Section from '../../components/Section.astro'
+---
+<Section
+  id="parity"
+  label="Parity"
+  headline="Same screens. Same numbers. Onchain."
+  sub="The leg composer, cashflows, risk and scenario tabs, blotter, and CSA ladder match the SWPM and MARS workflow your traders already run. Built for the desktop the terminals were built for."
+  variant="wide"
+>
+  <ScreenshotGrid cols={2}>
+    <ScreenshotFrame src={workspace} alt="IRSForge workspace, leg composer with cashflows" caption="Workspace. Build the leg, watch cashflows, risk, and scenarios update live." />
+    <ScreenshotFrame src={blotter} alt="IRSForge blotter, open positions table" caption="Blotter. Open positions, mark-to-market, and P/L across the desk." />
+    <ScreenshotFrame src={csa} alt="IRSForge CSA ladder, collateral schedule" caption="CSA. The variation-margin ladder a desk runs every morning, onchain." />
+    <ScreenshotFrame src={lifecycle} alt="IRSForge lifecycle, events timeline" caption="Lifecycle. Every event, every cashflow, time-stamped on Canton." />
+  </ScreenshotGrid>
+</Section>

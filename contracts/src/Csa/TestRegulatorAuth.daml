@@ -1,0 +1,184 @@
+-- Anti-leak tests at the ledger boundary. The React anti-leak suite
+-- (`app/src/features/regulator/__tests__/anti-leak.test.tsx`) asserts the
+-- DOM doesn't render write-class buttons for a regulator session. That is
+-- a UI guarantee. The trust boundary is Daml authorization: even if a
+-- regulator JWT is replayed against /v1/exercise, the ledger must reject
+-- it. These tests prove the ledger does, choice-by-choice on Csa and
+-- CsaProposal.
+module Csa.TestRegulatorAuth where
+
+import Daml.Script
+import DA.Map qualified as Map
+import DA.Date (date, Month(..))
+import DA.Time (time)
+import qualified Csa.Types as T
+import qualified Csa.Csa as C
+import qualified Csa.Proposal as P
+
+allocate : Script (Party, Party, Party, Party, Party)
+allocate = do
+  op  <- allocatePartyWithHint "Op"  (PartyIdHint "Op")
+  pa  <- allocatePartyWithHint "PA"  (PartyIdHint "PA")
+  pb  <- allocatePartyWithHint "PB"  (PartyIdHint "PB")
+  reg <- allocatePartyWithHint "Reg" (PartyIdHint "Reg")
+  sch <- allocatePartyWithHint "Sch" (PartyIdHint "Sch")
+  pure (op, pa, pb, reg, sch)
+
+baseCsa : Party -> Party -> Party -> Party -> Party -> C.Csa
+baseCsa op pa pb reg sch = C.Csa with
+  operator     = op
+  partyA       = pa
+  partyB       = pb
+  regulators    = [reg]
+  scheduler    = sch
+  threshold    = Map.fromList [(T.DirA, 0.0), (T.DirB, 0.0)]
+  mta          = 100_000.0
+  rounding     = 10_000.0
+  eligible     = [T.EligibleCollateral with currency = "USD"; haircut = 1.0]
+  valuationCcy = "USD"
+  csb          = Map.empty
+  state        = T.Active
+  lastMarkCid  = None
+  isdaMasterAgreementRef = ""
+  governingLaw           = T.NewYork
+  imAmount               = 0.0
+  activeDispute          = None
+
+baseProposal : Party -> Party -> Party -> Party -> P.CsaProposal
+baseProposal op reg pa pb = P.CsaProposal with
+  operator      = op
+  regulators     = [reg]
+  proposer      = pa
+  counterparty  = pb
+  thresholdDirA = 0.0
+  thresholdDirB = 0.0
+  mta           = 100_000.0
+  rounding      = 10_000.0
+  eligible      = [T.EligibleCollateral with currency = "USD"; haircut = 1.0]
+  valuationCcy  = "USD"
+  isdaMasterAgreementRef = ""
+  governingLaw           = T.NewYork
+  imAmount               = 0.0
+
+-- Csa.PostCollateral controller is `poster` ∈ {partyA, partyB}.
+testRegulatorCannotPostCollateral : Script ()
+testRegulatorCannotPostCollateral = do
+  (op, pa, pb, reg, sch) <- allocate
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  submitMustFail reg do
+    exerciseCmd cid C.PostCollateral with
+      poster = reg; ccy = "USD"; amount = 1_000_000.0
+
+-- Csa.WithdrawExcess controller is `withdrawer` ∈ {partyA, partyB}.
+testRegulatorCannotWithdrawExcess : Script ()
+testRegulatorCannotWithdrawExcess = do
+  (op, pa, pb, reg, sch) <- allocate
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  cid <- submit pa do
+    exerciseCmd cid C.PostCollateral with
+      poster = pa; ccy = "USD"; amount = 1_000_000.0
+  submitMustFail reg do
+    exerciseCmd cid C.WithdrawExcess with
+      withdrawer = reg; ccy = "USD"; amount = 100_000.0
+
+-- Csa.PublishMark controller is `operator`.
+testRegulatorCannotPublishMark : Script ()
+testRegulatorCannotPublishMark = do
+  (op, pa, pb, reg, sch) <- allocate
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  submitMustFail reg do
+    exerciseCmd cid C.PublishMark with
+      asOf     = time (date 2026 Apr 17) 12 0 0
+      exposure = 1_000_000.0
+      snapshot = "{}"
+
+-- Csa.PublishMarkByScheduler controller is `scheduler`.
+testRegulatorCannotPublishMarkByScheduler : Script ()
+testRegulatorCannotPublishMarkByScheduler = do
+  (op, pa, pb, reg, sch) <- allocate
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  submitMustFail reg do
+    exerciseCmd cid C.PublishMarkByScheduler with
+      asOf     = time (date 2026 Apr 17) 12 0 0
+      exposure = 1_000_000.0
+      snapshot = "{}"
+
+-- Csa.SettleVm controller is `operator`.
+testRegulatorCannotSettleVm : Script ()
+testRegulatorCannotSettleVm = do
+  (op, pa, pb, reg, sch) <- allocate
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  (cid, _) <- submit op do
+    exerciseCmd cid C.PublishMark with
+      asOf     = time (date 2026 Apr 17) 12 0 0
+      exposure = 1_000_000.0
+      snapshot = "{}"
+  submitMustFail reg do exerciseCmd cid C.SettleVm
+
+-- Csa.SettleVmByScheduler controller is `scheduler`.
+testRegulatorCannotSettleVmByScheduler : Script ()
+testRegulatorCannotSettleVmByScheduler = do
+  (op, pa, pb, reg, sch) <- allocate
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  (cid, _) <- submit op do
+    exerciseCmd cid C.PublishMark with
+      asOf     = time (date 2026 Apr 17) 12 0 0
+      exposure = 1_000_000.0
+      snapshot = "{}"
+  submitMustFail reg do exerciseCmd cid C.SettleVmByScheduler
+
+-- Csa.Dispute controller is `disputer` ∈ {partyA, partyB}.
+testRegulatorCannotDispute : Script ()
+testRegulatorCannotDispute = do
+  (op, pa, pb, reg, sch) <- allocate
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  submitMustFail reg do
+    exerciseCmd cid C.Dispute with
+      disputer = reg; counterMark = 0.0; reason = T.Other; notes = "x"
+
+-- Csa.AcknowledgeDispute controller is `operator`. Seed CSA in MarkDisputed
+-- so the choice's state-gate doesn't pre-empt the auth check.
+testRegulatorCannotAcknowledgeDispute : Script ()
+testRegulatorCannotAcknowledgeDispute = do
+  (op, pa, pb, reg, sch) <- allocate
+  cid <- submitMulti [op, pa, pb] [] do
+    createCmd (baseCsa op pa pb reg sch) with state = T.MarkDisputed
+  submitMustFail reg do
+    exerciseCmd cid C.AcknowledgeDispute with
+      newAsOf     = time (date 2026 Apr 17) 12 0 0
+      newExposure = 0.0
+      newSnapshot = "{}"
+
+-- CsaProposal.CsaProposalAccept controller is `counterparty`.
+testRegulatorCannotAcceptCsaProposal : Script ()
+testRegulatorCannotAcceptCsaProposal = do
+  (op, pa, pb, reg, sch) <- allocate
+  pCid <- submitMulti [pa, op] [] do createCmd (baseProposal op reg pa pb)
+  submitMustFail reg do
+    exerciseCmd pCid P.CsaProposalAccept with scheduler = sch
+
+-- CsaProposal.CsaProposalReject controller is `counterparty`.
+testRegulatorCannotRejectCsaProposal : Script ()
+testRegulatorCannotRejectCsaProposal = do
+  (op, pa, pb, reg, _sch) <- allocate
+  pCid <- submitMulti [pa, op] [] do createCmd (baseProposal op reg pa pb)
+  submitMustFail reg do exerciseCmd pCid P.CsaProposalReject
+
+-- CsaProposal.CsaProposalWithdraw controller is `proposer`.
+testRegulatorCannotWithdrawCsaProposal : Script ()
+testRegulatorCannotWithdrawCsaProposal = do
+  (op, pa, pb, reg, _sch) <- allocate
+  pCid <- submitMulti [pa, op] [] do createCmd (baseProposal op reg pa pb)
+  submitMustFail reg do exerciseCmd pCid P.CsaProposalWithdraw
+
+-- Sanity check the inverse: the legitimate controller (counterparty)
+-- *can* accept the same proposal. Without this, all the negative tests
+-- above could be passing because of an unrelated build failure.
+testCounterpartyCanAcceptCsaProposal : Script ()
+testCounterpartyCanAcceptCsaProposal = do
+  (op, pa, pb, reg, sch) <- allocate
+  pCid <- submitMulti [pa, op] [] do createCmd (baseProposal op reg pa pb)
+  csaCid <- submit pb do
+    exerciseCmd pCid P.CsaProposalAccept with scheduler = sch
+  Some _ <- queryContractId pb csaCid
+  pure ()

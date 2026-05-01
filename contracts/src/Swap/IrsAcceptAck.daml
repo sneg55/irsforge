@@ -1,0 +1,17 @@
+-- IrsAcceptAck re-export shim.
+-- The template lives in Swap.Proposal to avoid the circular import that would
+-- arise if IrsAcceptAck.daml imported Swap.Proposal (which needs IrsAcceptAck).
+-- Tests and other modules import this shim and get the same type.
+module Swap.IrsAcceptAck
+  ( IrsAcceptAck(..)
+  , IrsConfirmAccept(..)
+  , IrsAcceptAckCancelByCounterparty(..)
+  , IrsAcceptAckCancelByOperator(..)
+  ) where
+
+import Swap.Proposal
+  ( IrsAcceptAck(..)
+  , IrsConfirmAccept(..)
+  , IrsAcceptAckCancelByCounterparty(..)
+  , IrsAcceptAckCancelByOperator(..)
+  )

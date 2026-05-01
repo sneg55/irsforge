@@ -1,0 +1,104 @@
+-- Dispute lifecycle helpers for Csa.Csa.
+--
+-- Lifted out of Csa.Csa so that file stays under the 300-line cap as the
+-- dispute state machine grows (Tier 2 #8). Same pattern as Csa.Math.
+-- Re-exported from Csa.Csa.
+module Csa.DisputeOps where
+
+import qualified Csa.Mark as M
+import qualified Csa.Dispute as D
+import qualified Csa.Types as T
+
+-- Body of AcknowledgeDispute. Caller passes csaCid as `show self` from
+-- inside the Csa choice body (Daml has no direct way to read self in a
+-- module-level function).
+acknowledgeDisputeImpl
+  :  Party -> Party -> Party -> [Party] -> Party
+  -> Text -> Time -> Decimal -> Text
+  -> Update (ContractId M.MarkToMarket)
+acknowledgeDisputeImpl operator partyA partyB regulators scheduler
+                       csaCid newAsOf newExposure newSnapshot =
+  create M.MarkToMarket with
+    operator
+    partyA; partyB
+    regulators
+    scheduler
+    csaCid
+    asOf     = newAsOf
+    exposure = newExposure
+    snapshot = newSnapshot
+
+-- Body of Dispute. Validates inputs (disputer party, prior published mark,
+-- no concurrent dispute, current state allows dispute), persists a fresh
+-- DisputeRecord, and returns its cid for the choice body to plug into
+-- Csa.activeDispute.
+disputeImpl
+  :  Party -> Party -> Party -> [Party] -> Party
+  -> Text -> T.CsaState -> Optional (ContractId M.MarkToMarket)
+  -> Optional (ContractId D.DisputeRecord)
+  -> Party -> Decimal -> T.DisputeReason -> Text
+  -> Update (ContractId D.DisputeRecord)
+disputeImpl operator partyA partyB regulators scheduler csaCid
+            csaState lastMarkCid activeDispute
+            disputer counterMark reason notes = do
+  assertMsg "disputer must be partyA or partyB"
+            (disputer == partyA || disputer == partyB)
+  assertMsg "dispute requires a published mark" (lastMarkCid /= None)
+  assertMsg "no active dispute already open" (activeDispute == None)
+  assertMsg "cannot dispute an already-disputed mark"
+            (csaState == T.Active || csaState == T.MarginCallOutstanding)
+  now <- getTime
+  create D.DisputeRecord with
+    operator; partyA; partyB; regulators; scheduler
+    csaCid; disputer; counterMark; reason; notes
+    openedAt = now
+
+-- Body of EscalateDispute. The escalator must be the *non-disputer*
+-- counterparty: only the side that did not raise the dispute can escalate
+-- it (otherwise a unilateral disputer could trap the CSA in Escalated).
+escalateDisputeImpl
+  :  Party -> Party -> T.CsaState
+  -> Optional (ContractId D.DisputeRecord) -> Party
+  -> Update ()
+escalateDisputeImpl partyA partyB csaState activeDispute escalator = do
+  assertMsg "escalator must be partyA or partyB"
+            (escalator == partyA || escalator == partyB)
+  assertMsg "escalate only valid in MarkDisputed"
+            (csaState == T.MarkDisputed)
+  case activeDispute of
+    None -> abort "MarkDisputed without an active dispute record"
+    Some drCid -> do
+      dr <- fetch drCid
+      assertMsg "only the non-disputer counterparty can escalate"
+                (escalator /= dr.disputer)
+
+-- Body of AgreeToCounterMark. The non-disputer counterparty accepts the
+-- disputer's counter-mark verbatim: a fresh MarkToMarket is published with
+-- the counterMark from the active DisputeRecord, the dispute is archived,
+-- and the choice body flips the CSA back to Active. Only valid in
+-- MarkDisputed (not Escalated — once escalated, only operator
+-- AcknowledgeDispute resolves).
+agreeToCounterMarkImpl
+  :  Party -> Party -> Party -> [Party] -> Party
+  -> Text -> T.CsaState -> Optional (ContractId D.DisputeRecord) -> Party
+  -> Time -> Text
+  -> Update (ContractId M.MarkToMarket)
+agreeToCounterMarkImpl operator partyA partyB regulators scheduler
+                       csaCid csaState activeDispute agreer asOf snapshot = do
+  assertMsg "agreer must be partyA or partyB"
+            (agreer == partyA || agreer == partyB)
+  assertMsg "agree only valid in MarkDisputed (not Escalated)"
+            (csaState == T.MarkDisputed)
+  case activeDispute of
+    None -> abort "MarkDisputed without an active dispute record"
+    Some drCid -> do
+      dr <- fetch drCid
+      assertMsg "only the non-disputer counterparty can agree"
+                (agreer /= dr.disputer)
+      markCid <- create M.MarkToMarket with
+        operator; partyA; partyB; regulators; scheduler
+        csaCid; asOf
+        exposure = dr.counterMark
+        snapshot
+      archive drCid
+      pure markCid

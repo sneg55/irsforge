@@ -1,0 +1,53 @@
+{
+  "cases": [
+    {
+      "name": "LinearZero interior",
+      "pillars": [
+        { "tenorDays": 1, "zeroRate": "0.0533000000" },
+        { "tenorDays": 30, "zeroRate": "0.0531000000" },
+        { "tenorDays": 91, "zeroRate": "0.0527000000" },
+        { "tenorDays": 182, "zeroRate": "0.0521000000" },
+        { "tenorDays": 365, "zeroRate": "0.0510000000" },
+        { "tenorDays": 730, "zeroRate": "0.0495000000" },
+        { "tenorDays": 1826, "zeroRate": "0.0470000000" },
+        { "tenorDays": 3652, "zeroRate": "0.0440000000" }
+      ],
+      "dayCount": "Act360",
+      "interpolation": "LinearZero",
+      "queries": [
+        { "tenorDays": 1, "expectedZero": "0.0533000000" },
+        { "tenorDays": 45, "expectedZero": "0.0530016393" },
+        { "tenorDays": 365, "expectedZero": "0.0510000000" },
+        { "tenorDays": 2500, "expectedZero": "0.0458926616" }
+      ]
+    },
+    {
+      "name": "LinearZero flat extrapolation below",
+      "pillars": [
+        { "tenorDays": 30, "zeroRate": "0.0500000000" },
+        { "tenorDays": 365, "zeroRate": "0.0450000000" }
+      ],
+      "dayCount": "Act360",
+      "interpolation": "LinearZero",
+      "queries": [
+        { "tenorDays": 1, "expectedZero": "0.0500000000" },
+        { "tenorDays": 500, "expectedZero": "0.0450000000" }
+      ]
+    },
+    {
+      "name": "LogLinearDF interior",
+      "pillars": [
+        { "tenorDays": 30, "zeroRate": "0.0530000000" },
+        { "tenorDays": 365, "zeroRate": "0.0510000000" }
+      ],
+      "dayCount": "Act360",
+      "interpolation": "LogLinearDF",
+      "queries": [
+        { "tenorDays": 30, "expectedZero": "0.0530000000" },
+        { "tenorDays": 100, "expectedZero": "0.0508387193" },
+        { "tenorDays": 200, "expectedZero": "0.0506647997" },
+        { "tenorDays": 365, "expectedZero": "0.0510000000" }
+      ]
+    }
+  ]
+}

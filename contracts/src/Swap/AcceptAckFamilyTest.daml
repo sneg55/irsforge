@@ -1,0 +1,214 @@
+-- Happy-path ProposeAccept → ConfirmAccept tests for the 8 non-IRS swap families.
+-- Each test: create proposal, counterparty fires <Family>ProposeAccept,
+-- operator fires <Family>ConfirmAccept, assert SwapWorkflow with correct swapType.
+module Swap.AcceptAckFamilyTest where
+
+import Daml.Script
+import DA.Date (date, Month(..))
+import Daml.Finance.Interface.Types.Date.V3.DayCount (DayCountConventionEnum(..))
+import Oracle.Types (RateFamily(..))
+import Swap.OisProposal
+import Swap.BasisSwapProposal
+import Swap.XccyFixedFloatProposal
+import Swap.CdsProposal
+import Swap.CcySwapProposal
+import Swap.FxSwapProposal
+import Swap.AssetSwapProposal
+import Swap.FpmlProposal
+import Swap.Types (FpmlLeg(..))
+import Swap.Workflow (SwapWorkflow(..))
+import Swap.TestHelpers
+
+testOisProposeAcceptHappyPath : Script ()
+testOisProposeAcceptHappyPath = do
+  tp <- allocateTestParties
+  runInit tp
+  fridCid <- seedUsdSofrIndex tp
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd OisProposal with
+      operator = tp.operator; proposer = tp.partyA; counterparty = tp.partyB
+      notional = 10_000_000.0; fixRate = 0.04
+      startDate = date 2026 Apr 16; maturityDate = date 2031 Apr 16
+      dayCountConvention = Act360
+  ackCid <- submit tp.partyB do
+    exerciseCmd proposalCid OisProposeAccept with
+      operator = tp.operator; regulators = [tp.regulator]
+      floatingRateIndexCid = fridCid
+  _ <- submit tp.operator do exerciseCmd ackCid OisConfirmAccept
+  workflows <- query @SwapWorkflow tp.partyA
+  assertMsg "Should have 1 OIS SwapWorkflow" (length workflows == 1)
+  case workflows of
+    [(_, wf)] -> assertMsg "swapType OIS" (wf.swapType == "OIS")
+    _ -> assertFail "Expected 1 workflow"
+  debug "testOisProposeAcceptHappyPath passed"
+
+testBasisProposeAcceptHappyPath : Script ()
+testBasisProposeAcceptHappyPath = do
+  tp <- allocateTestParties
+  runInit tp
+  sofrCid <- seedUsdSofrIndex tp
+  effrCid <- seedFloatingRateIndex tp "USD-EFFR" "USD" SOFR 2
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd BasisSwapProposal with
+      operator = tp.operator; proposer = tp.partyA; counterparty = tp.partyB
+      notional = 25_000_000.0; currency = "USD"
+      leg0Spread = 0.0; leg1Spread = 0.0025
+      startDate = date 2026 Apr 16; maturityDate = date 2031 Apr 16
+      dayCountConvention = Act360
+  ackCid <- submit tp.partyB do
+    exerciseCmd proposalCid BasisProposeAccept with
+      operator = tp.operator; regulators = [tp.regulator]
+      leg0FloatingRateIndexCid = sofrCid
+      leg1FloatingRateIndexCid = effrCid
+  _ <- submit tp.operator do exerciseCmd ackCid BasisConfirmAccept
+  workflows <- query @SwapWorkflow tp.partyA
+  assertMsg "Should have 1 BASIS SwapWorkflow" (length workflows == 1)
+  case workflows of
+    [(_, wf)] -> assertMsg "swapType BASIS" (wf.swapType == "BASIS")
+    _ -> assertFail "Expected 1 workflow"
+  debug "testBasisProposeAcceptHappyPath passed"
+
+testXccyProposeAcceptHappyPath : Script ()
+testXccyProposeAcceptHappyPath = do
+  tp <- allocateTestParties
+  runInit tp
+  eurEstrCid <- seedFloatingRateIndex tp "EUR-ESTR" "EUR" SOFR 1
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd XccyFixedFloatProposal with
+      operator = tp.operator; proposer = tp.partyA; counterparty = tp.partyB
+      fixedCurrency = "USD"; fixedNotional = 10_000_000.0; fixedRate = 0.04
+      floatCurrency = "EUR"; floatNotional = 9_260_000.0
+      startDate = date 2026 Apr 16; maturityDate = date 2031 Apr 16
+      dayCountConvention = Act360
+  ackCid <- submit tp.partyB do
+    exerciseCmd proposalCid XccyProposeAccept with
+      operator = tp.operator; regulators = [tp.regulator]
+      floatFloatingRateIndexCid = eurEstrCid
+  _ <- submit tp.operator do exerciseCmd ackCid XccyConfirmAccept
+  workflows <- query @SwapWorkflow tp.partyA
+  assertMsg "Should have 1 XCCY SwapWorkflow" (length workflows == 1)
+  case workflows of
+    [(_, wf)] -> assertMsg "swapType XCCY" (wf.swapType == "XCCY")
+    _ -> assertFail "Expected 1 workflow"
+  debug "testXccyProposeAcceptHappyPath passed"
+
+testCdsProposeAcceptHappyPath : Script ()
+testCdsProposeAcceptHappyPath = do
+  tp <- allocateTestParties
+  runInit tp
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd CdsProposal with
+      operator = tp.operator; proposer = tp.partyA; counterparty = tp.partyB
+      notional = 5_000_000.0; fixRate = 0.015; referenceName = "TSLA"
+      ownerReceivesFix = True
+      startDate = date 2026 Apr 16; maturityDate = date 2027 Apr 16
+      dayCountConvention = Act360
+  ackCid <- submit tp.partyB do
+    exerciseCmd proposalCid CdsProposeAccept with
+      operator = tp.operator; regulators = [tp.regulator]
+  _ <- submit tp.operator do exerciseCmd ackCid CdsConfirmAccept
+  workflows <- query @SwapWorkflow tp.partyA
+  assertMsg "Should have 1 CDS SwapWorkflow" (length workflows == 1)
+  case workflows of
+    [(_, wf)] -> assertMsg "swapType CDS" (wf.swapType == "CDS")
+    _ -> assertFail "Expected 1 workflow"
+  debug "testCdsProposeAcceptHappyPath passed"
+
+testCcyProposeAcceptHappyPath : Script ()
+testCcyProposeAcceptHappyPath = do
+  tp <- allocateTestParties
+  runInit tp
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd CcySwapProposal with
+      operator = tp.operator; proposer = tp.partyA; counterparty = tp.partyB
+      notional = 10_000_000.0; baseRate = 0.04; foreignRate = 0.035
+      baseCurrency = "USD"; foreignCurrency = "EUR"; fxRate = 1.08
+      ownerReceivesBase = True
+      startDate = date 2026 Apr 16; maturityDate = date 2027 Apr 16
+      dayCountConvention = Act360
+  ackCid <- submit tp.partyB do
+    exerciseCmd proposalCid CcyProposeAccept with
+      operator = tp.operator; regulators = [tp.regulator]
+  _ <- submit tp.operator do exerciseCmd ackCid CcyConfirmAccept
+  workflows <- query @SwapWorkflow tp.partyA
+  assertMsg "Should have 1 CCY SwapWorkflow" (length workflows == 1)
+  case workflows of
+    [(_, wf)] -> assertMsg "swapType CCY" (wf.swapType == "CCY")
+    _ -> assertFail "Expected 1 workflow"
+  debug "testCcyProposeAcceptHappyPath passed"
+
+testFxProposeAcceptHappyPath : Script ()
+testFxProposeAcceptHappyPath = do
+  tp <- allocateTestParties
+  runInit tp
+  let firstPaymentDate = date 2026 Jul 16
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd FxSwapProposal with
+      operator = tp.operator; proposer = tp.partyA; counterparty = tp.partyB
+      notional = 10_000_000.0; baseCurrency = "USD"; foreignCurrency = "EUR"
+      firstFxRate = 1.08; finalFxRate = 1.085
+      firstPaymentDate; maturityDate = date 2027 Apr 16
+  ackCid <- submit tp.partyB do
+    exerciseCmd proposalCid FxProposeAccept with
+      operator = tp.operator; regulators = [tp.regulator]
+  _ <- submit tp.operator do exerciseCmd ackCid FxConfirmAccept
+  workflows <- query @SwapWorkflow tp.partyA
+  assertMsg "Should have 1 FX SwapWorkflow" (length workflows == 1)
+  case workflows of
+    [(_, wf)] -> assertMsg "swapType FX" (wf.swapType == "FX")
+    _ -> assertFail "Expected 1 workflow"
+  debug "testFxProposeAcceptHappyPath passed"
+
+testAssetProposeAcceptHappyPath : Script ()
+testAssetProposeAcceptHappyPath = do
+  tp <- allocateTestParties
+  runInit tp
+  fridCid <- seedUsdSofrIndex tp
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd AssetSwapProposal with
+      operator = tp.operator; proposer = tp.partyA; counterparty = tp.partyB
+      notional = 10_000_000.0; fixRate = 0.03; ownerReceivesRate = True
+      underlyingAssetIds = ["UST-10Y"]; underlyingWeights = [1.0]
+      startDate = date 2026 Apr 16; maturityDate = date 2027 Apr 16
+      dayCountConvention = Act360
+  ackCid <- submit tp.partyB do
+    exerciseCmd proposalCid AssetProposeAccept with
+      operator = tp.operator; regulators = [tp.regulator]
+      floatingRateIndexCid = fridCid
+  _ <- submit tp.operator do exerciseCmd ackCid AssetConfirmAccept
+  workflows <- query @SwapWorkflow tp.partyA
+  assertMsg "Should have 1 ASSET SwapWorkflow" (length workflows == 1)
+  case workflows of
+    [(_, wf)] -> assertMsg "swapType ASSET" (wf.swapType == "ASSET")
+    _ -> assertFail "Expected 1 workflow"
+  debug "testAssetProposeAcceptHappyPath passed"
+
+testFpmlProposeAcceptHappyPath : Script ()
+testFpmlProposeAcceptHappyPath = do
+  tp <- allocateTestParties
+  runInit tp
+  let
+    fixedLeg = FpmlLeg with
+      legType = "fixed"; currency = "USD"; notional = 25_000_000.0
+      rate = Some 0.0485; indexId = None; spread = None
+      dayCountConvention = Act360
+    floatLeg = FpmlLeg with
+      legType = "float"; currency = "USD"; notional = 25_000_000.0
+      rate = None; indexId = Some "USD-SOFR"; spread = Some 0.0
+      dayCountConvention = Act360
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd FpmlProposal with
+      operator = tp.operator; proposer = tp.partyA; counterparty = tp.partyB
+      legs = [fixedLeg, floatLeg]
+      startDate = date 2026 Apr 16; maturityDate = date 2027 Apr 16
+      description = "FpML test swap"
+  ackCid <- submit tp.partyB do
+    exerciseCmd proposalCid FpmlProposeAccept with
+      operator = tp.operator; regulators = [tp.regulator]
+  _ <- submit tp.operator do exerciseCmd ackCid FpmlConfirmAccept
+  workflows <- query @SwapWorkflow tp.partyA
+  assertMsg "Should have 1 FpML SwapWorkflow" (length workflows == 1)
+  case workflows of
+    [(_, wf)] -> assertMsg "swapType FpML" (wf.swapType == "FpML")
+    _ -> assertFail "Expected 1 workflow"
+  debug "testFpmlProposeAcceptHappyPath passed"

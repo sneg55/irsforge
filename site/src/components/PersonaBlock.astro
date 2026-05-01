@@ -1,0 +1,54 @@
+---
+interface Props {
+  audience: string
+  headline: string
+  body: string
+  nextHref: string
+  nextLabel: string
+}
+const { audience, headline, body, nextHref, nextLabel } = Astro.props
+---
+<article class="persona">
+  <p class="audience label">{audience}</p>
+  <h3 class="headline">{headline}</h3>
+  <p class="body">{body}</p>
+  <a href={nextHref} class="next">
+    <span class="next-label">{nextLabel}</span>
+    <span class="next-arrow" aria-hidden="true">→</span>
+  </a>
+</article>
+
+<style>
+  .persona {
+    position: relative;
+    padding: 3rem 1rem;
+    margin: 0 -1rem;
+    border-top: 1px solid var(--color-border);
+    border-radius: 2px;
+    transition: background-color .3s ease;
+  }
+  .persona:first-child { border-top: none; }
+  .persona:hover { background: rgba(201, 169, 97, 0.025); }
+  .audience { color: var(--color-accent); margin: 0 0 0.75rem; }
+  .headline { font-size: 2rem; margin: 0 0 0.875rem; max-width: 26ch; }
+  .body { font-size: 1.0625rem; color: var(--color-fg-body); max-width: 60ch; margin: 0 0 1.25rem; }
+  .next {
+    font-size: 0.9375rem; color: var(--color-accent);
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    transition: color .2s ease;
+  }
+  .next-arrow {
+    display: inline-block;
+    transition: transform .25s cubic-bezier(.2,.7,.2,1);
+  }
+  .next:hover { color: var(--color-fg); }
+  .next:hover .next-arrow { transform: translateX(4px); }
+  .next-label {
+    background-image: linear-gradient(currentColor, currentColor);
+    background-position: 0 100%;
+    background-repeat: no-repeat;
+    background-size: 0% 1px;
+    transition: background-size .3s cubic-bezier(.2,.7,.2,1);
+  }
+  .next:hover .next-label { background-size: 100% 1px; }
+</style>

@@ -1,0 +1,140 @@
+-- Cash-leg audit trail visible to the regulator.
+--
+-- Why this exists. Daml Finance's `Settlement.Instruction` and `Holding`
+-- contracts move the actual cash, but their stakeholder set is the routing
+-- parties only — the regulator (an observer on Csa/SwapWorkflow) cannot see
+-- them. Without a shadow audit row, the regulator timeline shows the
+-- *intent* of a settlement (TriggerLifecycle, Settle, Mature, SettleNet)
+-- but not the cash leg that resulted. SettlementAudit closes that gap by
+-- recording every non-zero cash movement with the regulator as observer.
+--
+-- This is NOT a replacement for the underlying Settlement.Instruction —
+-- it's a denormalised audit projection. Auditors who need cryptographic
+-- evidence of the cash leg correlate `batchCid` back to the instruction
+-- contract via the operator-side ledger.
+module Audit.SettlementAudit where
+
+import DA.Foldable (forA_)
+import Daml.Finance.Interface.Settlement.V4.Batch qualified as Batch
+import Daml.Finance.Interface.Types.Common.V3.Types (Id(..), InstrumentKey)
+
+template SettlementAudit
+  with
+    partyA       : Party
+    partyB       : Party
+    operator     : Party
+    regulators    : [Party]
+    scheduler    : Party
+    -- Free-form tag for the calling lifecycle stage.
+    -- Values used today: "swap-settle", "swap-mature", "csa-net".
+    -- Kept as Text so a new source (e.g. "swap-terminate") can be added
+    -- without touching the schema.
+    source       : Text
+    -- Stringified ContractId of the originating SwapWorkflow / Csa. The
+    -- regulator UI uses this to deep-link from the timeline back to the
+    -- workflow record. Stored as Text because cross-template typed cids
+    -- in audit projections create awkward upgrade dependencies.
+    sourceCid    : Text
+    -- Populated for swap-* sources; None for csa-net (no single
+    -- instrument — the netting set spans many).
+    swapType     : Optional Text
+    instrumentId : Optional Text
+    ccy          : Text
+    payer        : Party
+    payee        : Party
+    amount       : Decimal       -- absolute, > 0 (zero-net rows are skipped)
+    batchCid     : Optional Text -- stringified Daml Finance Batch cid
+    settledAt    : Time
+  where
+    -- Matches the NettedBatch shape: counterparties co-sign their own cash
+    -- movements; operator + regulator + scheduler observe. Operator NOT
+    -- a signatory because some lifecycle paths (MatureByScheduler) run
+    -- under scheduler authority alone, and we want one audit row per
+    -- settlement regardless of which choice fired it.
+    signatory partyA, partyB
+    observer  operator, regulators, scheduler
+
+    ensure amount > 0.0
+
+-- Audit hook for SwapWorkflow.Settle and matureImpl. Sign of `netAmount`
+-- decides payer/payee, matching the convention in Swap.Settlement
+-- (executeSettlement):
+--   netAmount >= 0  ⇒ partyB pays partyA
+--   netAmount <  0  ⇒ partyA pays partyB
+-- Returns None when net is exactly zero — no cash moves, no audit row.
+auditSwapSettlement
+  :  Party                            -- operator
+  -> Party                            -- partyA
+  -> Party                            -- partyB
+  -> [Party]                          -- regulators
+  -> Party                            -- scheduler
+  -> Text                             -- source ("swap-settle" | "swap-mature")
+  -> Text                             -- sourceCid (show of the SwapWorkflow cid)
+  -> Text                             -- swapType
+  -> InstrumentKey                    -- swap instrument (for instrumentId)
+  -> Text                             -- ccy label (eg "USD")
+  -> Decimal                          -- signed netAmount
+  -> Optional (ContractId Batch.I)
+  -> Time                             -- settledAt
+  -> Update (Optional (ContractId SettlementAudit))
+auditSwapSettlement
+    operator partyA partyB regulators scheduler
+    source sourceCid swapType instrKey ccy netAmount batchCid settledAt =
+  if netAmount == 0.0 then pure None
+  else do
+    let
+      (payer, payee, absAmount) =
+        if netAmount >= 0.0 then (partyB, partyA, netAmount)
+                            else (partyA, partyB, -netAmount)
+      Id instrId = instrKey.id
+    cid <- create SettlementAudit with
+      partyA; partyB; operator
+      regulators
+      scheduler
+      source; sourceCid
+      swapType     = Some swapType
+      instrumentId = Some instrId
+      ccy
+      payer; payee
+      amount       = absAmount
+      batchCid     = fmap show batchCid
+      settledAt
+    pure (Some cid)
+
+-- Audit hook for Csa.SettleNet. One row per non-zero per-currency leg of
+-- the netting set. Skips zeros — a netting set that exactly cancels in a
+-- given ccy emits no audit row for that ccy; the summary lives on
+-- NettedBatch and the per-leg detail on SettlementAudit.
+auditCsaNet
+  :  Party                            -- operator
+  -> Party                            -- partyA
+  -> Party                            -- partyB
+  -> [Party]                          -- regulators
+  -> Party                            -- scheduler
+  -> Text                             -- sourceCid (show of the Csa cid)
+  -> Optional (ContractId Batch.I)
+  -> Time                             -- paymentTimestamp
+  -> [(Text, Decimal)]                -- netByCcy (signed; positive = partyA received)
+  -> Update ()
+auditCsaNet operator partyA partyB regulators scheduler
+            sourceCid batchCid settledAt netByCcy =
+  forA_ netByCcy \(ccy, amt) ->
+    if amt == 0.0 then pure ()
+    else do
+      let
+        (payer, payee, absAmount) =
+          if amt >= 0.0 then (partyB, partyA, amt) else (partyA, partyB, -amt)
+      _ <- create SettlementAudit with
+        partyA; partyB; operator
+        regulators
+        scheduler
+        source       = "csa-net"
+        sourceCid
+        swapType     = None
+        instrumentId = None
+        ccy
+        payer; payee
+        amount       = absAmount
+        batchCid     = fmap show batchCid
+        settledAt
+      pure ()

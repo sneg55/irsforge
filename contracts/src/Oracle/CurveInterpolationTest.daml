@@ -1,0 +1,21 @@
+module Oracle.CurveInterpolationTest where
+
+import Daml.Script
+import DA.Foldable (forA_)
+import Oracle.FixtureData
+import Oracle.Interpolation (interpolateZero)
+
+curveInterpolationParityTest : Script ()
+curveInterpolationParityTest = do
+  -- 1e-5 tolerance: LinearZero is pure arithmetic (hits 1e-10 easily), but
+  -- LogLinearDF uses 6-term Taylor approximations for log/exp which cap
+  -- at ~1e-5 precision for DFs around 0.6. See Oracle.Interpolation.
+  let tolerance = 0.00001
+  forA_ fixtureCases $ \fc -> do
+    forA_ fc.queries $ \q -> do
+      let result = interpolateZero fc.interpolation fc.pillars q.tenorDays
+      let diff = abs (result - q.expectedZero)
+      assertMsg
+        ("Parity " <> fc.name <> " @ " <> show q.tenorDays <> "d: got " <> show result <> " expected " <> show q.expectedZero)
+        (diff <= tolerance)
+  pure ()

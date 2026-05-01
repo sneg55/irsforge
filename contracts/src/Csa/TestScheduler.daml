@@ -1,0 +1,102 @@
+-- Scheduler-authority tests for the Csa template. Verifies the widened
+-- sister choices (PublishMarkByScheduler, SettleVmByScheduler) are
+-- exercisable by the scheduler party, and that the operator-only Dispute
+-- and AcknowledgeDispute choices remain gated.
+module Csa.TestScheduler where
+
+import Daml.Script
+import DA.Date (date, Month(..))
+import DA.Map qualified as Map
+import DA.Optional (fromOptional)
+import DA.Time (time)
+import Csa.Csa qualified as C
+import Csa.Types qualified as T
+
+allocateFour : Script (Party, Party, Party, Party, Party)
+allocateFour = do
+  op  <- allocatePartyWithHint "Op"   (PartyIdHint "Op")
+  pa  <- allocatePartyWithHint "PA"   (PartyIdHint "PA")
+  pb  <- allocatePartyWithHint "PB"   (PartyIdHint "PB")
+  reg <- allocatePartyWithHint "Reg"  (PartyIdHint "Reg")
+  sch <- allocatePartyWithHint "Sch"  (PartyIdHint "Sch")
+  pure (op, pa, pb, reg, sch)
+
+baseCsa : Party -> Party -> Party -> Party -> Party -> C.Csa
+baseCsa op pa pb reg sch = C.Csa with
+  operator     = op
+  partyA       = pa
+  partyB       = pb
+  regulators    = [reg]
+  scheduler    = sch
+  threshold    = Map.fromList [(T.DirA, 0.0), (T.DirB, 0.0)]
+  mta          = 100_000.0
+  rounding     = 10_000.0
+  eligible     = [T.EligibleCollateral with currency = "USD"; haircut = 1.0]
+  valuationCcy = "USD"
+  csb          = Map.empty
+  state        = T.Active
+  lastMarkCid  = None
+  isdaMasterAgreementRef = ""
+  governingLaw           = T.NewYork
+  imAmount               = 0.0
+  activeDispute          = None
+
+-- | Scheduler exercises PublishMarkByScheduler — the widened controller
+--   path. Confirms scheduler's JWT can publish marks under automation.
+testSchedulerCanPublishMark : Script ()
+testSchedulerCanPublishMark = do
+  (op, pa, pb, reg, sch) <- allocateFour
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  (_, markCid) <- submit sch do
+    exerciseCmd cid C.PublishMarkByScheduler with
+      asOf     = time (date 2026 Apr 17) 12 0 0
+      exposure = 1_000_000.0
+      snapshot = "{}"
+  Some mk <- queryContractId sch markCid
+  assertMsg "mark exposure recorded" (mk.exposure == 1_000_000.0)
+
+-- | Scheduler exercises SettleVmByScheduler — the widened controller
+--   path for VM settlement. Under the signed-CSB model SettleVm is
+--   purely an assessment (no balance movement); here we verify the
+--   scheduler can drive it and that an under-pledged book flips to
+--   MarginCallOutstanding with a Shortfall on the pledgor side.
+testSchedulerCanSettleVm : Script ()
+testSchedulerCanSettleVm = do
+  (op, pa, pb, reg, sch) <- allocateFour
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  (cid, _) <- submit sch do
+    exerciseCmd cid C.PublishMarkByScheduler with
+      asOf     = time (date 2026 Apr 17) 12 0 0
+      exposure = 1_000_000.0  -- target csb = +1M (A is pledgor)
+      snapshot = "{}"
+  cid <- submit sch do exerciseCmd cid C.SettleVmByScheduler
+  Some c <- queryContractId sch cid
+  -- Nothing pledged, target is +1M → state flips to call-out but csb
+  -- remains at zero (balance moves only via explicit Post/Withdraw).
+  assertMsg "csb unchanged by settle"
+    (fromOptional 0.0 (Map.lookup "USD" c.csb) == 0.0)
+  assertMsg "state flipped to call-out"
+    (c.state == T.MarginCallOutstanding)
+
+-- | Scheduler is NOT authorised to exercise operator-only PublishMark.
+testSchedulerCannotUseOperatorPublishMark : Script ()
+testSchedulerCannotUseOperatorPublishMark = do
+  (op, pa, pb, reg, sch) <- allocateFour
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  submitMustFail sch do
+    exerciseCmd cid C.PublishMark with
+      asOf     = time (date 2026 Apr 17) 12 0 0
+      exposure = 1_000_000.0
+      snapshot = "{}"
+
+-- | Scheduler is NOT authorised to exercise Dispute (counterparty-only).
+testSchedulerCannotDispute : Script ()
+testSchedulerCannotDispute = do
+  (op, pa, pb, reg, sch) <- allocateFour
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  submitMustFail sch do
+    exerciseCmd cid C.Dispute with
+      disputer = sch
+      counterMark = 0.0
+      reason = T.Other
+      notes = "scheduler should not be able to dispute"

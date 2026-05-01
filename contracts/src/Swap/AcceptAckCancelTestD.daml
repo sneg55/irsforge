@@ -1,0 +1,102 @@
+-- Cancel-path tests for Asset + FpML AcceptAck families.
+module Swap.AcceptAckCancelTestD where
+
+import Daml.Script
+import DA.Date (date, Month(..))
+import Daml.Finance.Interface.Types.Date.V3.DayCount (DayCountConventionEnum(..))
+import Swap.AssetSwapProposal
+import Swap.FpmlProposal
+import Swap.Types (FpmlLeg(..))
+import Swap.TestHelpers
+
+mkFpmlLegs : [FpmlLeg]
+mkFpmlLegs =
+  [ FpmlLeg with
+      legType = "fixed"; currency = "USD"; notional = 25_000_000.0
+      rate = Some 0.0485; indexId = None; spread = None
+      dayCountConvention = Act360
+  , FpmlLeg with
+      legType = "float"; currency = "USD"; notional = 25_000_000.0
+      rate = None; indexId = Some "USD-SOFR"; spread = Some 0.0
+      dayCountConvention = Act360
+  ]
+
+testAssetAcceptAckCancelByCounterparty : Script ()
+testAssetAcceptAckCancelByCounterparty = do
+  tp <- allocateTestParties
+  runInit tp
+  fridCid <- seedUsdSofrIndex tp
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd AssetSwapProposal with
+      operator = tp.operator; proposer = tp.partyA; counterparty = tp.partyB
+      notional = 10_000_000.0; fixRate = 0.03; ownerReceivesRate = True
+      underlyingAssetIds = ["UST-10Y"]; underlyingWeights = [1.0]
+      startDate = date 2026 Apr 16; maturityDate = date 2027 Apr 16
+      dayCountConvention = Act360
+  ackCid <- submit tp.partyB do
+    exerciseCmd proposalCid AssetProposeAccept with
+      operator = tp.operator; regulators = [tp.regulator]
+      floatingRateIndexCid = fridCid
+  submit tp.partyB do
+    exerciseCmd ackCid AssetAcceptAckCancelByCounterparty
+  acks <- query @AssetAcceptAck tp.operator
+  assertMsg "AssetAcceptAck must be archived" (null acks)
+  proposals <- query @AssetSwapProposal tp.partyA
+  assertMsg "Proposal must still be live" (length proposals == 1)
+
+testAssetAcceptAckCancelByOperator : Script ()
+testAssetAcceptAckCancelByOperator = do
+  tp <- allocateTestParties
+  runInit tp
+  fridCid <- seedUsdSofrIndex tp
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd AssetSwapProposal with
+      operator = tp.operator; proposer = tp.partyA; counterparty = tp.partyB
+      notional = 10_000_000.0; fixRate = 0.03; ownerReceivesRate = True
+      underlyingAssetIds = ["UST-10Y"]; underlyingWeights = [1.0]
+      startDate = date 2026 Apr 16; maturityDate = date 2027 Apr 16
+      dayCountConvention = Act360
+  ackCid <- submit tp.partyB do
+    exerciseCmd proposalCid AssetProposeAccept with
+      operator = tp.operator; regulators = [tp.regulator]
+      floatingRateIndexCid = fridCid
+  submit tp.operator do
+    exerciseCmd ackCid AssetAcceptAckCancelByOperator
+  acks <- query @AssetAcceptAck tp.operator
+  assertMsg "AssetAcceptAck must be archived" (null acks)
+
+testFpmlAcceptAckCancelByCounterparty : Script ()
+testFpmlAcceptAckCancelByCounterparty = do
+  tp <- allocateTestParties
+  runInit tp
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd FpmlProposal with
+      operator = tp.operator; proposer = tp.partyA; counterparty = tp.partyB
+      legs = mkFpmlLegs
+      startDate = date 2026 Apr 16; maturityDate = date 2027 Apr 16
+      description = "FpML cancel test"
+  ackCid <- submit tp.partyB do
+    exerciseCmd proposalCid FpmlProposeAccept with
+      operator = tp.operator; regulators = [tp.regulator]
+  submit tp.partyB do
+    exerciseCmd ackCid FpmlAcceptAckCancelByCounterparty
+  acks <- query @FpmlAcceptAck tp.operator
+  assertMsg "FpmlAcceptAck must be archived" (null acks)
+
+testFpmlAcceptAckCancelByOperator : Script ()
+testFpmlAcceptAckCancelByOperator = do
+  tp <- allocateTestParties
+  runInit tp
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd FpmlProposal with
+      operator = tp.operator; proposer = tp.partyA; counterparty = tp.partyB
+      legs = mkFpmlLegs
+      startDate = date 2026 Apr 16; maturityDate = date 2027 Apr 16
+      description = "FpML cancel test"
+  ackCid <- submit tp.partyB do
+    exerciseCmd proposalCid FpmlProposeAccept with
+      operator = tp.operator; regulators = [tp.regulator]
+  submit tp.operator do
+    exerciseCmd ackCid FpmlAcceptAckCancelByOperator
+  acks <- query @FpmlAcceptAck tp.operator
+  assertMsg "FpmlAcceptAck must be archived" (null acks)

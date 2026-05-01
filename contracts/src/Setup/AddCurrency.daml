@@ -1,0 +1,100 @@
+-- Helper: seeds a non-default currency on top of the cash substrate created
+-- by Setup.CashSetup.cashSetup. Reuses the shared token/account/holding
+-- factories returned in CashSetupResult.
+module Setup.AddCurrency where
+
+import Daml.Script
+import DA.Map qualified as Map
+import DA.Set qualified as Set
+import Daml.Finance.Interface.Types.Common.V3.Types
+  ( Id(..), InstrumentKey(..), AccountKey(..), HoldingStandard(..)
+  )
+import Daml.Finance.Interface.Account.V4.Account (Controllers(..))
+import Daml.Finance.Interface.Account.V4.Factory qualified as AccountFactory
+import Daml.Finance.Interface.Holding.V4.Factory qualified as HoldingFactory
+import Daml.Finance.Interface.Instrument.Token.V4.Factory qualified as TokenFactory
+import Daml.Finance.Interface.Instrument.Token.V4.Types (Token(..))
+import Setup.CashSetup (CashSetupResult(..))
+
+-- | Seeds a non-default currency: token instrument + per-party accounts
+--   + starter holdings. Returns (code, instrumentKey, partyAAccountKey,
+--   partyBAccountKey) so Init can include the key in
+--   CashSetupRecord.currencies.
+addCurrency
+  :  Party            -- operator
+  -> Party            -- partyA
+  -> Party            -- partyB
+  -> Party            -- regulator
+  -> CashSetupResult  -- shared factories + holding factory key
+  -> Text             -- currency code (e.g. "EUR")
+  -> Text             -- currency label (e.g. "Euro")
+  -> Script (Text, InstrumentKey, AccountKey, AccountKey)
+addCurrency operator partyA partyB regulator shared code label = do
+  now <- getTime
+  let
+    observerMap = Map.fromList [("observers", Set.fromList [partyA, partyB, regulator])]
+
+    instrumentKey = InstrumentKey with
+      depository      = operator
+      issuer          = operator
+      id              = Id code
+      version         = "0"
+      holdingStandard = TransferableFungible
+
+    partyAAccountKey = AccountKey with
+      custodian = operator
+      owner     = partyA
+      id        = Id ("account-partyA-" <> code)
+
+    partyBAccountKey = AccountKey with
+      custodian = operator
+      owner     = partyB
+      id        = Id ("account-partyB-" <> code)
+
+  -- Mint the currency's token instrument via the shared token factory.
+  submit operator do
+    exerciseCmd shared.tokenFactoryCid TokenFactory.Create with
+      token = Token with
+        instrument  = instrumentKey
+        description = label
+        validAsOf   = now
+      observers = observerMap
+
+  -- Create partyA account for this currency.
+  submitMulti [operator, partyA] [] do
+    exerciseCmd shared.accountFactoryCid AccountFactory.Create with
+      account        = partyAAccountKey
+      holdingFactory = shared.holdingFactoryKey
+      controllers    = Controllers with
+        outgoing = Set.singleton partyA
+        incoming = Set.singleton partyA
+      description    = code <> " account for partyA"
+      observers      = observerMap
+
+  -- Create partyB account for this currency.
+  submitMulti [operator, partyB] [] do
+    exerciseCmd shared.accountFactoryCid AccountFactory.Create with
+      account        = partyBAccountKey
+      holdingFactory = shared.holdingFactoryKey
+      controllers    = Controllers with
+        outgoing = Set.singleton partyB
+        incoming = Set.singleton partyB
+      description    = code <> " account for partyB"
+      observers      = observerMap
+
+  -- Credit starter holdings (same magnitude as the default currency).
+  submitMulti [operator, partyA] [] do
+    exerciseCmd shared.holdingFactoryCid HoldingFactory.Create with
+      instrument = instrumentKey
+      account    = partyAAccountKey
+      amount     = 100_000_000.0
+      observers  = observerMap
+
+  submitMulti [operator, partyB] [] do
+    exerciseCmd shared.holdingFactoryCid HoldingFactory.Create with
+      instrument = instrumentKey
+      account    = partyBAccountKey
+      amount     = 100_000_000.0
+      observers  = observerMap
+
+  pure (code, instrumentKey, partyAAccountKey, partyBAccountKey)

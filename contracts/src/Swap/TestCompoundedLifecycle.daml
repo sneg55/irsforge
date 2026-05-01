@@ -1,0 +1,254 @@
+-- Cross-check that the Daml Finance CompoundedIndex lifecycle rule
+-- produces the same per-unit float coupon the TS pricer's
+-- `calcCompoundedCashflow` does for the NY Fed 2023-Q4 SOFR series.
+--
+-- Invariant: TS pricer matches NY Fed SOFR Index to ≤ 0.1 bp (proven in
+-- app/src/shared/pricing/__tests__/compounded-cashflow.test.ts). If this
+-- script's chain coupon agrees with the same compoundSeries product, the
+-- chain and the pricer share the same compounding convention.
+module Swap.TestCompoundedLifecycle where
+
+import Daml.Script
+import DA.Date (date, Month(..), DayOfWeek(..), subDate)
+import DA.Action (foldlA)
+import DA.Map qualified as Map
+import DA.Set qualified as Set
+import DA.Time (time)
+import Daml.Finance.Interface.Types.Common.V3.Types (Id(..), InstrumentKey(..), HoldingStandard(..))
+import Daml.Finance.Interface.Types.Date.V3.DayCount (DayCountConventionEnum(..))
+import Daml.Finance.Interface.Types.Date.V3.Calendar (BusinessDayAdjustment(..), BusinessDayConventionEnum(..), HolidayCalendarData(..))
+import Daml.Finance.Interface.Types.Date.V3.Schedule (PeriodicSchedule(..), Frequency(..), ScheduleFrequency(..))
+import Daml.Finance.Interface.Types.Date.V3.RollConvention (PeriodEnum(..), Period(..), RollConventionEnum(..))
+import Daml.Finance.Interface.Types.Date.V3.DateOffset (DateOffset(..), DayTypeEnum(..))
+import Daml.Finance.Interface.Instrument.Types.V2.FloatingRate (FloatingRate(..), ReferenceRateTypeEnum(..))
+import Daml.Finance.Interface.Instrument.Swap.V0.InterestRate.Types (InterestRate(..))
+import Daml.Finance.Interface.Instrument.Swap.V0.InterestRate.Factory qualified as IRSFactory
+import Daml.Finance.Instrument.Swap.V0.InterestRate.Factory qualified as IRSFactoryImpl
+import Daml.Finance.Data.V4.Numeric.Observation qualified as Observation
+import Daml.Finance.Data.V4.Reference.HolidayCalendar qualified as HolidayCalendar
+import Daml.Finance.Data.V4.Time.DateClockUpdate qualified as DateClockUpdate
+import Daml.Finance.Claims.V3.Lifecycle.Rule qualified as LifecycleRule
+import Daml.Finance.Interface.Lifecycle.V4.Rule.Lifecycle qualified as Lifecycle
+import Daml.Finance.Interface.Lifecycle.V4.Observable.NumericObservable qualified as NumericObservable
+import Daml.Finance.Interface.Lifecycle.V4.Event qualified as Event
+import Daml.Finance.Interface.Lifecycle.V4.Effect qualified as Effect
+import Swap.Workflow
+import Swap.TestHelpers
+import Swap.SofrFixture2023
+import Constants
+import Setup.GeneratedRateFamilies
+
+-- | Local Daml port of `calcCompoundedCashflow` (observation-driven). The
+-- accrual factor is the product of (1 + r_i × τ_i / 360) over consecutive
+-- publication days; τ_i is the calendar-day gap (so weekend gaps carry 3).
+compoundSeries : [(Date, Decimal)] -> Decimal
+compoundSeries = compoundGo 1.0
+
+compoundGo : Decimal -> [(Date, Decimal)] -> Decimal
+compoundGo acc ((d, r) :: rest@((dNext, _) :: _)) =
+  let tau = intToDecimal (subDate dNext d) / 360.0
+  in compoundGo (acc * (1.0 + r * tau)) rest
+compoundGo acc _ = acc
+
+testCompoundedLifecycle : Script ()
+testCompoundedLifecycle = do
+  tp <- allocateTestParties
+
+  let
+    operatorSet = Set.singleton tp.operator
+    observerMap = Map.fromList [("observers", Set.fromList [tp.partyA, tp.partyB, tp.regulator])]
+    startDate = date 2023 Oct 2
+    endDate   = date 2024 Jan 2
+
+  -- 1. Holiday calendar (weekends only — SOFR publication grid is
+  --    implicit in the Observation set, no off-chain holiday list needed).
+  _calendarCid <- submit tp.operator do
+    createCmd HolidayCalendar.HolidayCalendar with
+      calendar = HolidayCalendarData with
+        id = usdCalendarId
+        weekend = [Saturday, Sunday]
+        holidays = []
+      observers = observerMap
+      provider = tp.operator
+
+  -- 2. Seed Observations as published NY Fed SOFR Index values.
+  --    `CompoundedIndex` reads the observable as the cumulative compounded
+  --    index (NOT the overnight rate), so each Observation must carry the
+  --    Index value at that date. Chain computes period rate as
+  --    obs(periodEnd)/obs(periodStart) - 1 — exactly the NY Fed Index ratio.
+  let
+    sofrObsMap = Map.fromList
+      [ (time startDate 0 0 0, sofrIndexStart)
+      , (time endDate   0 0 0, sofrIndexEnd)
+      ]
+
+  sofrObsCid <- submit tp.operator do
+    createCmd Observation.Observation with
+      provider = tp.operator
+      id = Id sofrOvernightRateId
+      observations = sofrObsMap
+      observers = observerMap
+
+  -- 3. Instrument keys + factory + 3-month IRS instrument.
+  let
+    instrumentKey = InstrumentKey with
+      depository = tp.operator
+      issuer = tp.operator
+      id = Id "IRS-COMPOUND-PARITY"
+      version = "0"
+      holdingStandard = TransferableFungible
+
+    currencyKey = InstrumentKey with
+      depository = tp.operator
+      issuer = tp.operator
+      id = Id usdInstrumentLabel
+      version = "0"
+      holdingStandard = TransferableFungible
+
+  irsFactoryCid <- submit tp.operator do
+    createCmd IRSFactoryImpl.Factory with
+      provider = tp.operator
+      observers = observerMap
+
+  let
+    periodicSchedule = PeriodicSchedule with
+      effectiveDate = startDate
+      terminationDate = endDate
+      firstRegularPeriodStartDate = None
+      lastRegularPeriodEndDate = None
+      frequency = Periodic Frequency with
+        period = Period with
+          period = M
+          periodMultiplier = 3
+        rollConvention = DOM 2
+      businessDayAdjustment = BusinessDayAdjustment with
+        calendarIds = [usdCalendarId]
+        convention = ModifiedFollowing
+      effectiveDateBusinessDayAdjustment = None
+      terminationDateBusinessDayAdjustment = None
+      stubPeriodType = None
+
+    floatingRate = FloatingRate with
+      referenceRateId = sofrOvernightRateId
+      referenceRateType = CompoundedIndex Act360
+      fixingDates = DateOffset with
+        period = D
+        periodMultiplier = 0
+        dayType = Some Business
+        businessDayConvention = NoAdjustment
+        businessCenters = [usdCalendarId]
+
+    interestRate = InterestRate with
+      instrument = instrumentKey
+      description = "SOFR-compound parity test IRS"
+      floatingRate
+      ownerReceivesFix = True
+      fixRate = 0.0
+      periodicSchedule
+      holidayCalendarIds = [usdCalendarId]
+      calendarDataProvider = tp.operator
+      dayCountConvention = Act360
+      currency = currencyKey
+      lastEventTimestamp = time startDate 0 0 0
+
+  let irsFactoryInterfaceCid = toInterfaceContractId @IRSFactory.Factory irsFactoryCid
+
+  submit tp.operator do
+    exerciseCmd irsFactoryInterfaceCid IRSFactory.Create with
+      interestRate
+      observers = observerMap
+
+  -- 4. Lifecycle rule + workflow.
+  lifecycleRuleCid <- submit tp.operator do
+    createCmd LifecycleRule.Rule with
+      providers = operatorSet
+      lifecycler = tp.operator
+      observers = observerMap
+      id = Id "lifecycle-rule-compound-parity"
+      description = "Compounded-index parity lifecycle rule"
+
+  workflowCid <- submitMulti [tp.partyA, tp.partyB] [] do
+    createCmd SwapWorkflow with
+      swapType = "IRS"
+      operator = tp.operator
+      partyA = tp.partyA
+      partyB = tp.partyB
+      regulators = [tp.regulator]
+      scheduler = tp.scheduler
+      instrumentKey
+      notional = 100_000_000.0
+
+  eventCid <- submit tp.operator do
+    createCmd DateClockUpdate.DateClockUpdateEvent with
+      providers = operatorSet
+      date = endDate
+      eventTime = time endDate 0 0 0
+      id = Id "clock-update-2024-01-02"
+      description = "Coupon date event"
+      observers = operatorSet
+
+  let
+    lifecycleRuleInterfaceCid = toInterfaceContractId @Lifecycle.Lifecycle lifecycleRuleCid
+    eventInterfaceCid         = toInterfaceContractId @Event.Event eventCid
+    sofrObsInterfaceCid       = toInterfaceContractId @NumericObservable.NumericObservable sofrObsCid
+
+  (_, effectCids) <- submit tp.operator do
+    exerciseCmd workflowCid TriggerLifecycle with
+      lifecycleRuleCid = lifecycleRuleInterfaceCid
+      eventCid         = eventInterfaceCid
+      observableCids   = [sofrObsInterfaceCid]
+
+  assertMsg "Lifecycle should produce at least one effect" (not (null effectCids))
+
+  -- 5. Sum the per-unit USD `otherProduced` quantity across emitted Effects.
+  --    The IRS lifecycle returns one Effect per period (here just one — the
+  --    schedule has a single 3-month period). With fixRate=0, the per-unit
+  --    net == compound − 1.
+  perUnitNet <- foldlA
+    (\acc effCid -> do
+      view <- submit tp.operator do
+        exerciseCmd effCid Effect.GetView with viewer = tp.operator
+      debug $ "Effect view: targetInstrument=" <> show view.targetInstrument
+      debug $ "  producedInstrument=" <> show view.producedInstrument
+      debug $ "  otherProduced=" <> show view.otherProduced
+      debug $ "  otherConsumed=" <> show view.otherConsumed
+      let
+        produced = sum [ q.amount | q <- view.otherProduced, q.unit.id == Id usdInstrumentLabel ]
+        consumed = sum [ q.amount | q <- view.otherConsumed, q.unit.id == Id usdInstrumentLabel ]
+      pure (acc + produced - consumed))
+    (0.0 : Decimal)
+    effectCids
+
+  -- 6. Sanity-check: the locally-compounded daily SOFR series (the same
+  --    series the TS pricer iterates) should reproduce the published
+  --    Index ratio to <1e-6. This proves the fixture is internally
+  --    consistent — chain uses Index endpoints, pricer compounds daily,
+  --    both should land at the same number.
+  let
+    expectedAccrual = compoundSeries sofrSeries
+    indexRatio = sofrIndexEnd / sofrIndexStart
+    seriesVsIndex = abs (expectedAccrual - indexRatio)
+  assertMsg
+    ("local compoundSeries " <> show expectedAccrual <> " vs published Index ratio " <>
+     show indexRatio <> " differ by " <> show seriesVsIndex)
+    (seriesVsIndex < 0.0000001)
+
+  -- 7. Net coupon for a fix=0, ownerReceivesFix=True swap is fixed - float
+  --    per unit = -float = -(IndexRatio - 1) = 1 - IndexRatio.
+  --    The Effect's otherConsumed carries the cash leg; per-unit consumed
+  --    equals the absolute value of the float coupon.
+  let
+    expectedFloatPerUnit = indexRatio - 1.0
+    expectedNetForOwner = -expectedFloatPerUnit
+    diff = abs (perUnitNet - expectedNetForOwner)
+
+  debug $ "chain per-unit  = " <> show perUnitNet
+  debug $ "expected per-unit = " <> show expectedNetForOwner
+  debug $ "diff = " <> show diff
+
+  -- 8. Chain ↔ pricer parity. 1 bp on per-unit = 0.0001.
+  assertMsg
+    ("Chain coupon " <> show perUnitNet <> " differs from expected " <>
+     show expectedNetForOwner <> " by " <> show diff)
+    (diff < 0.0001)
+  pure ()

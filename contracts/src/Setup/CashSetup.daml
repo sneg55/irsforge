@@ -1,0 +1,263 @@
+module Setup.CashSetup where
+
+import Daml.Script
+import DA.Map (Map)
+import DA.Map qualified as Map
+import DA.Set qualified as Set
+import Daml.Finance.Interface.Types.Common.V3.Types
+  ( Id(..), InstrumentKey(..), AccountKey(..), HoldingStandard(..)
+  , HoldingFactoryKey(..)
+  )
+import Daml.Finance.Interface.Account.V4.Account (Controllers(..))
+import Daml.Finance.Interface.Account.V4.Factory qualified as AccountFactory
+import Daml.Finance.Interface.Holding.V4.Factory qualified as HoldingFactory
+import Daml.Finance.Interface.Settlement.V4.Factory qualified as SettlementFactory
+import Daml.Finance.Interface.Settlement.V4.RouteProvider qualified as RouteProvider
+import Daml.Finance.Interface.Instrument.Token.V4.Factory qualified as TokenFactory
+import Daml.Finance.Interface.Instrument.Token.V4.Types (Token(..))
+import Daml.Finance.Account.V4.Account qualified as AccountImpl
+import Daml.Finance.Holding.V4.Factory qualified as HoldingFactoryImpl
+import Daml.Finance.Settlement.V4.Factory qualified as SettlementFactoryImpl
+import Daml.Finance.Settlement.V4.RouteProvider.SingleCustodian qualified as SingleCustodian
+import Daml.Finance.Instrument.Token.V4.Factory qualified as TokenInstrumentFactory
+import Daml.Finance.Claims.V3.Lifecycle.Rule qualified as LifecycleRule
+import Daml.Finance.Interface.Instrument.Swap.V0.InterestRate.Factory    qualified as IRSFactory
+import Daml.Finance.Interface.Instrument.Swap.V0.CreditDefault.Factory   qualified as CdsFactory
+import Daml.Finance.Interface.Instrument.Swap.V0.Currency.Factory        qualified as CurrencyFactory
+import Daml.Finance.Interface.Instrument.Swap.V0.ForeignExchange.Factory qualified as FxFactory
+import Daml.Finance.Interface.Instrument.Swap.V0.Asset.Factory           qualified as AssetFactory
+import Daml.Finance.Interface.Instrument.Swap.V0.Fpml.Factory            qualified as FpmlFactory
+import Daml.Finance.Interface.Types.Date.V3.Calendar (BusinessDayAdjustment)
+import Daml.Finance.Interface.Types.Date.V3.DayCount (DayCountConventionEnum)
+import Daml.Finance.Interface.Types.Date.V3.RollConvention (RollConventionEnum)
+import Setup.EventFactory (EventFactory)
+
+data FactoryRegistry = FactoryRegistry
+  with
+    irs   : ContractId IRSFactory.Factory
+    cds   : ContractId CdsFactory.Factory
+    ccy   : ContractId CurrencyFactory.Factory
+    fx    : ContractId FxFactory.Factory
+    asset : ContractId AssetFactory.Factory
+    fpml  : ContractId FpmlFactory.Factory
+  deriving (Eq, Show)
+
+data ScheduleDefaults = ScheduleDefaults
+  with
+    frequencyMonths       : Int
+    rollConvention        : RollConventionEnum
+    dayCountConvention    : DayCountConventionEnum
+    businessDayAdjustment : BusinessDayAdjustment
+  deriving (Eq, Show)
+
+-- Directory contract: frontend reads this to find cash infrastructure cids
+-- and the lifecycle plumbing (rule, event factory, shared IRS template).
+template CashSetupRecord
+  with
+    operator             : Party
+    partyA               : Party
+    partyB               : Party
+    regulators            : [Party]
+    scheduler            : Party
+    -- Operator-authorized lifecycle rule — used by manual TriggerLifecycle
+    -- operator path. Scheduler path uses schedulerLifecycleRuleCid below
+    -- (providers = [operator, scheduler]) so Evolve's body carries operator
+    -- authority under a scheduler-only JWT.
+    lifecycleRuleCid          : ContractId LifecycleRule.Rule
+    schedulerLifecycleRuleCid : ContractId LifecycleRule.Rule
+    eventFactoryCid      : ContractId EventFactory
+    settlementFactoryCid : ContractId SettlementFactory.I
+    routeProviderCid     : ContractId RouteProvider.I
+    partyAAccountKey     : AccountKey
+    partyBAccountKey     : AccountKey
+    currencies           : Map Text InstrumentKey
+    defaultCurrencyCode  : Text
+    factories            : FactoryRegistry
+    scheduleDefaults     : Map Text ScheduleDefaults
+    cdsReferenceNames    : [Text]
+  where
+    signatory operator
+    observer partyA, partyB, regulators, scheduler
+    -- Registry key: every swap Accept resolves factories + currencies +
+    -- schedule defaults via this triple. Canonically ordered on (min, max)
+    -- of the two counterparties so lookups work regardless of which side
+    -- proposed — callers use `cashSetupKey` to build the lookup tuple.
+    key (operator, min partyA partyB, max partyA partyB) : (Party, Party, Party)
+    maintainer key._1
+
+-- Call-site helper so Accept choices on every proposal family look up the
+-- setup record without caring about proposer/counterparty orientation.
+-- Prior bug: `fetchByKey (operator, proposer, counterparty)` threw
+-- CONTRACT_KEY_NOT_FOUND when PartyB proposed to PartyA because the seed
+-- only wrote the (Op, PartyA, PartyB) record.
+cashSetupKey : Party -> Party -> Party -> (Party, Party, Party)
+cashSetupKey op a b = (op, min a b, max a b)
+
+-- Result returned to Init so it can create the CashSetupRecord.
+data CashSetupResult = CashSetupResult
+  { defaultInstrumentKey : InstrumentKey
+  , settlementFactoryCid : ContractId SettlementFactory.I
+  , routeProviderCid     : ContractId RouteProvider.I
+  , partyAAccountKey     : AccountKey
+  , partyBAccountKey     : AccountKey
+  , tokenFactoryCid      : ContractId TokenFactory.I
+  , accountFactoryCid    : ContractId AccountFactory.I
+  , holdingFactoryCid    : ContractId HoldingFactory.I
+  , holdingFactoryKey    : HoldingFactoryKey
+  } deriving (Eq, Show)
+
+-- Provisions cash substrate: default-currency token, holding factory,
+-- accounts, initial default-currency holdings, settlement factory,
+-- route provider. Returns the shared factories so Init can seed
+-- additional currencies via `addCurrency`.
+cashSetup
+  :  Party  -- operator (custodian + issuer)
+  -> Party  -- partyA
+  -> Party  -- partyB
+  -> Party  -- regulator
+  -> Text   -- default currency code (e.g. "USD")
+  -> Text   -- default currency label (e.g. "US Dollar")
+  -> Script CashSetupResult
+cashSetup operator partyA partyB regulator defaultCode defaultLabel = do
+  now <- getTime
+
+  let
+    observerMap : Map.Map Text (Set.Set Party)
+    observerMap = Map.fromList [("observers", Set.fromList [partyA, partyB, regulator])]
+
+    allPartiesSet : Set.Set Party
+    allPartiesSet = Set.fromList [partyA, partyB, regulator]
+
+    holdingFactoryId : Id
+    holdingFactoryId = Id "holding-factory"
+
+    defaultKey : InstrumentKey
+    defaultKey = InstrumentKey with
+      depository      = operator
+      issuer          = operator
+      id              = Id defaultCode
+      version         = "0"
+      holdingStandard = TransferableFungible
+
+    holdingFactoryKey : HoldingFactoryKey
+    holdingFactoryKey = HoldingFactoryKey with
+      provider = operator
+      id       = holdingFactoryId
+
+  -- 1. Create Token instrument factory (shared across all currencies)
+  tokenFactoryCid <- submit operator do
+    createCmd TokenInstrumentFactory.Factory with
+      provider  = operator
+      observers = observerMap
+
+  -- 2. Create the default-currency instrument via the factory interface
+  let tokenFactoryIfaceCid = toInterfaceContractId @TokenFactory.I tokenFactoryCid
+  submit operator do
+    exerciseCmd tokenFactoryIfaceCid TokenFactory.Create with
+      token = Token with
+        instrument   = defaultKey
+        description  = defaultLabel
+        validAsOf    = now
+      observers = observerMap
+
+  -- 3. Create Holding factory (TransferableFungible)
+  holdingFactoryCid <- submit operator do
+    createCmd HoldingFactoryImpl.Factory with
+      provider  = operator
+      id        = holdingFactoryId
+      observers = observerMap
+
+  -- 4. Create Account factory
+  accountFactoryCid <- submit operator do
+    createCmd AccountImpl.Factory with
+      provider  = operator
+      observers = observerMap
+
+  let accountFactoryIfaceCid = toInterfaceContractId @AccountFactory.I accountFactoryCid
+  let holdingFactoryIfaceCid = toInterfaceContractId @HoldingFactory.I holdingFactoryCid
+
+  -- Register the holding factory's interface key reference (required for Account.Credit lookup)
+  submit operator do
+    createCmd HoldingFactory.Reference with
+      factoryView = HoldingFactory.View with
+        provider = operator
+        id       = holdingFactoryId
+      cid        = holdingFactoryIfaceCid
+      observers  = observerMap
+
+  -- 5. Create partyA default-currency account
+  let
+    partyAAccountKey = AccountKey with
+      custodian = operator
+      owner     = partyA
+      id        = Id ("account-partyA-" <> defaultCode)
+
+  submitMulti [operator, partyA] [] do
+    exerciseCmd accountFactoryIfaceCid AccountFactory.Create with
+      account        = partyAAccountKey
+      holdingFactory = holdingFactoryKey
+      controllers    = Controllers with
+        outgoing = Set.singleton partyA
+        incoming = Set.singleton partyA
+      description    = defaultCode <> " account for partyA"
+      observers      = observerMap
+
+  -- 6. Create partyB default-currency account
+  let
+    partyBAccountKey = AccountKey with
+      custodian = operator
+      owner     = partyB
+      id        = Id ("account-partyB-" <> defaultCode)
+
+  submitMulti [operator, partyB] [] do
+    exerciseCmd accountFactoryIfaceCid AccountFactory.Create with
+      account        = partyBAccountKey
+      holdingFactory = holdingFactoryKey
+      controllers    = Controllers with
+        outgoing = Set.singleton partyB
+        incoming = Set.singleton partyB
+      description    = defaultCode <> " account for partyB"
+      observers      = observerMap
+
+  -- 7. Credit 100,000,000 default-currency to partyA
+  submitMulti [operator, partyA] [] do
+    exerciseCmd holdingFactoryIfaceCid HoldingFactory.Create with
+      instrument = defaultKey
+      account    = partyAAccountKey
+      amount     = 100_000_000.0
+      observers  = observerMap
+
+  -- 8. Credit 100,000,000 default-currency to partyB
+  submitMulti [operator, partyB] [] do
+    exerciseCmd holdingFactoryIfaceCid HoldingFactory.Create with
+      instrument = defaultKey
+      account    = partyBAccountKey
+      amount     = 100_000_000.0
+      observers  = observerMap
+
+  -- 9. Create SingleCustodian route provider
+  routeProviderCid <- submit operator do
+    createCmd SingleCustodian.SingleCustodian with
+      provider  = operator
+      observers = allPartiesSet
+      custodian = operator
+
+  -- 10. Create Settlement factory
+  settlementFactoryCid <- submit operator do
+    createCmd SettlementFactoryImpl.Factory with
+      provider  = operator
+      observers = allPartiesSet
+
+  let settleFactoryIfaceCid = toInterfaceContractId @SettlementFactory.I settlementFactoryCid
+  let routeProviderIfaceCid = toInterfaceContractId @RouteProvider.I routeProviderCid
+
+  pure CashSetupResult with
+    defaultInstrumentKey = defaultKey
+    settlementFactoryCid = settleFactoryIfaceCid
+    routeProviderCid     = routeProviderIfaceCid
+    partyAAccountKey     = partyAAccountKey
+    partyBAccountKey     = partyBAccountKey
+    tokenFactoryCid      = tokenFactoryIfaceCid
+    accountFactoryCid    = accountFactoryIfaceCid
+    holdingFactoryCid    = holdingFactoryIfaceCid
+    holdingFactoryKey    = holdingFactoryKey

@@ -1,0 +1,41 @@
+-- FX-family coverage: USD↔EUR propose + accept.
+module Swap.TestFxSwap where
+
+import Daml.Script
+import DA.Date (date, Month(..))
+import Swap.FxSwapProposal
+import Swap.Workflow
+import Swap.TestHelpers
+
+-- | USD + EUR both seeded; FxAccept must resolve both currency keys and
+--   create an FX SwapWorkflow.
+test_fx_usd_eur_accept : Script ()
+test_fx_usd_eur_accept = do
+  tp <- allocateTestParties
+  runInit tp
+
+  let firstPaymentDate = date 2026 Jul 16
+
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd FxSwapProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      notional = 10_000_000.0
+      baseCurrency = "USD"
+      foreignCurrency = "EUR"
+      firstFxRate = 1.08
+      finalFxRate = 1.085
+      firstPaymentDate
+      maturityDate = date 2027 Apr 16
+
+  _ <- submit tp.partyB do
+    exerciseCmd proposalCid FxAccept with
+      operator = tp.operator
+      regulators = [tp.regulator]
+  workflows <- query @SwapWorkflow tp.partyA
+  assertMsg "Should have 1 FX workflow" (length workflows == 1)
+  case workflows of
+    [(_, wf)] ->
+      assertMsg "swapType FX" (wf.swapType == "FX")
+    _ -> assertFail "Expected exactly one workflow"

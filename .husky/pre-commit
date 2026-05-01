@@ -1,0 +1,2 @@
+./scripts/verify-eslint-plugins.sh
+npx lint-staged

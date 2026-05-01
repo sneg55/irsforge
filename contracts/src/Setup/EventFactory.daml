@@ -1,0 +1,59 @@
+module Setup.EventFactory where
+
+import DA.Set qualified as Set
+import DA.Time (time)
+import Daml.Finance.Interface.Types.Common.V3.Types (Id(..))
+import Daml.Finance.Data.V4.Time.DateClockUpdate qualified as DCUE
+
+-- | Operator-signed factory that stamps out DateClockUpdateEvent contracts
+-- for a given fixing date. Observers include the two trading parties + the
+-- regulator so anyone running a swap lifecycle step can see the event.
+--
+-- The existence of this template lets the frontend trigger a fixing cycle
+-- without having the operator fire a Daml script out-of-band.
+template EventFactory
+  with
+    operator  : Party
+    partyA    : Party
+    partyB    : Party
+    regulators : [Party]
+    scheduler : Party
+  where
+    signatory operator
+    observer partyA, partyB, regulators, scheduler
+
+    nonconsuming choice CreateFixingEvent : ContractId DCUE.DateClockUpdateEvent
+      with
+        eventDate : Date
+      controller operator
+      do
+        createFixingEventImpl operator partyA partyB regulators scheduler eventDate
+
+    -- Scheduler-authorized sister choice. Body shared with
+    -- `CreateFixingEvent` so the two paths produce structurally-identical
+    -- events: same providers (operator-signed), same observers, same id
+    -- namespace. Scheduler uses this to stamp the per-tick fixing event
+    -- under a scheduler-only JWT — operator authority flows from the
+    -- factory's operator signatory, not from impersonating operator.
+    nonconsuming choice CreateFixingEventByScheduler : ContractId DCUE.DateClockUpdateEvent
+      with
+        eventDate : Date
+      controller scheduler
+      do
+        createFixingEventImpl operator partyA partyB regulators scheduler eventDate
+
+createFixingEventImpl
+  :  Party -> Party -> Party -> [Party] -> Party -> Date
+  -> Update (ContractId DCUE.DateClockUpdateEvent)
+createFixingEventImpl operator partyA partyB regulators scheduler eventDate = do
+  let
+    idStr = "fixing-" <> show eventDate
+    providers = Set.singleton operator
+    partyObservers = Set.fromList ([partyA, partyB, scheduler] <> regulators)
+  create DCUE.DateClockUpdateEvent with
+    providers = providers
+    date = eventDate
+    eventTime = time eventDate 0 0 0
+    id = Id idStr
+    description = "Fixing event for " <> show eventDate
+    observers = partyObservers

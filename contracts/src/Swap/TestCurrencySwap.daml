@@ -1,0 +1,71 @@
+-- CCY-family coverage: USD/EUR happy path + unseeded-currency failure.
+module Swap.TestCurrencySwap where
+
+import Daml.Script
+import DA.Date (date, Month(..))
+import Daml.Finance.Interface.Types.Date.V3.DayCount (DayCountConventionEnum(..))
+import Swap.CcySwapProposal
+import Swap.Workflow
+import Swap.TestHelpers
+
+-- | USD + EUR are both seeded by Setup.InitImpl; CcyAccept must resolve
+--   both instrument keys and create a CCY SwapWorkflow.
+test_ccy_usd_eur_accept : Script ()
+test_ccy_usd_eur_accept = do
+  tp <- allocateTestParties
+  runInit tp
+
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd CcySwapProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      notional = 10_000_000.0
+      baseRate = 0.04
+      foreignRate = 0.035
+      baseCurrency = "USD"
+      foreignCurrency = "EUR"
+      fxRate = 1.08
+      ownerReceivesBase = True
+      startDate = date 2026 Apr 16
+      maturityDate = date 2027 Apr 16
+      dayCountConvention = Act360
+
+  _ <- submit tp.partyB do
+    exerciseCmd proposalCid CcyAccept with
+      operator = tp.operator
+      regulators = [tp.regulator]
+  workflows <- query @SwapWorkflow tp.partyA
+  assertMsg "Should have 1 CCY workflow" (length workflows == 1)
+  case workflows of
+    [(_, wf)] ->
+      assertMsg "swapType CCY" (wf.swapType == "CCY")
+    _ -> assertFail "Expected exactly one workflow"
+
+-- | JPY is NOT in configuredCurrencies — the Map.lookup inside CcyAccept
+--   must trigger the `error` fallback, so the submission must fail.
+test_ccy_unseeded_currency_fails : Script ()
+test_ccy_unseeded_currency_fails = do
+  tp <- allocateTestParties
+  runInit tp
+
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd CcySwapProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      notional = 10_000_000.0
+      baseRate = 0.04
+      foreignRate = 0.035
+      baseCurrency = "USD"
+      foreignCurrency = "JPY"  -- unseeded
+      fxRate = 150.0
+      ownerReceivesBase = True
+      startDate = date 2026 Apr 16
+      maturityDate = date 2027 Apr 16
+      dayCountConvention = Act360
+
+  submitMustFail tp.partyB do
+    exerciseCmd proposalCid CcyAccept with
+      operator = tp.operator
+      regulators = [tp.regulator]

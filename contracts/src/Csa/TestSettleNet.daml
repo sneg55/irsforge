@@ -1,0 +1,121 @@
+-- SettleNet smoke tests — Phase 6 Stage A. Covers the controller matrix
+-- (operator-override, scheduler-primary, rejected actors) and the
+-- empty-netting-set audit-row path. Full end-to-end netted settlement
+-- with multi-swap Effect.Calculate + Batch.Settle is covered by Stage B
+-- integration tests once the scheduler service exists to drive lifecycle.
+module Csa.TestSettleNet where
+
+import Daml.Script
+import DA.Date (date, Month(..))
+import DA.Time (time)
+import Setup.CashSetup (cashSetup)
+import Csa.Csa qualified as C
+import Csa.Netting qualified as N
+import Csa.TestScheduler (allocateFour, baseCsa)
+
+-- | A SettleNet with no entries produces a NettedBatch whose batchCid is
+--   None and netByCcy is empty — the audit trail still records that the
+--   choice fired, but no settlement chain runs.
+testSettleNetEmptyProducesAuditRow : Script ()
+testSettleNetEmptyProducesAuditRow = do
+  (op, pa, pb, reg, sch) <- allocateFour
+  cash <- cashSetup op pa pb reg "USD" "US Dollar"
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+
+  nettedCid <- submit op do
+    exerciseCmd cid C.SettleNet with
+      paymentTimestamp     = time (date 2026 Jul 16) 0 0 0
+      entries              = []
+      holdings             = []
+      -- Factory cids are never dereferenced for an empty entry list.
+      settlementFactoryCid = cash.settlementFactoryCid
+      routeProviderCid     = cash.routeProviderCid
+
+  Some netted <- queryContractId op nettedCid
+  assertMsg "batchCid is None for empty netting set"
+    (netted.batchCid == None)
+  assertMsg "netByCcy is empty for empty netting set"
+    (null netted.netByCcy)
+  assertMsg "settledEffects is empty"
+    (null netted.settledEffects)
+  assertMsg "audit row records paymentTimestamp"
+    (netted.paymentTimestamp == time (date 2026 Jul 16) 0 0 0)
+
+-- | Scheduler exercises SettleNetByScheduler successfully — widened
+--   controller wiring.
+testSchedulerCanSettleNet : Script ()
+testSchedulerCanSettleNet = do
+  (op, pa, pb, reg, sch) <- allocateFour
+  cash <- cashSetup op pa pb reg "USD" "US Dollar"
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+
+  nettedCid <- submit sch do
+    exerciseCmd cid C.SettleNetByScheduler with
+      paymentTimestamp     = time (date 2026 Jul 16) 0 0 0
+      entries              = []
+      holdings             = []
+      settlementFactoryCid = cash.settlementFactoryCid
+      routeProviderCid     = cash.routeProviderCid
+
+  Some netted <- queryContractId sch nettedCid
+  assertMsg "scheduler is observer on audit row"
+    (netted.scheduler == sch)
+
+-- | Scheduler is NOT authorised to exercise the operator-only SettleNet.
+testSchedulerCannotUseOperatorSettleNet : Script ()
+testSchedulerCannotUseOperatorSettleNet = do
+  (op, pa, pb, reg, sch) <- allocateFour
+  cash <- cashSetup op pa pb reg "USD" "US Dollar"
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+
+  submitMustFail sch do
+    exerciseCmd cid C.SettleNet with
+      paymentTimestamp     = time (date 2026 Jul 16) 0 0 0
+      entries              = []
+      holdings             = []
+      settlementFactoryCid = cash.settlementFactoryCid
+      routeProviderCid     = cash.routeProviderCid
+
+-- | Counterparty is NOT authorised to exercise SettleNetByScheduler.
+testPartyACannotSettleNetByScheduler : Script ()
+testPartyACannotSettleNetByScheduler = do
+  (op, pa, pb, reg, sch) <- allocateFour
+  cash <- cashSetup op pa pb reg "USD" "US Dollar"
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+
+  submitMustFail pa do
+    exerciseCmd cid C.SettleNetByScheduler with
+      paymentTimestamp     = time (date 2026 Jul 16) 0 0 0
+      entries              = []
+      holdings             = []
+      settlementFactoryCid = cash.settlementFactoryCid
+      routeProviderCid     = cash.routeProviderCid
+
+-- | NettedBatch template creation directly by partyA+partyB (not via
+--   choice) validates the signatory + observer topology.
+testNettedBatchTopology : Script ()
+testNettedBatchTopology = do
+  (op, pa, pb, reg, sch) <- allocateFour
+  nettedCid <- submitMulti [pa, pb] [] do
+    createCmd N.NettedBatch with
+      operator         = op
+      partyA           = pa
+      partyB           = pb
+      regulators        = [reg]
+      scheduler        = sch
+      csaCid           = "csa-cid-placeholder"
+      paymentTimestamp = time (date 2026 Jul 16) 0 0 0
+      netByCcy         = [("USD", 1000.0)]
+      settledEffects   = ["effect-1", "effect-2"]
+      batchCid         = None
+
+  Some netted <- queryContractId sch nettedCid
+  assertMsg "netByCcy preserved" (netted.netByCcy == [("USD", 1000.0)])
+
+  -- Operator is observer — can query too.
+  Some opView <- queryContractId op nettedCid
+  assertMsg "operator sees audit row" (opView.operator == op)
+
+  -- Regulator is observer — regulatory audit path works.
+  Some regView <- queryContractId reg nettedCid
+  assertMsg "regulator sees audit row" (reg `elem` regView.regulators)

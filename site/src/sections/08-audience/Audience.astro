@@ -1,0 +1,28 @@
+---
+import PersonaBlock from '../../components/PersonaBlock.astro'
+import Section from '../../components/Section.astro'
+import { personas } from '../../data/personas.ts'
+---
+<Section
+  id="audience"
+  label="The buying committee"
+  headline="Five seats at the table."
+  sub="Trading champions. Risk approves. Operations evangelizes. Engineering implements. Compliance unblocks."
+  variant="default"
+>
+  <div class="personas">
+    {personas.map(p => (
+      <PersonaBlock
+        audience={p.audience}
+        headline={p.headline}
+        body={p.body}
+        nextHref={p.next.href}
+        nextLabel={p.next.label}
+      />
+    ))}
+  </div>
+</Section>
+
+<style>
+  .personas { display: flex; flex-direction: column; }
+</style>

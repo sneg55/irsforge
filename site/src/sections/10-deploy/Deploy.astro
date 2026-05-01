@@ -1,0 +1,98 @@
+---
+import CodeBlock from '../../components/CodeBlock.astro'
+import Section from '../../components/Section.astro'
+import snippet from './snippet.yaml?raw'
+
+const steps = [
+  {
+    n: '01',
+    title: 'Configure irsforge.yaml',
+    body: 'Currencies, parties, rate families, scheduler. One file, single source of truth. Daml configs are regenerated from it.',
+  },
+  {
+    n: '02',
+    title: 'Wire OIDC',
+    body: 'Add auth.oidc for your IdP and keep auth.builtin for IRSForge-minted ledger JWTs.',
+  },
+  {
+    n: '03',
+    title: 'make deploy',
+    body: 'make generate-daml-config && daml build && deploy the DAR to your participant. Done.',
+  },
+]
+---
+<Section
+  id="deploy"
+  label="Deploy your own"
+  headline="Three files. One deploy."
+  variant="wide"
+>
+  <div class="grid">
+    <ol class="steps">
+      {steps.map(s => (
+        <li>
+          <span class="num mono">{s.n}</span>
+          <div>
+            <h3>{s.title}</h3>
+            <p>{s.body}</p>
+          </div>
+        </li>
+      ))}
+      <li class="cta-line">
+        <a href="https://docs.irsforge.com/getting-started/quickstart">Read the full quickstart →</a>
+      </li>
+    </ol>
+    <div class="code">
+      <CodeBlock code={snippet} lang="yaml" filename="irsforge.yaml (excerpt)" />
+    </div>
+  </div>
+
+  <div class="byo">
+    <h3 class="byo-h">Bring your own.</h3>
+    <p class="byo-sub">A reference implementation owes you the shape and the seam. Each extension is a YAML edit plus a small adapter; the rest of the stack is unchanged.</p>
+    <ul class="byo-grid">
+      <li>
+        <h4>Auth provider</h4>
+        <p><code>auth.provider: oidc</code> for your IdP; <code>auth.builtin</code> stays alongside to mint Canton ledger JWTs.</p>
+        <a href="https://docs.irsforge.com/integrators/byo-auth">BYO Auth →</a>
+      </li>
+      <li>
+        <h4>Oracle / data provider</h4>
+        <p>Implement <code>Oracle.Interface.Provider</code> in Daml + a TS class registered through <code>bootstrap-registrations.ts</code>. Same seam as NY Fed SOFR and the demo stub.</p>
+        <a href="https://docs.irsforge.com/integrators/byo-oracle">BYO Oracle →</a>
+      </li>
+      <li>
+        <h4>Topology</h4>
+        <p><code>topology: network</code> swaps single-sandbox for multi-participant Canton. Same DAR, same UI; per-participant party hosting and JWKS.</p>
+        <a href="https://docs.irsforge.com/operations/deploying-production">Deploy network →</a>
+      </li>
+      <li>
+        <h4>Currencies, indices, ref-names</h4>
+        <p>Edit <code>currencies:</code> / <code>rateFamilies:</code> / <code>cds.referenceNames:</code> in YAML, run <code>make generate-daml-config</code>. No Daml or TS edits.</p>
+        <a href="https://docs.irsforge.com/reference/config-yaml">YAML reference →</a>
+      </li>
+    </ul>
+  </div>
+</Section>
+
+<style>
+  .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 3rem; align-items: start; }
+  @media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+  .steps { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 2rem; }
+  .steps li { display: grid; grid-template-columns: auto 1fr; gap: 1.25rem; }
+  .num { font-size: 0.875rem; color: var(--color-accent); }
+  .steps h3 { font-family: var(--font-body); font-size: 1.0625rem; margin: 0 0 0.375rem; color: var(--color-fg); font-weight: 500; }
+  .steps p { color: var(--color-fg-body); font-size: 0.9375rem; line-height: 1.55; margin: 0; }
+  .cta-line { margin-top: 1rem; }
+  .cta-line a { color: var(--color-accent); font-size: 0.9375rem; }
+  .byo { margin-top: 5rem; padding-top: 3rem; border-top: 1px solid var(--color-border); }
+  .byo-h { font-family: var(--font-display); font-size: 1.5rem; margin: 0 0 0.5rem; color: var(--color-fg); font-weight: 400; }
+  .byo-sub { color: var(--color-fg-body); font-size: 1rem; line-height: 1.55; max-width: 60ch; margin: 0 0 2rem; }
+  .byo-grid { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.75rem 2.5rem; }
+  @media (max-width: 700px) { .byo-grid { grid-template-columns: 1fr; } }
+  .byo-grid li { display: flex; flex-direction: column; gap: 0.5rem; }
+  .byo-grid h4 { font-family: var(--font-body); font-size: 1rem; margin: 0; color: var(--color-fg); font-weight: 500; letter-spacing: 0.01em; }
+  .byo-grid p { font-size: 0.9375rem; line-height: 1.55; color: var(--color-fg-body); margin: 0; }
+  .byo-grid p code { font-size: 0.84em; padding: 0.05em 0.35em; border-radius: 3px; background: var(--color-bg-elevated); border: 1px solid var(--color-border); }
+  .byo-grid a { color: var(--color-accent); font-size: 0.875rem; margin-top: 0.25rem; }
+</style>

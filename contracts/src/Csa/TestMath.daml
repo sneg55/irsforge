@@ -1,0 +1,55 @@
+-- Pure-helper tests for Csa.Csa — computeRequired, targetCsb, gateCall.
+-- Split from Csa.Test so choice-level tests stay under the 300-line cap.
+module Csa.TestMath where
+
+import Daml.Script
+import DA.Map qualified as Map
+import qualified Csa.Types as T
+import qualified Csa.Csa as C
+
+-- computeRequired
+
+testComputeRequiredPositiveExposure : Script ()
+testComputeRequiredPositiveExposure = do
+  let thr = Map.fromList [(T.DirA, 0.0), (T.DirB, 0.0)]
+  let r = C.computeRequired 1_000_000.0 thr
+  assert (r.fromA == 1_000_000.0)  -- A owes B; A funds
+  assert (r.fromB == 0.0)
+
+testComputeRequiredNegativeExposure : Script ()
+testComputeRequiredNegativeExposure = do
+  let thr = Map.fromList [(T.DirA, 0.0), (T.DirB, 0.0)]
+  let r = C.computeRequired (-500_000.0) thr
+  assert (r.fromA == 0.0)
+  assert (r.fromB == 500_000.0)
+
+testComputeRequiredWithThresholds : Script ()
+testComputeRequiredWithThresholds = do
+  let thr = Map.fromList [(T.DirA, 250_000.0), (T.DirB, 250_000.0)]
+  let r = C.computeRequired 300_000.0 thr   -- A owes B 300k, B's threshold 250k → A funds 50k
+  assert (r.fromA == 50_000.0)
+  assert (r.fromB == 0.0)
+
+-- targetCsb — signed equivalent of computeRequired.
+
+testTargetCsbPositiveExposure : Script ()
+testTargetCsbPositiveExposure = do
+  let thr = Map.fromList [(T.DirA, 0.0), (T.DirB, 0.0)]
+  assert (C.targetCsb 1_000_000.0 thr == 1_000_000.0)
+
+testTargetCsbNegativeExposure : Script ()
+testTargetCsbNegativeExposure = do
+  let thr = Map.fromList [(T.DirA, 0.0), (T.DirB, 0.0)]
+  assert (C.targetCsb (-500_000.0) thr == (-500_000.0))
+
+-- gateCall
+
+testGateCallBelowMta : Script ()
+testGateCallBelowMta = do
+  let result = C.gateCall 50_000.0 100_000.0 10_000.0
+  assert (result == 0.0)
+
+testGateCallRoundsUp : Script ()
+testGateCallRoundsUp = do
+  let result = C.gateCall 123_456.0 100_000.0 10_000.0
+  assert (result == 120_000.0)

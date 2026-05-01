@@ -1,0 +1,38 @@
+---
+import DisconnectDiagram from '../../components/DisconnectDiagram.astro'
+import Section from '../../components/Section.astro'
+---
+<Section
+  id="gap"
+  label="The Gap"
+  headline="Canton settles ~$9 trillion a month. None of it is hedged on-chain."
+  variant="default"
+>
+  <div class="prose">
+    <p>
+      Broadridge DLR alone clears around $7.5 trillion of repo every month on Canton.
+      Add tokenized treasuries, private credit, and the new wave of stablecoin
+      issuance and the network sits on roughly $9 trillion of monthly settlement
+      volume. None of it is hedged onchain.
+    </p>
+    <p>
+      Rates desks holding tokenized exposure today have one option: leave the
+      ledger, hedge via CME or LCH, and accept settlement risk on the gap. When
+      tokenized markets run 24/7 and cleared rates desks shut on weekends, the
+      gap is the trade.
+    </p>
+    <p>
+      If your desk runs intraday repo on DLR, you are already on Canton. Today
+      the hedge for that book leaves the chain.
+    </p>
+  </div>
+  <div class="diagram">
+    <DisconnectDiagram />
+  </div>
+</Section>
+
+<style>
+  .prose { max-width: 60ch; margin: 0 auto; font-size: 1.0625rem; line-height: 1.65; color: var(--color-fg-body); }
+  .prose p { margin: 0 0 1rem; }
+  .diagram { margin-top: 4rem; }
+</style>

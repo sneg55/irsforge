@@ -1,0 +1,42 @@
+# IRSForge shared-demo compose file — single VPS, single container.
+#
+# Bring up:    docker compose -f deploy/docker-compose.yml up -d --build
+# Tail logs:   docker compose -f deploy/docker-compose.yml logs -f
+# Tear down:   docker compose -f deploy/docker-compose.yml down
+#
+# Reverse proxy / TLS lives outside this compose file — see deploy/README.md
+# for the Caddy setup that fronts port 3000 with a public hostname.
+
+services:
+  irsforge:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: irsforge-demo:latest
+    container_name: irsforge-demo
+    # Caddy on the host needs:
+    #  - 3000  → Next.js prod (HTTP routes + /api/ledger HTTP proxy)
+    #  - 7575  → Canton JSON API (/v1/stream/* WebSocket — Next.js can't
+    #            forward WS upgrades, so Caddy reverse-proxies straight
+    #            to Canton for these paths)
+    # Both bind only to 127.0.0.1 — Caddy is the sole external entry.
+    ports:
+      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:7575:7575"
+    environment:
+      IRSFORGE_DEPLOY_MODE: prod
+      # MUST match platform.demoReset.intervalMinutes in ../irsforge.yaml.
+      IRSFORGE_RESET_INTERVAL_MINUTES: "60"
+    # Healthcheck pings the Next.js prod server. Container is "healthy"
+    # only after Canton boot + seed + warmup completes; first-start can
+    # take ~90s, hence the generous start_period.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:3000 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 180s
+    restart: unless-stopped
+    # Canton's JVM occasionally hangs on shutdown; give it 30s to coordinate
+    # before SIGKILL.
+    stop_grace_period: 30s

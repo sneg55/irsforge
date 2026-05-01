@@ -1,0 +1,45 @@
+---
+interface Props {
+  primaryHref: string
+  primaryLabel: string
+  secondaryHref: string
+  secondaryLabel: string
+  size?: 'lg' | 'md'
+}
+const { primaryHref, primaryLabel, secondaryHref, secondaryLabel, size = 'lg' } = Astro.props
+---
+<div class={`cta-pair size-${size}`}>
+  <a href={primaryHref} class="cta-primary">{primaryLabel}</a>
+  <a href={secondaryHref} class="cta-secondary">{secondaryLabel}</a>
+</div>
+
+<style>
+  .cta-pair { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+  .cta-primary, .cta-secondary {
+    position: relative;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 2px; font-weight: 500;
+    transition: background-color .2s ease, color .2s ease, transform .2s ease, box-shadow .25s ease, border-color .2s ease;
+    will-change: transform;
+  }
+  .size-lg .cta-primary, .size-lg .cta-secondary { padding: 0.875rem 1.75rem; font-size: 0.9375rem; }
+  .size-md .cta-primary, .size-md .cta-secondary { padding: 0.625rem 1.25rem; font-size: 0.875rem; }
+  .cta-primary { background: var(--color-accent); color: var(--color-bg); box-shadow: 0 0 0 0 rgba(201, 169, 97, 0); }
+  .cta-primary:hover {
+    background: var(--color-fg); color: var(--color-bg);
+    transform: translateY(-2px);
+    box-shadow: 0 14px 30px -14px rgba(201, 169, 97, 0.6);
+  }
+  .cta-primary:active { transform: translateY(0); box-shadow: 0 4px 12px -8px rgba(201, 169, 97, 0.6); }
+  .cta-secondary { border: 1px solid var(--color-accent); color: var(--color-accent); }
+  .cta-secondary:hover {
+    background: var(--color-accent); color: var(--color-bg);
+    transform: translateY(-2px);
+    box-shadow: 0 14px 30px -16px rgba(201, 169, 97, 0.45);
+  }
+  .cta-secondary:active { transform: translateY(0); box-shadow: none; }
+  .cta-primary:focus-visible, .cta-secondary:focus-visible {
+    outline: 1px solid var(--color-fg);
+    outline-offset: 3px;
+  }
+</style>

@@ -1,0 +1,50 @@
+-- CashSetupRecord registry-shape assertions. Confirms Init seeds
+-- defaultCurrencyCode, both configured currencies, cdsReferenceNames,
+-- and all per-family ScheduleDefaults entries emitted by GeneratedConfig.
+module Setup.TestInit where
+
+import Daml.Script
+import DA.Assert ((===))
+import DA.Map qualified as Map
+import Setup.CashSetup (CashSetupRecord(..))
+import Swap.TestHelpers (allocateTestParties, runInit)
+
+-- | Run init, then fetch the single CashSetupRecord on the ledger and
+--   assert each registry-level invariant set by Setup.InitImpl.
+test_init_registry_shape : Script ()
+test_init_registry_shape = do
+  tp <- allocateTestParties
+  runInit tp
+
+  records <- query @CashSetupRecord tp.operator
+  assertMsg "Exactly one CashSetupRecord after init" (length records == 1)
+  case records of
+    [(_, record)] -> do
+      record.defaultCurrencyCode === "USD"
+      Map.size record.currencies === 2
+      assertMsg "USD seeded" (Map.member "USD" record.currencies)
+      assertMsg "EUR seeded" (Map.member "EUR" record.currencies)
+      record.cdsReferenceNames === ["TSLA"]
+      Map.size record.scheduleDefaults === 8
+      assertMsg "IRS schedule defaults seeded"
+        (Map.member "IRS"   record.scheduleDefaults)
+      assertMsg "OIS schedule defaults seeded"
+        (Map.member "OIS"   record.scheduleDefaults)
+      assertMsg "BASIS schedule defaults seeded"
+        (Map.member "BASIS" record.scheduleDefaults)
+      assertMsg "XCCY schedule defaults seeded"
+        (Map.member "XCCY"  record.scheduleDefaults)
+      assertMsg "CDS schedule defaults seeded"
+        (Map.member "CDS"   record.scheduleDefaults)
+      assertMsg "CCY schedule defaults seeded"
+        (Map.member "CCY"   record.scheduleDefaults)
+      assertMsg "ASSET schedule defaults seeded"
+        (Map.member "ASSET" record.scheduleDefaults)
+      assertMsg "FPML schedule defaults seeded"
+        (Map.member "FPML"  record.scheduleDefaults)
+      -- OIS is the only product whose frequency is annual (12M);
+      -- everything else is ≤ 6M.
+      case Map.lookup "OIS" record.scheduleDefaults of
+        Some sd -> sd.frequencyMonths === 12
+        None    -> assertFail "OIS not seeded"
+    _ -> assertFail "Expected exactly one CashSetupRecord"

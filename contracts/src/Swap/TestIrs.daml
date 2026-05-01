@@ -1,0 +1,274 @@
+-- IRS proposal lifecycle tests: create / reject / withdraw / accept / terminate / mature
+module Swap.TestIrs where
+
+import Daml.Script
+import DA.Date (date, Month(..))
+import DA.Text (isPrefixOf)
+import DA.Time (time)
+import Daml.Finance.Interface.Types.Common.V3.Types (Id(..), InstrumentKey(..), AccountKey(..), HoldingStandard(..))
+import Daml.Finance.Interface.Settlement.V4.Factory qualified as SettlementFactory
+import Daml.Finance.Interface.Settlement.V4.RouteProvider qualified as RouteProvider
+import Daml.Finance.Interface.Types.Date.V3.DayCount (DayCountConventionEnum(..))
+import Daml.Finance.Instrument.Swap.V0.InterestRate.Instrument qualified as IRSInstrument
+import Setup.CashSetup (cashSetup)
+import Daml.Finance.Interface.Holding.V4.Holding qualified as Holding
+import Daml.Finance.Holding.V4.TransferableFungible qualified as TFungible
+import Swap.Proposal
+import Swap.Types (TenorEnum(..))
+import Swap.Workflow
+import Swap.Terminate
+import Swap.TestHelpers
+
+-- | Create IRS proposal; verify counterparty can see it
+proposalCreateTest : Script ()
+proposalCreateTest = do
+  tp <- allocateTestParties
+
+  _proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd SwapProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      notional = 10_000_000.0
+      fixRate = 0.0485
+      tenor = D90
+      startDate = date 2026 Apr 16
+      dayCountConvention = Act360
+
+  proposals <- query @SwapProposal tp.partyB
+  assertMsg "PartyB should see 1 proposal" (length proposals == 1)
+  pure ()
+
+-- | Create IRS proposal then reject; no proposals should remain
+proposalRejectTest : Script ()
+proposalRejectTest = do
+  tp <- allocateTestParties
+
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd SwapProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      notional = 10_000_000.0
+      fixRate = 0.0485
+      tenor = D90
+      startDate = date 2026 Apr 16
+      dayCountConvention = Act360
+
+  submit tp.partyB do
+    exerciseCmd proposalCid Reject
+
+  proposals <- query @SwapProposal tp.partyB
+  assertMsg "No proposals should remain after reject" (null proposals)
+  pure ()
+
+-- | Create IRS proposal then withdraw; no proposals should remain
+proposalWithdrawTest : Script ()
+proposalWithdrawTest = do
+  tp <- allocateTestParties
+
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd SwapProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      notional = 10_000_000.0
+      fixRate = 0.0485
+      tenor = D90
+      startDate = date 2026 Apr 16
+      dayCountConvention = Act360
+
+  submit tp.partyA do
+    exerciseCmd proposalCid Withdraw
+
+  proposals <- query @SwapProposal tp.partyA
+  assertMsg "No proposals should remain after withdraw" (null proposals)
+  pure ()
+
+-- | Create IRS proposal then accept; verify SwapWorkflow fields
+proposalAcceptTest : Script ()
+proposalAcceptTest = do
+  tp <- allocateTestParties
+  runInit tp
+  fridCid <- seedUsdSofrIndex tp
+
+  let startDate = date 2026 Apr 16
+
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd SwapProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      notional = 10_000_000.0
+      fixRate = 0.0485
+      tenor = D90
+      startDate
+      dayCountConvention = Act360
+
+  _workflowCid <- submitMulti [tp.partyB, tp.operator] [] do
+    exerciseCmd proposalCid Accept with
+      operator = tp.operator
+      regulators = [tp.regulator]
+      floatingRateIndexCid = fridCid
+
+  workflows <- query @SwapWorkflow tp.partyA
+  assertMsg "Should have 1 workflow" (length workflows == 1)
+
+  case workflows of
+    [(_, wf)] -> do
+      assertMsg "swapType IRS"                      (wf.swapType == "IRS")
+      assertMsg "notional 10M"                      (wf.notional == 10_000_000.0)
+      let (Id instrId) = wf.instrumentKey.id
+      assertMsg ("instrumentKey.id has IRS- prefix: " <> instrId)
+        (isPrefixOf "IRS-" instrId)
+    _ -> assertFail "Expected exactly 1 workflow"
+
+  proposals <- query @SwapProposal tp.partyA
+  assertMsg "Proposal should be archived" (null proposals)
+  debug "proposalAcceptTest passed"
+  pure ()
+
+-- | Accept an IRS proposal with a FloatingRateIndex that has lookback=2
+--   and verify the created InterestRate instrument writes the lookback
+--   as a negative `periodMultiplier` into `fixingDates`.
+testIrsAcceptWithFloatingRateIndex : Script ()
+testIrsAcceptWithFloatingRateIndex = do
+  tp <- allocateTestParties
+  runInit tp
+  fridCid <- seedUsdSofrIndex tp  -- lookback = 2
+
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd SwapProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      notional = 10_000_000.0
+      fixRate = 0.0485
+      tenor = D90
+      startDate = date 2026 Apr 16
+      dayCountConvention = Act360
+
+  _workflowCid <- submitMulti [tp.partyB, tp.operator] [] do
+    exerciseCmd proposalCid Accept with
+      operator = tp.operator
+      regulators = [tp.regulator]
+      floatingRateIndexCid = fridCid
+
+  -- The Accept body creates an InterestRate instrument via the IRS
+  -- factory. Query it off the ledger and drill into
+  -- `floatingRate.fixingDates.periodMultiplier` to verify the lookback
+  -- flowed through as `negate 2 = -2`.
+  instruments <- query @IRSInstrument.Instrument tp.operator
+  case instruments of
+    [(_, instr)] -> do
+      assertMsg "referenceRateId = USD-SOFR"
+        (instr.floatingRate.referenceRateId == "USD-SOFR")
+      assertMsg ("fixingDates.periodMultiplier = -2, got " <>
+                 show instr.floatingRate.fixingDates.periodMultiplier)
+        (instr.floatingRate.fixingDates.periodMultiplier == -2)
+    _ -> assertFail ("Expected exactly 1 IRS instrument, got " <>
+                     show (length instruments))
+
+  debug "testIrsAcceptWithFloatingRateIndex passed"
+  pure ()
+
+-- | Accept IRS proposal then TerminateProposal (zero-PV); verify workflow is consumed
+terminateTest : Script ()
+terminateTest = do
+  tp <- allocateTestParties
+  cashResult <- cashSetup tp.operator tp.partyA tp.partyB tp.regulator "USD" "US Dollar"
+  (workflowCid, _effectCids, _, _, _maturityDate) <- setupIrsThroughLifecycle tp cashResult
+
+  now <- getTime
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd TerminateProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      regulators = [tp.regulator]
+      workflowCid
+      proposedPvAmount = 0.0
+      reason = "test"
+      proposedAt = now
+
+  allHoldingsA <- query @TFungible.TransferableFungible tp.partyA
+  allHoldingsB <- query @TFungible.TransferableFungible tp.partyB
+  let [(partyAHoldingCid, _)] = filter (\(_, h) -> h.account.owner == tp.partyA) allHoldingsA
+      [(partyBHoldingCid, _)] = filter (\(_, h) -> h.account.owner == tp.partyB) allHoldingsB
+  _ <- submit tp.partyB do
+    exerciseCmd proposalCid TpAccept with
+      settlementFactoryCid   = cashResult.settlementFactoryCid
+      routeProviderCid       = cashResult.routeProviderCid
+      proposerHoldingCid     = toInterfaceContractId @Holding.I partyAHoldingCid
+      counterpartyHoldingCid = toInterfaceContractId @Holding.I partyBHoldingCid
+      proposerAccountKey     = cashResult.partyAAccountKey
+      counterpartyAccountKey = cashResult.partyBAccountKey
+      usdInstrumentKey       = cashResult.defaultInstrumentKey
+
+  None <- queryContractId tp.operator workflowCid
+  debug "terminateTest passed"
+  pure ()
+
+-- | Accept IRS proposal then Mature (operator) with no effects; verify workflow is consumed
+matureTest : Script ()
+matureTest = do
+  tp <- allocateTestParties
+  runInit tp
+  fridCid <- seedUsdSofrIndex tp
+
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd SwapProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      notional = 10_000_000.0
+      fixRate = 0.0485
+      tenor = D90
+      startDate = date 2026 Apr 16
+      dayCountConvention = Act360
+
+  workflowCid <- submitMulti [tp.partyB, tp.operator] [] do
+    exerciseCmd proposalCid Accept with
+      operator = tp.operator
+      regulators = [tp.regulator]
+      floatingRateIndexCid = fridCid
+
+  -- Advance clock to maturity (Apr 16 + 91 days = Jul 16)
+  setTime (time (date 2026 Jul 16) 0 0 0)
+
+  let
+    dummyInstrKey = InstrumentKey with
+      depository = tp.operator
+      issuer     = tp.operator
+      id         = Id "DUMMY"
+      version    = "0"
+      holdingStandard = TransferableFungible
+    dummyAccountKey = AccountKey with
+      custodian = tp.operator
+      owner     = tp.partyA
+      id        = Id "DUMMY"
+
+  let
+    -- These are never exercised (effectCids=[]) but the record fields must be valid ContractIds.
+    dummySettlementFactoryCid : ContractId SettlementFactory.I
+    dummySettlementFactoryCid = coerceContractId workflowCid
+    dummyRouteProviderCid : ContractId RouteProvider.I
+    dummyRouteProviderCid = coerceContractId workflowCid
+
+  _maturedCid <- submit tp.operator do
+    exerciseCmd workflowCid Mature with
+      maturityDate         = date 2026 Jul 16
+      actualMaturityDate   = date 2026 Jul 16
+      effectCids           = []
+      settlementFactoryCid = dummySettlementFactoryCid
+      routeProviderCid     = dummyRouteProviderCid
+      partyAHoldingCid     = None
+      partyBHoldingCid     = None
+      partyAAccountKey     = dummyAccountKey
+      partyBAccountKey     = dummyAccountKey
+      usdInstrumentKey     = dummyInstrKey  -- never used when effectCids=[]
+
+  workflows <- query @SwapWorkflow tp.partyA
+  assertMsg "Workflow consumed after mature" (null workflows)
+  debug "matureTest passed"
+  pure ()

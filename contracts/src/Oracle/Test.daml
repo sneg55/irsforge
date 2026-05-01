@@ -1,0 +1,269 @@
+module Oracle.Test where
+
+import Daml.Script
+import DA.Date (date, Month(..))
+import DA.List (head)
+import DA.Time (time)
+import Daml.Finance.Interface.Types.Common.V3.Types (Id(..))
+import Oracle.DemoStubProvider (DemoStubOracleProvider(..))
+import Oracle.FloatingRateIndex (FloatingRateIndex(..))
+import Oracle.Interface
+import Oracle.Interpolation (interpolateZero, computeDF)
+import Oracle.NYFedProvider
+import Oracle.Types
+import Setup.GeneratedRateFamilies
+
+oraclePublishTest : Script ()
+oraclePublishTest = do
+  operator <- allocatePartyWithHint "Operator" (PartyIdHint "Operator")
+  partyA <- allocatePartyWithHint "PartyA" (PartyIdHint "PartyA")
+
+  providerCid <- submit operator do
+    createCmd NYFedOracleProvider with
+      operator
+      subscribers = [partyA]
+      regulators = [operator]
+      supportedRateIds = [sofrIndexRateId]
+
+  obsCid <- submit operator do
+    exerciseCmd (toInterfaceContractId @Provider providerCid) Provider_PublishRate with
+      args = PublishRateArgs with
+        rateId = sofrIndexRateId
+        effectiveDate = date 2026 Apr 16
+        value = 1.23873374
+
+  obs <- queryContractId operator obsCid
+  case obs of
+    None -> abort "Observation not found"
+    Some o -> do
+      assertMsg "Provider should be operator" (o.provider == operator)
+      assertMsg "Rate ID should match" (o.id == Id sofrIndexRateId)
+
+  pure ()
+
+oracleUpdateTest : Script ()
+oracleUpdateTest = do
+  operator <- allocatePartyWithHint "Operator" (PartyIdHint "Operator")
+
+  providerCid <- submit operator do
+    createCmd NYFedOracleProvider with
+      operator
+      subscribers = []
+      regulators = [operator]
+      supportedRateIds = [sofrIndexRateId]
+
+  obs1Cid <- submit operator do
+    exerciseCmd (toInterfaceContractId @Provider providerCid) Provider_PublishRate with
+      args = PublishRateArgs with
+        rateId = sofrIndexRateId
+        effectiveDate = date 2026 Apr 16
+        value = 1.23873374
+
+  obs2Cid <- submit operator do
+    exerciseCmd (toInterfaceContractId @Provider providerCid) Provider_PublishRate with
+      args = PublishRateArgs with
+        rateId = sofrIndexRateId
+        effectiveDate = date 2026 Jul 16
+        value = 1.24812000
+
+  pure ()
+
+oracleCurveTest : Script ()
+oracleCurveTest = do
+  operator <- allocatePartyWithHint "Operator" (PartyIdHint "Operator")
+  partyA <- allocatePartyWithHint "PartyA" (PartyIdHint "PartyA")
+
+  providerCid <- submit operator do
+    createCmd NYFedOracleProvider with
+      operator
+      subscribers = [partyA]
+      regulators = [operator]
+      supportedRateIds = sofrTenorRateIds
+
+  obsCids <- submit operator do
+    exerciseCmd providerCid PublishCurve with
+      args = PublishCurveArgs with
+        effectiveDate = date 2026 Apr 11
+        points =
+          [ CurvePoint with rateId = "SOFR/ON";  value = 0.0433
+          , CurvePoint with rateId = "SOFR/1M";  value = 0.0433
+          , CurvePoint with rateId = "SOFR/3M";  value = 0.0431
+          ]
+
+  -- Should have created 3 observations
+  assertMsg "Should create 3 observations" (length obsCids == 3)
+
+  -- PartyA can see them (is subscriber/observer)
+  obs <- queryContractId partyA (head obsCids)
+  case obs of
+    None -> abort "PartyA should see first observation"
+    Some o -> do
+      assertMsg "Rate ID should be SOFR/ON" (o.id == Id "SOFR/ON")
+
+  pure ()
+
+curvePublishTest : Script ()
+curvePublishTest = do
+  operator <- allocatePartyWithHint "Operator" (PartyIdHint "Operator")
+  regulator <- allocatePartyWithHint "Regulator" (PartyIdHint "Regulator")
+  partyA <- allocatePartyWithHint "PartyA" (PartyIdHint "PartyA")
+
+  providerCid <- submit operator do
+    createCmd NYFedOracleProvider with
+      operator
+      subscribers = [partyA]
+      regulators = [regulator]
+      supportedRateIds = sofrTenorRateIds
+
+  curveCid <- submit operator do
+    exerciseCmd (toInterfaceContractId @Provider providerCid) Provider_PublishDiscountCurve with
+      currency = "USD"
+      asOf = time (date 2026 Apr 15) 0 0 0
+      pillars =
+        [ Pillar with tenorDays = 1;   zeroRate = 0.0533
+        , Pillar with tenorDays = 30;  zeroRate = 0.0531
+        , Pillar with tenorDays = 365; zeroRate = 0.0510
+        ]
+      interpolation = LinearZero
+      dayCount = Act360
+      constructionMetadata = "{}"
+
+  curve <- queryContractId operator curveCid
+  case curve of
+    None -> abort "Curve not found"
+    Some c -> do
+      assertMsg "Currency USD" (c.currency == "USD")
+      assertMsg "CurveType Discount" (c.curveType == Discount)
+      assertMsg "3 pillars" (length c.pillars == 3)
+
+  pure ()
+
+curveInterpolationLinearTest : Script ()
+curveInterpolationLinearTest = do
+  let pillars =
+        [ Pillar with tenorDays = 30;  zeroRate = 0.0530
+        , Pillar with tenorDays = 365; zeroRate = 0.0510
+        ]
+  -- Midpoint at 197 days: 0.0530 + (197-30)/(365-30) * (0.0510 - 0.0530)
+  -- = 0.0530 + 0.4985... * (-0.002) = 0.05200298...
+  let result = interpolateZero LinearZero pillars 197
+  assertMsg "Linear interp at 197d" (result >= 0.0520 && result <= 0.0521)
+  pure ()
+
+curveInterpolationLogLinearTest : Script ()
+curveInterpolationLogLinearTest = do
+  let pillars =
+        [ Pillar with tenorDays = 30;  zeroRate = 0.0530
+        , Pillar with tenorDays = 365; zeroRate = 0.0510
+        ]
+  let df = computeDF LogLinearDF Act360 pillars 197
+  -- DF should be between df(30d) and df(365d)
+  let df30  = computeDF LogLinearDF Act360 pillars 30
+  let df365 = computeDF LogLinearDF Act360 pillars 365
+  assertMsg "LogLinear DF monotone" (df >= df365 && df <= df30)
+  pure ()
+
+curveUpsertTest : Script ()
+curveUpsertTest = do
+  operator <- allocatePartyWithHint "Operator" (PartyIdHint "Operator")
+  regulator <- allocatePartyWithHint "Regulator" (PartyIdHint "Regulator")
+
+  providerCid <- submit operator do
+    createCmd NYFedOracleProvider with
+      operator
+      subscribers = []
+      regulators = [regulator]
+      supportedRateIds = sofrTenorRateIds
+
+  -- First publish
+  curveCid1 <- submit operator do
+    exerciseCmd (toInterfaceContractId @Provider providerCid) Provider_PublishDiscountCurve with
+      currency = "USD"
+      asOf = time (date 2026 Apr 15) 0 0 0
+      pillars =
+        [ Pillar with tenorDays = 30;  zeroRate = 0.0530
+        , Pillar with tenorDays = 365; zeroRate = 0.0510
+        ]
+      interpolation = LinearZero
+      dayCount = Act360
+      constructionMetadata = "{}"
+
+  -- Second publish (upsert) — should archive the first
+  curveCid2 <- submit operator do
+    exerciseCmd (toInterfaceContractId @Provider providerCid) Provider_PublishDiscountCurve with
+      currency = "USD"
+      asOf = time (date 2026 Apr 15) 12 0 0
+      pillars =
+        [ Pillar with tenorDays = 30;  zeroRate = 0.0535
+        , Pillar with tenorDays = 365; zeroRate = 0.0515
+        ]
+      interpolation = LinearZero
+      dayCount = Act360
+      constructionMetadata = "{}"
+
+  -- First curve should be archived
+  old <- queryContractId operator curveCid1
+  assertMsg "Old curve should be archived" (old == None)
+
+  -- New curve should exist
+  new <- queryContractId operator curveCid2
+  case new of
+    None -> abort "New curve should exist"
+    Some c -> assertMsg "Updated rate" (length c.pillars == 2)
+
+  pure ()
+
+oracleDemoStubInterfaceTest : Script ()
+oracleDemoStubInterfaceTest = do
+  operator <- allocatePartyWithHint "Operator" (PartyIdHint "Operator")
+  regulator <- allocatePartyWithHint "Regulator" (PartyIdHint "Regulator")
+  partyA <- allocatePartyWithHint "PartyA" (PartyIdHint "PartyA")
+
+  providerCid <- submit operator do
+    createCmd DemoStubOracleProvider with
+      operator
+      subscribers = [partyA]
+      regulators = [regulator]
+      supportedRateIds = [sofrIndexRateId]
+
+  obsCid <- submit operator do
+    exerciseCmd (toInterfaceContractId @Provider providerCid) Provider_PublishRate with
+      args = PublishRateArgs with
+        rateId = sofrIndexRateId
+        effectiveDate = date 2026 Apr 17
+        value = 1.24500000
+
+  obs <- queryContractId operator obsCid
+  case obs of
+    None -> abort "Observation not found"
+    Some o -> do
+      assertMsg "Provider should be operator" (o.provider == operator)
+      assertMsg "Rate ID should match" (o.id == Id sofrIndexRateId)
+
+  pure ()
+
+floatingRateIndexRegistryTest : Script ()
+floatingRateIndexRegistryTest = do
+  operator <- allocatePartyWithHint "Operator" (PartyIdHint "Operator")
+  regulator <- allocatePartyWithHint "Regulator" (PartyIdHint "Regulator")
+
+  indexCid <- submit operator do
+    createCmd FloatingRateIndex with
+      operator
+      subscribers = []
+      regulators = [regulator]
+      indexId = "USD-SOFR"
+      currency = "USD"
+      family = SOFR
+      compounding = CompoundedInArrears
+      lookback = 2
+      floor = Some 0.0
+
+  idx <- queryContractId operator indexCid
+  case idx of
+    None -> abort "FloatingRateIndex not found"
+    Some i -> do
+      assertMsg "Family SOFR" (i.family == SOFR)
+      assertMsg "Lookback 2" (i.lookback == 2)
+
+  pure ()

@@ -1,0 +1,103 @@
+module Oracle.Interface where
+
+import DA.Map qualified as Map
+import DA.Set qualified as Set
+import DA.Time (time)
+import Daml.Finance.Data.V4.Numeric.Observation qualified as Obs
+import Daml.Finance.Interface.Types.Common.V3.Types qualified as FinTypes
+import Oracle.Curve (Curve(..))
+import Oracle.CurveSnapshot (CurveSnapshot(..))
+import Oracle.Types
+
+-- | Oracle provider extension point. Any rate/curve source (NYFed, RedStone,
+--   demo stub, …) implements this interface. The TS oracle and on-ledger
+--   lifecycle rules dispatch via the interface — adding a new provider is a
+--   new template + interface instance + one TS `registerProvider` call,
+--   never a fork of the publisher.
+interface Provider where
+  viewtype OracleView
+
+  nonconsuming choice Provider_PublishRate : ContractId Obs.Observation
+    with
+      args : PublishRateArgs
+    controller (view this).publisher
+    do
+      let v = view this
+      create Obs.Observation with
+        provider = v.publisher
+        id = FinTypes.Id args.rateId
+        observations = Map.fromList [(time args.effectiveDate 0 0 0, args.value)]
+        observers = Map.fromList [("subscribers", Set.fromList v.subscribers)]
+
+  nonconsuming choice Provider_PublishDiscountCurve : ContractId Curve
+    with
+      currency : Text
+      asOf : Time
+      pillars : [Pillar]
+      interpolation : InterpolationMethod
+      dayCount : CurveDayCount
+      constructionMetadata : Text
+    controller (view this).publisher
+    do
+      let v = view this
+      publishCurve v currency Discount None asOf pillars interpolation dayCount constructionMetadata
+
+  nonconsuming choice Provider_PublishProjectionCurve : ContractId Curve
+    with
+      indexId : Text
+      currency : Text
+      asOf : Time
+      pillars : [Pillar]
+      interpolation : InterpolationMethod
+      dayCount : CurveDayCount
+      constructionMetadata : Text
+    controller (view this).publisher
+    do
+      let v = view this
+      publishCurve v currency Projection (Some indexId) asOf pillars interpolation dayCount constructionMetadata
+
+-- | Shared body for Provider_PublishDiscountCurve and Provider_PublishProjectionCurve.
+-- Archives the existing keyed Curve (if any), creates the snapshot row first
+-- (so readers never see a Curve without its snapshot), then creates the new
+-- Curve. Both the Curve and its snapshot end up in the same transaction
+-- regardless of order, but textual fidelity to that ordering is preserved.
+publishCurve
+  :  OracleView
+  -> Text                  -- currency
+  -> CurveType             -- Discount or Projection
+  -> Optional Text         -- indexId (None for Discount, Some for Projection)
+  -> Time                  -- asOf
+  -> [Pillar]              -- pillars
+  -> InterpolationMethod   -- interpolation
+  -> CurveDayCount         -- dayCount
+  -> Text                  -- constructionMetadata
+  -> Update (ContractId Curve)
+publishCurve v currency curveType indexId asOf pillars interpolation dayCount constructionMetadata = do
+  existing <- lookupByKey @Curve (v.publisher, currency, curveType, indexId)
+  case existing of
+    Some cid -> archive cid
+    None -> pure ()
+  _ <- create CurveSnapshot with
+    operator = v.publisher
+    subscribers = v.subscribers
+    regulators = v.regulators
+    currency
+    curveType
+    indexId
+    asOf
+    pillars
+    interpolation
+    dayCount
+    constructionMetadata
+  create Curve with
+    operator = v.publisher
+    subscribers = v.subscribers
+    regulators = v.regulators
+    currency
+    curveType
+    indexId
+    asOf
+    pillars
+    interpolation
+    dayCount
+    constructionMetadata

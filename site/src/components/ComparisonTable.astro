@@ -1,0 +1,45 @@
+---
+export interface ComparisonRow {
+  label: string
+  cells: string[]
+}
+interface Props {
+  columns: string[]
+  rows: ComparisonRow[]
+  highlightCol?: number
+}
+const { columns, rows, highlightCol = 0 } = Astro.props
+---
+<div class="wrap">
+  <table>
+    <thead>
+      <tr>
+        <th></th>
+        {columns.map((c, i) => (
+          <th class={i === highlightCol ? "highlight" : ""}>{c}</th>
+        ))}
+      </tr>
+    </thead>
+    <tbody>
+      {rows.map(row => (
+        <tr>
+          <th class="row-label">{row.label}</th>
+          {row.cells.map((cell, i) => (
+            <td class={i === highlightCol ? "highlight" : ""}>{cell}</td>
+          ))}
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</div>
+
+<style>
+  .wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.9375rem; }
+  th, td { padding: 0.875rem 1rem; text-align: left; border-bottom: 1px solid var(--color-border); vertical-align: top; }
+  thead th { font-family: var(--font-body); font-weight: 500; color: var(--color-fg-muted); font-size: 0.75rem; letter-spacing: 0.12em; text-transform: uppercase; }
+  thead th.highlight { color: var(--color-accent); }
+  .row-label { font-weight: 500; color: var(--color-fg); width: 22ch; }
+  td { color: var(--color-fg-body); }
+  td.highlight { color: var(--color-fg); background: rgba(201, 169, 97, 0.04); }
+</style>

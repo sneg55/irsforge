@@ -1,0 +1,13 @@
+---
+import ComparisonTable from '../../components/ComparisonTable.astro'
+import Section from '../../components/Section.astro'
+import { columns, rows } from '../../data/comparison.ts'
+---
+<Section
+  id="vs"
+  label="The alternatives"
+  headline="The other three options, and what each one costs you."
+  variant="wide"
+>
+  <ComparisonTable columns={[...columns]} rows={rows} highlightCol={0} />
+</Section>

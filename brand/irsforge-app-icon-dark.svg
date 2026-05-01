@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="480" viewBox="0 0 480 480" role="img" aria-label="IRSForge">
+  <rect width="480" height="480" rx="108" ry="108" fill="#0A0E13"/>
+  <g transform="translate(101 101) scale(2.8958)">
+    <rect x="20" y="18" width="12" height="60" fill="#FFB84A"/>
+    <rect x="20" y="18" width="56" height="12" fill="#FFB84A"/>
+    <rect x="32" y="40" width="40" height="7"  fill="#FFB84A"/>
+    <path d="M32 62 Q38 55 44 62 T56 62 T68 62"
+          stroke="#FFB84A" stroke-width="5" fill="none" stroke-linecap="round"/>
+  </g>
+</svg>

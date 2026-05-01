@@ -1,0 +1,159 @@
+-- Reject / Withdraw branch tests for the proposal families that lacked them:
+-- Asset, Ccy, Fx, Cds (Withdraw only), Fpml.
+-- Each test creates the proposal, exercises the branch, and asserts the
+-- proposal is archived and no SwapWorkflow emerged.
+module Swap.RejectWithdrawTest where
+
+import Daml.Script
+import DA.Date (date, Month(..))
+import Daml.Finance.Interface.Types.Date.V3.DayCount (DayCountConventionEnum(..))
+import Swap.AssetSwapProposal
+import Swap.CcySwapProposal
+import Swap.FxSwapProposal
+import Swap.CdsProposal
+import Swap.FpmlProposal
+import Swap.Types (FpmlLeg(..))
+import Swap.Workflow (SwapWorkflow)
+import Swap.TestHelpers
+
+-- =========================================================================
+-- Asset
+-- =========================================================================
+mkAssetProposal : TestParties -> Script (ContractId AssetSwapProposal)
+mkAssetProposal tp = submitMulti [tp.partyA, tp.operator] [] do
+  createCmd AssetSwapProposal with
+    operator = tp.operator; proposer = tp.partyA; counterparty = tp.partyB
+    notional = 10_000_000.0; fixRate = 0.03; ownerReceivesRate = True
+    underlyingAssetIds = ["UST-10Y"]; underlyingWeights = [1.0]
+    startDate = date 2026 Apr 16; maturityDate = date 2027 Apr 16
+    dayCountConvention = Act360
+
+testAssetReject : Script ()
+testAssetReject = do
+  tp <- allocateTestParties
+  propCid <- mkAssetProposal tp
+  submit tp.partyB do exerciseCmd propCid AssetReject
+  proposals <- query @AssetSwapProposal tp.partyB
+  assertMsg "No proposals remain after AssetReject" (null proposals)
+  workflows <- query @SwapWorkflow tp.partyA
+  assertMsg "No workflow emerged from rejected proposal" (null workflows)
+
+testAssetWithdraw : Script ()
+testAssetWithdraw = do
+  tp <- allocateTestParties
+  propCid <- mkAssetProposal tp
+  submit tp.partyA do exerciseCmd propCid AssetWithdraw
+  proposals <- query @AssetSwapProposal tp.partyA
+  assertMsg "No proposals remain after AssetWithdraw" (null proposals)
+
+-- =========================================================================
+-- Ccy
+-- =========================================================================
+mkCcyProposal : TestParties -> Script (ContractId CcySwapProposal)
+mkCcyProposal tp = submitMulti [tp.partyA, tp.operator] [] do
+  createCmd CcySwapProposal with
+    operator = tp.operator; proposer = tp.partyA; counterparty = tp.partyB
+    notional = 10_000_000.0; baseRate = 0.04; foreignRate = 0.035
+    baseCurrency = "USD"; foreignCurrency = "EUR"; fxRate = 1.08
+    ownerReceivesBase = True
+    startDate = date 2026 Apr 16; maturityDate = date 2027 Apr 16
+    dayCountConvention = Act360
+
+testCcyReject : Script ()
+testCcyReject = do
+  tp <- allocateTestParties
+  propCid <- mkCcyProposal tp
+  submit tp.partyB do exerciseCmd propCid CcyReject
+  proposals <- query @CcySwapProposal tp.partyB
+  assertMsg "No proposals remain after CcyReject" (null proposals)
+
+testCcyWithdraw : Script ()
+testCcyWithdraw = do
+  tp <- allocateTestParties
+  propCid <- mkCcyProposal tp
+  submit tp.partyA do exerciseCmd propCid CcyWithdraw
+  proposals <- query @CcySwapProposal tp.partyA
+  assertMsg "No proposals remain after CcyWithdraw" (null proposals)
+
+-- =========================================================================
+-- Fx
+-- =========================================================================
+mkFxProposal : TestParties -> Script (ContractId FxSwapProposal)
+mkFxProposal tp = submitMulti [tp.partyA, tp.operator] [] do
+  createCmd FxSwapProposal with
+    operator = tp.operator; proposer = tp.partyA; counterparty = tp.partyB
+    notional = 10_000_000.0; baseCurrency = "USD"; foreignCurrency = "EUR"
+    firstFxRate = 1.08; finalFxRate = 1.085
+    firstPaymentDate = date 2026 Jul 16; maturityDate = date 2027 Apr 16
+
+testFxReject : Script ()
+testFxReject = do
+  tp <- allocateTestParties
+  propCid <- mkFxProposal tp
+  submit tp.partyB do exerciseCmd propCid FxReject
+  proposals <- query @FxSwapProposal tp.partyB
+  assertMsg "No proposals remain after FxReject" (null proposals)
+
+testFxWithdraw : Script ()
+testFxWithdraw = do
+  tp <- allocateTestParties
+  propCid <- mkFxProposal tp
+  submit tp.partyA do exerciseCmd propCid FxWithdraw
+  proposals <- query @FxSwapProposal tp.partyA
+  assertMsg "No proposals remain after FxWithdraw" (null proposals)
+
+-- =========================================================================
+-- Cds — only CdsWithdraw is missing (CdsReject covered in TestAltSwaps)
+-- =========================================================================
+testCdsWithdraw : Script ()
+testCdsWithdraw = do
+  tp <- allocateTestParties
+  propCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd CdsProposal with
+      operator = tp.operator; proposer = tp.partyA; counterparty = tp.partyB
+      notional = 5_000_000.0; fixRate = 0.015; referenceName = "TSLA"
+      ownerReceivesFix = True
+      startDate = date 2026 Apr 16; maturityDate = date 2027 Apr 16
+      dayCountConvention = Act360
+  submit tp.partyA do exerciseCmd propCid CdsWithdraw
+  proposals <- query @CdsProposal tp.partyA
+  assertMsg "No proposals remain after CdsWithdraw" (null proposals)
+
+-- =========================================================================
+-- FpML
+-- =========================================================================
+fpmlLegs : [FpmlLeg]
+fpmlLegs =
+  [ FpmlLeg with
+      legType = "fixed"; currency = "USD"; notional = 25_000_000.0
+      rate = Some 0.0485; indexId = None; spread = None
+      dayCountConvention = Act360
+  , FpmlLeg with
+      legType = "float"; currency = "USD"; notional = 25_000_000.0
+      rate = None; indexId = Some "USD-SOFR"; spread = Some 0.0
+      dayCountConvention = Act360
+  ]
+
+mkFpmlProposal : TestParties -> Script (ContractId FpmlProposal)
+mkFpmlProposal tp = submitMulti [tp.partyA, tp.operator] [] do
+  createCmd FpmlProposal with
+    operator = tp.operator; proposer = tp.partyA; counterparty = tp.partyB
+    legs = fpmlLegs
+    startDate = date 2026 Apr 16; maturityDate = date 2027 Apr 16
+    description = "FpML reject/withdraw test"
+
+testFpmlReject : Script ()
+testFpmlReject = do
+  tp <- allocateTestParties
+  propCid <- mkFpmlProposal tp
+  submit tp.partyB do exerciseCmd propCid FpmlReject
+  proposals <- query @FpmlProposal tp.partyB
+  assertMsg "No proposals remain after FpmlReject" (null proposals)
+
+testFpmlWithdraw : Script ()
+testFpmlWithdraw = do
+  tp <- allocateTestParties
+  propCid <- mkFpmlProposal tp
+  submit tp.partyA do exerciseCmd propCid FpmlWithdraw
+  proposals <- query @FpmlProposal tp.partyA
+  assertMsg "No proposals remain after FpmlWithdraw" (null proposals)

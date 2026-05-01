@@ -1,0 +1,219 @@
+module Setup.DemoSeed where
+
+import Daml.Script
+import DA.Date (date, Month(..))
+import Daml.Finance.Interface.Types.Date.V3.DayCount (DayCountConventionEnum(..))
+import Oracle.FloatingRateIndex (FloatingRateIndex(..))
+import Oracle.Types (RateFamily(..), CompoundingMethod(..))
+import Swap.Proposal
+import Swap.OisProposal
+import Swap.BasisSwapProposal
+import Swap.XccyFixedFloatProposal
+import Swap.CdsProposal
+import Swap.Types
+import Setup.SeedSentinel (DemoSeedComplete(..))
+import Setup.DemoTerminalSeed (seedDemoMatured, seedDemoTerminated)
+
+-- Idempotent: return existing party by display-name hint, or allocate fresh.
+getOrAllocate : Text -> Script Party
+getOrAllocate hint = do
+  known <- listKnownParties
+  let existing = find (\d -> d.displayName == Some hint) known
+  case existing of
+    Some d -> pure d.party
+    None -> allocatePartyWithHint hint (PartyIdHint hint)
+
+seed : Script ()
+seed = do
+  operator <- getOrAllocate "Operator"
+  -- Sentinel-gated idempotency: if a previous run already created the
+  -- DemoSeedComplete contract for this operator, the body is non-replayable
+  -- (DUPLICATE_CONTRACT_KEY on every keyed create). Short-circuit here so
+  -- a marker-file wipe doesn't turn a rerun into a failure.
+  existing <- queryContractKey @DemoSeedComplete operator operator
+  case existing of
+    Some _ -> debug "Demo seed already complete — skipping (sentinel present at operator party)"
+    None -> seedFresh operator
+
+seedFresh : Party -> Script ()
+seedFresh operator = do
+  partyA   <- getOrAllocate "PartyA"
+  partyB   <- getOrAllocate "PartyB"
+  regulator <- getOrAllocate "Regulator"
+
+  -- IRS: PartyA pays fixed, receives SOFR (90-day).
+  -- Captured so we can Accept it below once the SOFR FloatingRateIndex
+  -- lookup has run — without an Accepted IRS, the demo's CSA netting
+  -- set carries no IRS workflow, the mark publisher writes nothing, and
+  -- the scheduler pill never flips off "Starting up".
+  irsProposalCid <- submitMulti [partyA, operator] [] do
+    createCmd SwapProposal with
+      operator
+      proposer           = partyA
+      counterparty       = partyB
+      notional           = 10_000_000.0
+      fixRate            = 0.0485
+      tenor              = D90
+      startDate          = date 2026 Apr 16
+      dayCountConvention = Act360
+
+  -- IRS: PartyB pays fixed (180-day)
+  submitMulti [partyB, operator] [] do
+    createCmd SwapProposal with
+      operator
+      proposer           = partyB
+      counterparty       = partyA
+      notional           = 25_000_000.0
+      fixRate            = 0.0420
+      tenor              = D180
+      startDate          = date 2026 May 1
+      dayCountConvention = Act360
+
+  -- IRS: past-maturity (for Mature-choice demo)
+  submitMulti [partyA, operator] [] do
+    createCmd SwapProposal with
+      operator
+      proposer           = partyA
+      counterparty       = partyB
+      notional           = 5_000_000.0
+      fixRate            = 0.0450
+      tenor              = D180
+      startDate          = date 2025 Jan 1
+      dayCountConvention = Act360
+
+  -- CDS: PartyA buys protection
+  submitMulti [partyA, operator] [] do
+    createCmd CdsProposal with
+      operator
+      proposer = partyA
+      counterparty = partyB
+      notional = 5_000_000.0
+      fixRate = 0.015
+      referenceName = "TSLA"
+      ownerReceivesFix = True
+      startDate = date 2026 Apr 16
+      maturityDate = date 2031 Apr 16
+      dayCountConvention = Act360
+
+  -- OIS + BasisSwap: pre-accepted so the blotter boots with Active
+  -- rows of the Phase-3 products. Requires Init to have seeded the
+  -- USD-SOFR + USD-EFFR FloatingRateIndex contracts; the lookup
+  -- resolves cids by their (operator, indexId) key so the seed is
+  -- idempotent.
+  sofrRows <- queryFilter @FloatingRateIndex operator
+    (\f -> f.operator == operator && f.indexId == "USD-SOFR")
+  effrRows <- queryFilter @FloatingRateIndex operator
+    (\f -> f.operator == operator && f.indexId == "USD-EFFR")
+  case (sofrRows, effrRows) of
+    ([], _) -> debug "USD-SOFR FloatingRateIndex missing — skipping OIS/BASIS demo seed"
+    (_, []) -> debug "USD-EFFR FloatingRateIndex missing — skipping BASIS demo seed"
+    ((sofrCid, _) :: _, (effrCid, _) :: _) -> do
+      -- IRS Accept (uses SOFR cid resolved above). Without this the
+      -- demo's PartyA+PartyB CSA has no IRS in its netting set, the
+      -- mark publisher never writes a MarkToMarket, and the scheduler
+      -- pill stays on "Starting up" indefinitely.
+      _ <- submitMulti [partyB, operator] [] do
+        exerciseCmd irsProposalCid Accept with
+          operator
+          regulators = [regulator]
+          floatingRateIndexCid = sofrCid
+
+      oisProposalCid <- submitMulti [partyA, operator] [] do
+        createCmd OisProposal with
+          operator
+          proposer = partyA
+          counterparty = partyB
+          notional = 25_000_000.0
+          fixRate = 0.04
+          startDate = date 2026 Apr 16
+          maturityDate = date 2031 Apr 16
+          dayCountConvention = Act360
+      _ <- submitMulti [partyB, operator] [] do
+        exerciseCmd oisProposalCid OisAccept with
+          operator
+          regulators = [regulator]
+          floatingRateIndexCid = sofrCid
+
+      basisProposalCid <- submitMulti [partyA, operator] [] do
+        createCmd BasisSwapProposal with
+          operator
+          proposer = partyA
+          counterparty = partyB
+          notional = 25_000_000.0
+          currency = "USD"
+          leg0Spread = 0.0
+          leg1Spread = 0.0025
+          startDate = date 2026 Apr 16
+          maturityDate = date 2031 Apr 16
+          dayCountConvention = Act360
+      _ <- submitMulti [partyB, operator] [] do
+        exerciseCmd basisProposalCid BasisAccept with
+          operator
+          regulators = [regulator]
+          leg0FloatingRateIndexCid = sofrCid
+          leg1FloatingRateIndexCid = effrCid
+
+      -- XCCY (Stage E): USD-fixed vs EUR-float workflow so the blotter
+      -- boots with an Active cross-currency row. EUR-ESTR is seeded by
+      -- the oracle at runtime from irsforge.yaml; for the `daml test`
+      -- path we seed it here so the script stays self-contained.
+      -- Idempotent via the `(operator, indexId)` template key.
+      eurEstrRows <- queryFilter @FloatingRateIndex operator
+        (\f -> f.operator == operator && f.indexId == "EUR-ESTR")
+      eurEstrCid <- case eurEstrRows of
+        ((cid, _) :: _) -> pure cid
+        [] -> submit operator do
+          createCmd FloatingRateIndex with
+            operator
+            subscribers = [partyA, partyB]
+            regulators = [regulator]
+            indexId = "EUR-ESTR"
+            currency = "EUR"
+            family = ESTR
+            compounding = CompoundedInArrears
+            lookback = 0
+            floor = None
+      xccyProposalCid <- submitMulti [partyA, operator] [] do
+        createCmd XccyFixedFloatProposal with
+          operator
+          proposer = partyA
+          counterparty = partyB
+          fixedCurrency = "USD"
+          fixedNotional = 10_000_000.0
+          fixedRate = 0.04
+          floatCurrency = "EUR"
+          floatNotional = 9_260_000.0
+          startDate = date 2026 Apr 16
+          maturityDate = date 2031 Apr 16
+          dayCountConvention = Act360
+      _ <- submitMulti [partyB, operator] [] do
+        exerciseCmd xccyProposalCid XccyAccept with
+          operator
+          regulators = [regulator]
+          floatFloatingRateIndexCid = eurEstrCid
+
+      -- Terminal-state demo rows so the blotter's Matured / Unwound tabs
+      -- aren't empty on first load. Each call accepts an extra IRS, archives
+      -- the workflow, and creates the terminal contract bound to the same
+      -- instrument key. Lifecycle effects (TriggerLifecycle → Settle →
+      -- Mature) are skipped — this is bootstrap data, not a real lifecycle.
+      seedDemoMatured operator partyA partyB regulator sofrCid
+        7_500_000.0 0.0405 (date 2024 Jan 15) (date 2025 Jan 15) 8_750.0
+      seedDemoMatured operator partyA partyB regulator sofrCid
+        12_000_000.0 0.0395 (date 2024 Jul 1) (date 2025 Jul 1) (-3_200.0)
+
+      seedDemoTerminated operator partyA partyB regulator sofrCid
+        15_000_000.0 0.0440 (date 2025 Mar 1) (date 2026 Feb 15)
+        21_500.0 "Counterparty consolidation"
+      seedDemoTerminated operator partyA partyB regulator sofrCid
+        6_000_000.0 0.0460 (date 2025 Jun 10) (date 2026 Apr 5)
+        (-12_750.0) "Negotiated unwind"
+      pure ()
+
+  -- Mark seed complete. Subsequent invocations of `seed` will see this
+  -- sentinel and skip the body. scripts/demo.sh greps for the debug
+  -- string below as its success signal — keep both lines in lockstep.
+  _ <- submit operator do
+    createCmd DemoSeedComplete with operator
+  debug "Demo seed complete — 4 proposals (3 IRS + 1 CDS) + 4 accepted workflows (IRS, OIS, BASIS, XCCY) + 2 matured + 2 unwound"
+  pure ()

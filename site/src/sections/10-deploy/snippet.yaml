@@ -1,0 +1,37 @@
+parties:
+  scheduler:
+    partyHint: Scheduler
+# Phase 6 Stage B: scheduler service + manual-button gating.
+# Demo profile keeps `manualOverridesEnabled: true` so a human can drive
+# the demo end-to-end. Flip both `enabled` and `manualOverridesEnabled`
+# for a production-ish profile (scheduler runs, manual buttons hidden).
+scheduler:
+  enabled: true
+  manualOverridesEnabled: true
+  cron:
+    trigger: "*/5 * * * * *"
+    settleNet: "*/5 * * * * *"
+    mature: "*/30 * * * * *"
+currencies:
+  - code: USD
+    label: US Dollar
+    calendarId: USD
+    isDefault: true
+  - code: EUR
+    label: Euro
+    calendarId: EUR
+rateFamilies:
+  SOFR:
+    curveIndexId: SOFR/INDEX
+    overnightIndexId: SOFR/ON
+    tenors:
+      - { id: SOFR/ON,  days: 1    }
+      - { id: SOFR/1M,  days: 30   }
+      - { id: SOFR/3M,  days: 91   }
+      - { id: SOFR/6M,  days: 182  }
+      - { id: SOFR/1Y,  days: 365  }
+      - { id: SOFR/2Y,  days: 730  }
+      - { id: SOFR/3Y,  days: 1095 }
+      - { id: SOFR/5Y,  days: 1826 }
+      - { id: SOFR/10Y, days: 3652 }
+

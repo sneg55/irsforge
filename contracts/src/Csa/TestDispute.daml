@@ -1,0 +1,203 @@
+-- Dispute taxonomy + escalation tests for Csa.Csa.
+--
+-- Lifted out of Csa.Test so that file stays under the 300-line cap as the
+-- dispute state machine grows (Tier 2 #8). Same pattern as Csa.TestMath /
+-- Csa.TestScheduler / Csa.TestRecovery / Csa.TestSettleNet.
+--
+-- Scope: opening a dispute (Csa.Dispute), authority gates, state flips
+-- (MarkDisputed / Escalated), and the SettleVm-while-disputed gate.
+-- Resolution-path tests (AcknowledgeDispute, AgreeToCounterMark) live
+-- in Csa.TestDisputeResolution.
+module Csa.TestDispute where
+
+import Daml.Script
+import DA.Map qualified as Map
+import DA.Date (date, Month(..))
+import DA.Time (time)
+import qualified Csa.Types as T
+import qualified Csa.Csa as C
+import qualified Csa.Dispute as D
+import Csa.Test (allocateThree, baseCsa)
+
+-- 11. SettleVm refuses to run while CSA is in MarkDisputed state.
+testSettleFailsWhileDisputed : Script ()
+testSettleFailsWhileDisputed = do
+  (op, pa, pb, reg, sch) <- allocateThree
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  cid <- submit pa do
+    exerciseCmd cid C.PostCollateral with
+      poster = pa; ccy = "USD"; amount = 1_000_000.0
+  (cid, _) <- submit op do
+    exerciseCmd cid C.PublishMark with
+      asOf     = time (date 2026 Apr 17) 12 0 0
+      exposure = 1_000_000.0
+      snapshot = "{}"
+  cid <- submit pa do
+    exerciseCmd cid C.Dispute with
+      disputer = pa; counterMark = 0.0; reason = T.Other; notes = "x"
+  submitMustFail op do exerciseCmd cid C.SettleVm
+
+-- 12. Dispute flips state to MarkDisputed.
+testDisputeFlipsState : Script ()
+testDisputeFlipsState = do
+  (op, pa, pb, reg, sch) <- allocateThree
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  (cid, _) <- submit op do
+    exerciseCmd cid C.PublishMark with
+      asOf     = time (date 2026 Apr 17) 12 0 0
+      exposure = 1_000_000.0
+      snapshot = "{}"
+  cid <- submit pa do
+    exerciseCmd cid C.Dispute with
+      disputer = pa; counterMark = 0.0; reason = T.Other; notes = "x"
+  Some c <- queryContractId pa cid
+  assert (c.state == T.MarkDisputed)
+
+-- 16. DisputeRecord round-trips through the new Csa.Dispute module.
+testDisputeRecordRoundTrip : Script ()
+testDisputeRecordRoundTrip = do
+  (op, pa, pb, reg, sch) <- allocateThree
+  now <- getTime
+  drCid <- submitMulti [op, pa, pb] [] do
+    createCmd D.DisputeRecord with
+      operator    = op
+      partyA      = pa
+      partyB      = pb
+      regulators  = [reg]
+      scheduler   = sch
+      csaCid      = "test-csa-cid"
+      disputer    = pa
+      counterMark = 800_000.0
+      reason      = T.Valuation
+      notes       = "off by 200k"
+      openedAt    = now
+  Some dr <- queryContractId reg drCid
+  assert (dr.disputer == pa && dr.reason == T.Valuation && dr.counterMark == 800_000.0)
+
+-- 17. Dispute persists a DisputeRecord and stores its cid in activeDispute.
+testDisputePersistsRecord : Script ()
+testDisputePersistsRecord = do
+  (op, pa, pb, reg, sch) <- allocateThree
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  (cid, _) <- submit op do
+    exerciseCmd cid C.PublishMark with
+      asOf     = time (date 2026 Apr 17) 12 0 0
+      exposure = 1_000_000.0
+      snapshot = "{}"
+  cid <- submit pa do
+    exerciseCmd cid C.Dispute with
+      disputer = pa; counterMark = 800_000.0; reason = T.Valuation; notes = "off by 200k"
+  Some c <- queryContractId pa cid
+  assert (c.state == T.MarkDisputed)
+  case c.activeDispute of
+    None -> abort "expected activeDispute Some after Dispute"
+    Some drCid -> do
+      Some dr <- queryContractId reg drCid
+      assert (dr.disputer == pa && dr.reason == T.Valuation
+              && dr.counterMark == 800_000.0 && dr.notes == "off by 200k")
+
+-- 18. Dispute requires a published mark.
+testDisputeRequiresPublishedMark : Script ()
+testDisputeRequiresPublishedMark = do
+  (op, pa, pb, reg, sch) <- allocateThree
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  submitMustFail pa do
+    exerciseCmd cid C.Dispute with
+      disputer = pa; counterMark = 0.0; reason = T.Other; notes = ""
+
+-- 19. Dispute fires from MarginCallOutstanding too.
+testDisputeFromMarginCallAllowed : Script ()
+testDisputeFromMarginCallAllowed = do
+  (op, pa, pb, reg, sch) <- allocateThree
+  cid <- submitMulti [op, pa, pb] [] do
+    createCmd (baseCsa op pa pb reg sch) with
+      csb = Map.fromList [("USD", 100_000.0)]
+  (cid, _) <- submit op do
+    exerciseCmd cid C.PublishMark with
+      asOf     = time (date 2026 Apr 17) 12 0 0
+      exposure = 1_000_000.0
+      snapshot = "{}"
+  cid <- submit op do exerciseCmd cid C.SettleVm
+  Some c <- queryContractId op cid
+  assert (c.state == T.MarginCallOutstanding)
+  cid <- submit pa do
+    exerciseCmd cid C.Dispute with
+      disputer = pa; counterMark = 800_000.0; reason = T.Valuation; notes = ""
+  Some c <- queryContractId op cid
+  assert (c.state == T.MarkDisputed)
+
+-- 20. Dispute fails when one is already open.
+testDisputeRejectsDoubleDispute : Script ()
+testDisputeRejectsDoubleDispute = do
+  (op, pa, pb, reg, sch) <- allocateThree
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  (cid, _) <- submit op do
+    exerciseCmd cid C.PublishMark with
+      asOf     = time (date 2026 Apr 17) 12 0 0
+      exposure = 1_000_000.0
+      snapshot = "{}"
+  cid <- submit pa do
+    exerciseCmd cid C.Dispute with
+      disputer = pa; counterMark = 800_000.0; reason = T.Valuation; notes = ""
+  submitMustFail pb do
+    exerciseCmd cid C.Dispute with
+      disputer = pb; counterMark = 1_100_000.0; reason = T.Valuation; notes = ""
+
+-- 21. Disputer cannot escalate their own dispute (only counterparty can).
+testEscalateOnlyByCounterparty : Script ()
+testEscalateOnlyByCounterparty = do
+  (op, pa, pb, reg, sch) <- allocateThree
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  (cid, _) <- submit op do
+    exerciseCmd cid C.PublishMark with
+      asOf     = time (date 2026 Apr 17) 12 0 0
+      exposure = 1_000_000.0
+      snapshot = "{}"
+  cid <- submit pa do
+    exerciseCmd cid C.Dispute with
+      disputer = pa; counterMark = 800_000.0; reason = T.Valuation; notes = ""
+  submitMustFail pa do
+    exerciseCmd cid C.EscalateDispute with escalator = pa
+
+-- 22. Escalate from MarkDisputed by counterparty flips state to Escalated.
+testEscalateFlipsState : Script ()
+testEscalateFlipsState = do
+  (op, pa, pb, reg, sch) <- allocateThree
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  (cid, _) <- submit op do
+    exerciseCmd cid C.PublishMark with
+      asOf     = time (date 2026 Apr 17) 12 0 0
+      exposure = 1_000_000.0
+      snapshot = "{}"
+  cid <- submit pa do
+    exerciseCmd cid C.Dispute with
+      disputer = pa; counterMark = 800_000.0; reason = T.Valuation; notes = ""
+  cid <- submit pb do
+    exerciseCmd cid C.EscalateDispute with escalator = pb
+  Some c <- queryContractId pb cid
+  assert (c.state == T.Escalated)
+
+-- 23. Escalate from Active fails.
+testEscalateRequiresMarkDisputed : Script ()
+testEscalateRequiresMarkDisputed = do
+  (op, pa, pb, reg, sch) <- allocateThree
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  submitMustFail pb do
+    exerciseCmd cid C.EscalateDispute with escalator = pb
+
+-- 28. SettleVm fails when Escalated (regression).
+testSettleFailsWhileEscalated : Script ()
+testSettleFailsWhileEscalated = do
+  (op, pa, pb, reg, sch) <- allocateThree
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  (cid, _) <- submit op do
+    exerciseCmd cid C.PublishMark with
+      asOf     = time (date 2026 Apr 17) 12 0 0
+      exposure = 1_000_000.0
+      snapshot = "{}"
+  cid <- submit pa do
+    exerciseCmd cid C.Dispute with
+      disputer = pa; counterMark = 0.0; reason = T.Other; notes = ""
+  cid <- submit pb do
+    exerciseCmd cid C.EscalateDispute with escalator = pb
+  submitMustFail op do exerciseCmd cid C.SettleVm

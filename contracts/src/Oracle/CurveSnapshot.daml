@@ -1,0 +1,36 @@
+module Oracle.CurveSnapshot where
+
+import Oracle.Types
+
+-- | Append-only historical record of a published discount or projection
+--   curve. Each Provider_PublishDiscountCurve / Provider_PublishProjectionCurve
+--   on a provider creates a Curve (single-latest, keyed; operational lookup
+--   path for the lifecycle rule) AND a CurveSnapshot (audit +
+--   sparkline data source; never archived as a side-effect of
+--   publishing a new curve).
+--
+-- Retention is handled by a separate operator-controlled archive choice
+-- the oracle's retention job calls on a schedule (out of scope for v1 —
+-- snapshots accumulate without bound in the initial ship).
+--
+-- The key includes `asOf` so each tick is a distinct contract. No
+-- maintainer lookup is needed — readers query by templateId and filter
+-- on currency / curveType / indexId / asOf range.
+template CurveSnapshot
+  with
+    operator   : Party
+    subscribers: [Party]
+    regulators  : [Party]
+    currency   : Text
+    curveType  : CurveType
+    indexId    : Optional Text
+    asOf       : Time
+    pillars    : [Pillar]
+    interpolation : InterpolationMethod
+    dayCount      : CurveDayCount
+    constructionMetadata : Text
+  where
+    signatory operator
+    observer subscribers, regulators
+
+    ensure length pillars >= 2

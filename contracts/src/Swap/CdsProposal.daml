@@ -1,0 +1,187 @@
+module Swap.CdsProposal where
+
+import DA.Map qualified as Map
+import DA.Set qualified as Set
+import Daml.Finance.Interface.Types.Common.V3.Types (Id(..), InstrumentKey(..), HoldingStandard(..))
+import Daml.Finance.Interface.Types.Date.V3.DayCount (DayCountConventionEnum(..))
+import DA.Date (toGregorian, toDateUTC)
+import DA.Time (time)
+import Daml.Finance.Interface.Types.Date.V3.RollConvention (Period(..), PeriodEnum(..), RollConventionEnum(..))
+import Daml.Finance.Interface.Types.Date.V3.Schedule (PeriodicSchedule(..), Frequency(..), ScheduleFrequency(..))
+import Daml.Finance.Interface.Instrument.Swap.V0.CreditDefault.Types (CreditDefault(..))
+import Daml.Finance.Interface.Instrument.Swap.V0.CreditDefault.Factory qualified as CdsFactory
+import Constants (usdCalendarId)
+import Setup.CashSetup (CashSetupRecord(..), cashSetupKey)
+import Swap.Types (lastRegularEndFor)
+import Swap.Workflow (SwapWorkflow(..))
+
+template CdsProposal
+  with
+    operator : Party
+    proposer : Party
+    counterparty : Party
+    notional : Decimal
+    fixRate : Decimal
+    referenceName : Text
+    ownerReceivesFix : Bool
+    startDate : Date
+    maturityDate : Date
+    dayCountConvention : DayCountConventionEnum
+  where
+    -- Operator co-signs so CdsAccept inherits the auth needed for
+    -- CdsFactory.Create. Proposal creation is `submitMulti [proposer, operator] []`.
+    signatory proposer, operator
+    observer counterparty
+
+    ensure notional > 0.0
+      && fixRate > 0.0
+      && fixRate < 1.0
+
+    choice CdsAccept : ContractId SwapWorkflow
+      with
+        operator : Party
+        regulators : [Party]
+      controller counterparty
+      do
+        assertMsg "operator arg must match proposal's operator signatory"
+          (operator == this.operator)
+        (_, setup) <- fetchByKey @CashSetupRecord (cashSetupKey operator this.proposer this.counterparty)
+
+        let
+          defaultCcyKey = case Map.lookup setup.defaultCurrencyCode setup.currencies of
+            Some k -> k
+            None   -> error ("Currency " <> setup.defaultCurrencyCode <> " not seeded — operator must add it to config")
+
+          schedDef = case Map.lookup "CDS" setup.scheduleDefaults of
+            Some s -> s
+            None   -> error "Schedule defaults for CDS not seeded — operator must add them to config"
+
+          -- Daml Finance's Factory.Create validates effectiveDate's
+          -- day-of-month matches rollConvention. Override the schedule
+          -- default's rollConvention to match startDate's day so any valid
+          -- proposal date works (not just DOM 16 from the demo seed).
+          (_, _, startDay) = toGregorian this.startDate
+
+          -- User-supplied maturityDate may land on a different DOM than
+          -- startDate. Bloomberg/SWPM handles this as a back-stub; the
+          -- helper walks the schedule forward by `frequencyMonths` and
+          -- returns the last regular date ≤ maturity.
+          stubLastEnd = lastRegularEndFor this.startDate schedDef.frequencyMonths this.maturityDate
+
+        now <- getTime
+
+        let
+          periodicSchedule = PeriodicSchedule with
+            effectiveDate                        = this.startDate
+            terminationDate                      = this.maturityDate
+            firstRegularPeriodStartDate          = None
+            lastRegularPeriodEndDate             = stubLastEnd
+            frequency = Periodic Frequency with
+              period = Period with
+                period           = M
+                periodMultiplier = schedDef.frequencyMonths
+              rollConvention = DOM startDay
+            businessDayAdjustment                = schedDef.businessDayAdjustment
+            effectiveDateBusinessDayAdjustment   = None
+            terminationDateBusinessDayAdjustment = None
+            stubPeriodType                       = None
+
+          instrumentId =
+            "CDS-" <> show this.proposer <> "-" <> show this.counterparty
+              <> "-" <> show this.startDate <> "-" <> show this.notional
+
+          instrumentKey = InstrumentKey with
+            depository      = operator
+            issuer          = operator
+            id              = Id instrumentId
+            version         = "0"
+            holdingStandard = TransferableFungible
+
+          observerMap = Map.fromList
+            [("observers", Set.fromList ([this.proposer, this.counterparty] <> regulators))]
+
+          defaultProbabilityReferenceId = "CDS/" <> this.referenceName <> "/DefaultProb"
+          recoveryRateReferenceId       = "CDS/" <> this.referenceName <> "/Recovery"
+
+          creditDefault = CreditDefault with
+            instrument                    = instrumentKey
+            description                   = "CDS " <> instrumentId
+            defaultProbabilityReferenceId
+            recoveryRateReferenceId
+            ownerReceivesFix              = this.ownerReceivesFix
+            fixRate                       = this.fixRate
+            periodicSchedule
+            holidayCalendarIds            = [usdCalendarId]
+            calendarDataProvider          = operator
+            dayCountConvention            = schedDef.dayCountConvention
+            currency                      = defaultCcyKey
+            -- Align to midnight-UTC of the accept date so subsequent
+            -- scheduler evolves can resolve observations via the daily
+            -- CDS obs grid (Map.lookup is exact-time, so mid-day values
+            -- would miss every published daily fixing).
+            lastEventTimestamp            = time (toDateUTC now) 0 0 0
+
+        exercise setup.factories.cds CdsFactory.Create with
+          creditDefault
+          observers = observerMap
+
+        create SwapWorkflow with
+          swapType = "CDS"
+          operator
+          partyA = this.proposer
+          partyB = this.counterparty
+          regulators
+          scheduler = setup.scheduler
+          instrumentKey
+          notional = this.notional
+
+    -- Manual operator co-sign path: counterparty fires this instead of CdsAccept.
+    nonconsuming choice CdsProposeAccept : ContractId CdsAcceptAck
+      with
+        operator  : Party
+        regulators : [Party]
+      controller counterparty
+      do
+        assertMsg "operator arg must match proposal's operator signatory"
+          (operator == this.operator)
+        create CdsAcceptAck with
+          proposer     = this.proposer
+          counterparty = this.counterparty
+          operator
+          regulators
+          proposalCid  = self
+
+    choice CdsReject : ()
+      controller counterparty
+      do pure ()
+
+    choice CdsWithdraw : ()
+      controller proposer
+      do pure ()
+
+-- | CdsAcceptAck: pending ack awaiting operator confirmation.
+template CdsAcceptAck
+  with
+    proposer     : Party
+    counterparty : Party
+    operator     : Party
+    regulators    : [Party]
+    proposalCid  : ContractId CdsProposal
+  where
+    signatory proposer, counterparty, operator
+    observer  regulators
+
+    choice CdsConfirmAccept : ContractId SwapWorkflow
+      controller operator
+      do
+        exercise proposalCid CdsAccept with
+          operator
+          regulators
+
+    choice CdsAcceptAckCancelByCounterparty : ()
+      controller counterparty
+      do pure ()
+
+    choice CdsAcceptAckCancelByOperator : ()
+      controller operator
+      do pure ()

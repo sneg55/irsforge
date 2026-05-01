@@ -1,0 +1,83 @@
+-- Tests for Oracle.FxSpot — both the template create (otherwise never
+-- exercised in tests) and the UpdateRate choice that re-issues the
+-- contract under the same key with a new rate/asOf.
+module Oracle.TestFxSpot where
+
+import Daml.Script
+import DA.Date (date, Month(..))
+import DA.Time (time)
+import Oracle.FxSpot
+
+-- | Happy path: create one FxSpot, then UpdateRate, assert key continuity
+-- (same baseCcy/quoteCcy, new rate/asOf, prior cid archived).
+fxSpotCreateAndUpdateTest : Script ()
+fxSpotCreateAndUpdateTest = do
+  operator <- allocatePartyWithHint "Operator"  (PartyIdHint "Operator")
+  partyA   <- allocatePartyWithHint "PartyA"    (PartyIdHint "PartyA")
+  regulator <- allocatePartyWithHint "Regulator" (PartyIdHint "Regulator")
+
+  let asOf1 = time (date 2026 Apr 16) 0 0 0
+      asOf2 = time (date 2026 Apr 17) 0 0 0
+
+  spotCid1 <- submit operator do
+    createCmd FxSpot with
+      operator
+      subscribers = [partyA]
+      regulators = [regulator]
+      baseCcy = "EUR"
+      quoteCcy = "USD"
+      rate = 1.0800
+      asOf = asOf1
+
+  Some spot1 <- queryContractId operator spotCid1
+  assertMsg "rate seeded at 1.08" (spot1.rate == 1.0800)
+  assertMsg "asOf seeded at asOf1" (spot1.asOf == asOf1)
+
+  -- Re-issue with a new rate
+  spotCid2 <- submit operator do
+    exerciseCmd spotCid1 UpdateRate with
+      newRate = 1.0825
+      newAsOf = asOf2
+
+  -- Old cid must be archived
+  oldCheck <- queryContractId operator spotCid1
+  assertMsg "Old FxSpot must be archived after UpdateRate" (oldCheck == None)
+
+  -- New cid carries the updated fields, same key
+  Some spot2 <- queryContractId operator spotCid2
+  assertMsg "new rate" (spot2.rate == 1.0825)
+  assertMsg "new asOf" (spot2.asOf == asOf2)
+  assertMsg "baseCcy unchanged" (spot2.baseCcy == "EUR")
+  assertMsg "quoteCcy unchanged" (spot2.quoteCcy == "USD")
+  pure ()
+
+-- | Ensure clause: rate must be > 0 and baseCcy /= quoteCcy.
+fxSpotEnsureGuardsTest : Script ()
+fxSpotEnsureGuardsTest = do
+  operator <- allocatePartyWithHint "Operator" (PartyIdHint "Operator")
+  regulator <- allocatePartyWithHint "Regulator" (PartyIdHint "Regulator")
+
+  let asOf = time (date 2026 Apr 16) 0 0 0
+
+  -- Same-currency rejected
+  submitMustFail operator do
+    createCmd FxSpot with
+      operator
+      subscribers = []
+      regulators = [regulator]
+      baseCcy = "USD"
+      quoteCcy = "USD"
+      rate = 1.0
+      asOf
+
+  -- Zero rate rejected
+  submitMustFail operator do
+    createCmd FxSpot with
+      operator
+      subscribers = []
+      regulators = [regulator]
+      baseCcy = "EUR"
+      quoteCcy = "USD"
+      rate = 0.0
+      asOf
+  pure ()

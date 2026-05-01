@@ -1,0 +1,159 @@
+-- | Maps a platform FpmlLeg into a Daml Finance V0 SwapStream record.
+--   Pulls schedule conventions (frequency, roll, BDA) from the operator-seeded
+--   ScheduleDefaults rather than hard-coding them, so demo and production runs
+--   share the same projection logic.
+module Swap.FpmlAdapter where
+
+import DA.Optional (fromOptional)
+import Daml.Finance.Interface.Types.Date.V3.RollConvention (PeriodEnum(..))
+import qualified Daml.Finance.Interface.Instrument.Swap.V0.Fpml.FpmlTypes as Fpml
+import Oracle.FloatingRateIndex (FloatingRateIndex(..))
+import Setup.CashSetup (ScheduleDefaults(..))
+import Swap.Types (FpmlLeg(..))
+
+-- | Convert one FpmlLeg into a fully-qualified SwapStream.
+--
+--   legIndex 0 → proposer pays, counterparty receives.
+--   legIndex 1 → counterparty pays, proposer receives.
+--   Alternates for index ≥ 2 by the same even/odd rule.
+--
+--   Party references are stringified via `show`, matching the
+--   `issuerPartyRef = show this.proposer` pattern in FpmlProposal.
+legToSwapStream
+  : Int             -- ^ legIndex
+  -> FpmlLeg
+  -> Date           -- ^ effectiveDate (proposal-level)
+  -> Date           -- ^ terminationDate (proposal-level)
+  -> ScheduleDefaults
+  -> Optional FloatingRateIndex  -- ^ carries lookback into resetDates for float legs
+  -> Party          -- ^ proposer
+  -> Party          -- ^ counterparty
+  -> Fpml.SwapStream
+legToSwapStream legIndex leg effectiveDate terminationDate sched mFrid proposer counterparty =
+  let
+    -- Payer / receiver alternate by leg index parity.
+    (payerRef, receiverRef) =
+      if legIndex % 2 == 0
+        then (show proposer,    show counterparty)
+        else (show counterparty, show proposer)
+
+    bda = sched.businessDayAdjustment
+
+    -- Shared BusinessDayAdjustments record (used in several places).
+    bdaRecord = Fpml.BusinessDayAdjustments with
+      businessDayConvention = bda.convention
+      businessCenters       = bda.calendarIds
+
+    calcId = "calc-" <> show legIndex
+
+    -- CalculationPeriodDates ------------------------------------------------
+    adjDate d = Fpml.AdjustableDate with
+      unadjustedDate  = d
+      dateAdjustments = bdaRecord
+
+    calcPeriodDates = Fpml.CalculationPeriodDates with
+      id                              = calcId
+      effectiveDate                   = adjDate effectiveDate
+      terminationDate                 = adjDate terminationDate
+      calculationPeriodDatesAdjustments = Fpml.CalculationPeriodDatesAdjustments with
+        businessDayConvention = bda.convention
+        businessCenters       = bda.calendarIds
+      firstPeriodStartDate            = None
+      firstRegularPeriodStartDate     = None
+      lastRegularPeriodEndDate        = None
+      calculationPeriodFrequency      = Fpml.CalculationPeriodFrequency with
+        periodMultiplier = sched.frequencyMonths
+        period           = Fpml.Regular M
+        rollConvention   = sched.rollConvention
+
+    -- PaymentDates ----------------------------------------------------------
+    paymentDates = Fpml.PaymentDates with
+      calculationPeriodDatesReference = calcId
+      paymentFrequency                = Fpml.PaymentFrequency with
+        periodMultiplier = sched.frequencyMonths
+        period           = Fpml.Regular M
+      firstPaymentDate                = None
+      lastRegularPaymentDate          = None
+      payRelativeTo                   = Fpml.CalculationPeriodEndDate
+      paymentDaysOffset               = None
+      paymentDatesAdjustments         = bdaRecord
+
+    -- Fixing offset (in business days) for float legs.  When an operator-seeded
+    -- FloatingRateIndex is threaded through, carry its lookback as a negative
+    -- periodMultiplier so the Daml Finance library consumes the ARRC shift.
+    -- Generic FpML imports (no server-side index lookup) keep the legacy 0.
+    fixingPeriodMultiplier = case mFrid of
+      Some frid -> negate frid.lookback
+      None      -> 0
+
+    -- ResetDates (floating legs only) --------------------------------------
+    resetDates =
+      if leg.legType == "float"
+        then Some Fpml.ResetDates with
+          calculationPeriodDatesReference = calcId
+          resetRelativeTo                 = Fpml.CalculationPeriodStartDate
+          fixingDates                     = Fpml.FixingDates with
+            periodMultiplier      = fixingPeriodMultiplier
+            period                = D
+            dayType               = Some Fpml.Business
+            businessDayConvention = bda.convention
+            businessCenters       = bda.calendarIds
+          resetFrequency                  = Fpml.ResetFrequency with
+            periodMultiplier = sched.frequencyMonths
+            period           = Fpml.Regular M
+          resetDatesAdjustments           = Fpml.ResetDatesAdjustments with
+            businessDayConvention = bda.convention
+            businessCenters       = bda.calendarIds
+        else None
+
+    -- Notional schedule -----------------------------------------------------
+    notionalScheduleValue =
+      Fpml.NotionalSchedule_Regular Fpml.NotionalSchedule with
+        id                  = "notional-" <> show legIndex
+        notionalStepSchedule = Fpml.NotionalStepSchedule with
+          initialValue = leg.notional
+          step         = []
+          currency     = leg.currency
+
+    -- Rate type (fixed vs floating) ----------------------------------------
+    rateTypeValue =
+      if leg.legType == "fixed"
+        then
+          let fixedRate = case leg.rate of
+                Some r -> r
+                None   -> error "FpmlLeg.legType=\"fixed\" requires `rate`"
+          in  Fpml.RateType_Fixed Fpml.FixedRateSchedule with
+                initialValue = fixedRate
+                step         = []
+        else if leg.legType == "float"
+          then
+            let indexId = case leg.indexId of
+                  Some i -> i
+                  None   -> error "FpmlLeg.legType=\"float\" requires `indexId`"
+            in  Fpml.RateType_Floating Fpml.FloatingRateCalculation with
+                  floatingRateIndex = indexId
+                  indexTenor        = None
+                  spreadSchedule    =
+                    [ Fpml.SpreadSchedule with
+                        initialValue = fromOptional 0.0 leg.spread
+                    ]
+                  finalRateRounding = None
+          else
+            error ("FpmlLeg.legType must be \"fixed\" or \"float\", got: " <> leg.legType)
+
+    -- Calculation -----------------------------------------------------------
+    calculation = Fpml.Calculation with
+      notionalScheduleValue
+      rateTypeValue
+      dayCountFraction    = leg.dayCountConvention
+      compoundingMethodEnum = None
+
+  in Fpml.SwapStream with
+    payerPartyReference    = payerRef
+    receiverPartyReference = receiverRef
+    calculationPeriodDates = calcPeriodDates
+    paymentDates
+    resetDates
+    calculationPeriodAmount = Fpml.CalculationPeriodAmount with calculation
+    stubCalculationPeriodAmount = None
+    principalExchanges          = None

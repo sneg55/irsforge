@@ -1,0 +1,105 @@
+@font-face {
+  font-family: "Source Serif 4";
+  src: url("/fonts/source-serif-4-variable.woff2") format("woff2-variations");
+  font-weight: 200 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("/fonts/inter-variable.woff2") format("woff2-variations");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/jetbrains-mono-variable.woff2") format("woff2-variations");
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@import "tailwindcss";
+
+@theme {
+  /* palette */
+  --color-bg: #0a0e1a;
+  --color-bg-elevated: #10162a;
+  --color-fg: #f5efe0;
+  --color-fg-body: #d4ccb8;
+  --color-fg-muted: #8a826f;
+  --color-accent: #c9a961;
+  --color-accent-dim: #8c764a;
+  --color-bg-tint-gold: rgba(201, 169, 97, 0.08);
+  --color-border: #1f2640;
+  --color-pay: #10b981;
+  --color-receive: #ef4444;
+
+  /* typography */
+  --font-display: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", Menlo, Monaco, monospace;
+
+  /* type scale (rem) */
+  --text-2xs: 0.75rem;
+  --text-xs: 0.875rem;
+  --text-sm: 1rem;
+  --text-base: 1.125rem;
+  --text-md: 1.25rem;
+  --text-lg: 1.5rem;
+  --text-xl: 2rem;
+  --text-2xl: 2.75rem;
+  --text-3xl: 3.75rem;
+  --text-4xl: 5rem;
+
+  /* spacing scale */
+  --spacing-1: 0.25rem;
+  --spacing-2: 0.5rem;
+  --spacing-3: 1rem;
+  --spacing-4: 1.5rem;
+  --spacing-5: 2.5rem;
+  --spacing-6: 4rem;
+  --spacing-7: 6rem;
+  --spacing-8: 8rem;
+  --spacing-9: 12rem;
+}
+
+html {
+  background: var(--color-bg);
+  color: var(--color-fg-body);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+body { margin: 0; }
+
+h1, h2, h3 { font-family: var(--font-display); color: var(--color-fg); font-weight: 400; }
+h1 em, h2 em, h3 em { font-style: italic; color: var(--color-accent); }
+
+a { color: var(--color-accent); text-decoration: none; }
+a:hover { color: var(--color-fg); }
+
+.label {
+  font-family: var(--font-body);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+}
+
+.rule-top { border-top: 1px solid var(--color-accent-dim); padding-top: var(--spacing-3); }
+
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+.skip-link {
+  position: absolute; left: -9999px; top: 0; padding: 0.5rem 1rem;
+  background: var(--color-accent); color: var(--color-bg); z-index: 100;
+}
+.skip-link:focus { left: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0s !important; transition-duration: 0s !important; }
+}

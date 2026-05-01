@@ -1,0 +1,42 @@
+---
+import ArchDiagram from '../../components/ArchDiagram.astro'
+import Section from '../../components/Section.astro'
+
+const blocks = [
+  {
+    title: 'Trade weekends. Settle when you fix.',
+    body: 'No T+1, no clearing window. Cashflows fire whenever the onchain scheduler runs, by default at every fixing date in your YAML schedule. Canton itself is 24/7. The cadence is yours to set.',
+  },
+  {
+    title: 'Audit trail without leakage.',
+    body: 'Counterparties see their own positions. The regulator party is observer on every swap-related contract, with the full lifecycle and every cashflow visible to them and nobody else. Privacy is enforced by Canton, not bolted on.',
+  },
+  {
+    title: 'Lands as FpML. Leaves as FpML.',
+    body: 'Import trades straight from your booking system, export for SDR or downstream regulatory reporting. The same decoder runs through the live demo, so the round-trip is real, not promised.',
+  },
+]
+---
+<Section
+  id="architecture"
+  label="How it works"
+  headline="Three moving parts. One YAML to wire them."
+  variant="wide"
+>
+  <ArchDiagram />
+  <div class="grid">
+    {blocks.map(b => (
+      <div class="block">
+        <h3>{b.title}</h3>
+        <p>{b.body}</p>
+      </div>
+    ))}
+  </div>
+</Section>
+
+<style>
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2rem; margin-top: 4rem; }
+  @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
+  .block h3 { font-size: 1.125rem; margin: 0 0 0.75rem; }
+  .block p { color: var(--color-fg-body); font-size: 0.9375rem; line-height: 1.55; margin: 0; }
+</style>

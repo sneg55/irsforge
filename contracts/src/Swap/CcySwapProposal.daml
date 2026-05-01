@@ -1,0 +1,185 @@
+module Swap.CcySwapProposal where
+
+import DA.Map qualified as Map
+import DA.Set qualified as Set
+import Daml.Finance.Interface.Types.Common.V3.Types (Id(..), InstrumentKey(..), HoldingStandard(..))
+import Daml.Finance.Interface.Types.Date.V3.DayCount (DayCountConventionEnum(..))
+import DA.Date (toGregorian)
+import Daml.Finance.Interface.Types.Date.V3.RollConvention (Period(..), PeriodEnum(..), RollConventionEnum(..))
+import Daml.Finance.Interface.Types.Date.V3.Schedule (PeriodicSchedule(..), Frequency(..), ScheduleFrequency(..))
+import Daml.Finance.Interface.Instrument.Swap.V0.Currency.Types (CurrencySwap(..))
+import Daml.Finance.Interface.Instrument.Swap.V0.Currency.Factory qualified as CurrencyFactory
+import Constants (usdCalendarId)
+import Setup.CashSetup (CashSetupRecord(..), cashSetupKey)
+import Swap.Types (lastRegularEndFor)
+import Swap.Workflow (SwapWorkflow(..))
+
+template CcySwapProposal
+  with
+    operator : Party
+    proposer : Party
+    counterparty : Party
+    notional : Decimal
+    baseRate : Decimal
+    foreignRate : Decimal
+    baseCurrency : Text
+    foreignCurrency : Text
+    fxRate : Decimal
+    ownerReceivesBase : Bool
+    startDate : Date
+    maturityDate : Date
+    dayCountConvention : DayCountConventionEnum
+  where
+    -- Operator co-signs so CcyAccept inherits factory auth.
+    signatory proposer, operator
+    observer counterparty
+
+    ensure notional > 0.0
+      && fxRate > 0.0
+      && baseCurrency /= foreignCurrency
+
+    choice CcyAccept : ContractId SwapWorkflow
+      with
+        operator : Party
+        regulators : [Party]
+      controller counterparty
+      do
+        assertMsg "operator arg must match proposal's operator signatory"
+          (operator == this.operator)
+        (_, setup) <- fetchByKey @CashSetupRecord (cashSetupKey operator this.proposer this.counterparty)
+
+        let
+          baseCcyKey = case Map.lookup this.baseCurrency setup.currencies of
+            Some k -> k
+            None   -> error ("Currency " <> this.baseCurrency <> " not seeded — operator must add it to config")
+
+          foreignCcyKey = case Map.lookup this.foreignCurrency setup.currencies of
+            Some k -> k
+            None   -> error ("Currency " <> this.foreignCurrency <> " not seeded — operator must add it to config")
+
+          schedDef = case Map.lookup "CCY" setup.scheduleDefaults of
+            Some s -> s
+            None   -> error "Schedule defaults for CCY not seeded — operator must add them to config"
+
+          -- Daml Finance's Factory.Create validates effectiveDate's
+          -- day-of-month matches rollConvention. Override the schedule
+          -- default's rollConvention to match startDate's day so any valid
+          -- proposal date works (not just DOM 16 from the demo seed).
+          (_, _, startDay) = toGregorian this.startDate
+
+          -- User-supplied maturityDate may land on a different DOM than
+          -- startDate; ISDA convention generates a back-stub rather than
+          -- rejecting the schedule. See Swap.Types.lastRegularEndFor.
+          stubLastEnd = lastRegularEndFor this.startDate schedDef.frequencyMonths this.maturityDate
+
+        now <- getTime
+
+        let
+          periodicSchedule = PeriodicSchedule with
+            effectiveDate                        = this.startDate
+            terminationDate                      = this.maturityDate
+            firstRegularPeriodStartDate          = None
+            lastRegularPeriodEndDate             = stubLastEnd
+            frequency = Periodic Frequency with
+              period = Period with
+                period           = M
+                periodMultiplier = schedDef.frequencyMonths
+              rollConvention = DOM startDay
+            businessDayAdjustment                = schedDef.businessDayAdjustment
+            effectiveDateBusinessDayAdjustment   = None
+            terminationDateBusinessDayAdjustment = None
+            stubPeriodType                       = None
+
+          instrumentId =
+            "CCY-" <> show this.proposer <> "-" <> show this.counterparty
+              <> "-" <> show this.startDate <> "-" <> show this.notional
+
+          instrumentKey = InstrumentKey with
+            depository      = operator
+            issuer          = operator
+            id              = Id instrumentId
+            version         = "0"
+            holdingStandard = TransferableFungible
+
+          observerMap = Map.fromList
+            [("observers", Set.fromList ([this.proposer, this.counterparty] <> regulators))]
+
+          currencySwap = CurrencySwap with
+            instrument           = instrumentKey
+            description          = "CCY " <> instrumentId
+            ownerReceivesBase    = this.ownerReceivesBase
+            baseRate             = this.baseRate
+            foreignRate          = this.foreignRate
+            periodicSchedule
+            holidayCalendarIds   = [usdCalendarId]
+            calendarDataProvider = operator
+            dayCountConvention   = schedDef.dayCountConvention
+            baseCurrency         = baseCcyKey
+            foreignCurrency      = foreignCcyKey
+            fxRate               = this.fxRate
+            lastEventTimestamp   = now
+
+        exercise setup.factories.ccy CurrencyFactory.Create with
+          currencySwap
+          observers = observerMap
+
+        create SwapWorkflow with
+          swapType = "CCY"
+          operator
+          partyA = this.proposer
+          partyB = this.counterparty
+          regulators
+          scheduler = setup.scheduler
+          instrumentKey
+          notional = this.notional
+
+    -- Manual operator co-sign path: counterparty fires this instead of CcyAccept.
+    nonconsuming choice CcyProposeAccept : ContractId CcyAcceptAck
+      with
+        operator  : Party
+        regulators : [Party]
+      controller counterparty
+      do
+        assertMsg "operator arg must match proposal's operator signatory"
+          (operator == this.operator)
+        create CcyAcceptAck with
+          proposer     = this.proposer
+          counterparty = this.counterparty
+          operator
+          regulators
+          proposalCid  = self
+
+    choice CcyReject : ()
+      controller counterparty
+      do pure ()
+
+    choice CcyWithdraw : ()
+      controller proposer
+      do pure ()
+
+-- | CcyAcceptAck: pending ack awaiting operator confirmation.
+template CcyAcceptAck
+  with
+    proposer     : Party
+    counterparty : Party
+    operator     : Party
+    regulators    : [Party]
+    proposalCid  : ContractId CcySwapProposal
+  where
+    signatory proposer, counterparty, operator
+    observer  regulators
+
+    choice CcyConfirmAccept : ContractId SwapWorkflow
+      controller operator
+      do
+        exercise proposalCid CcyAccept with
+          operator
+          regulators
+
+    choice CcyAcceptAckCancelByCounterparty : ()
+      controller counterparty
+      do pure ()
+
+    choice CcyAcceptAckCancelByOperator : ()
+      controller operator
+      do pure ()

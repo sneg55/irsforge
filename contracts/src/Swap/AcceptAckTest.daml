@@ -1,0 +1,173 @@
+-- Tests for IrsAcceptAck two-step accept flow (manual operator co-sign)
+module Swap.AcceptAckTest where
+
+import Daml.Script
+import DA.Date (date, Month(..))
+import DA.Text (isPrefixOf)
+import Daml.Finance.Interface.Types.Common.V3.Types (Id(..))
+import Daml.Finance.Interface.Types.Date.V3.DayCount (DayCountConventionEnum(..))
+import Swap.Proposal
+import Swap.Types (TenorEnum(..))
+import Swap.Workflow (SwapWorkflow(..))
+import Swap.TestHelpers
+
+-- Helper: create a standard IRS proposal for the test parties
+mkProposal : TestParties -> Script (ContractId SwapProposal)
+mkProposal tp = submitMulti [tp.partyA, tp.operator] [] do
+  createCmd SwapProposal with
+    operator       = tp.operator
+    proposer       = tp.partyA
+    counterparty   = tp.partyB
+    notional       = 10_000_000.0
+    fixRate        = 0.0485
+    tenor          = D90
+    startDate      = date 2026 Apr 16
+    dayCountConvention = Act360
+
+-- | Test 1: Full happy-path — counterparty proposes accept, operator confirms.
+--   Assert SwapWorkflow exists with correct fields; proposal archived.
+testProposeAcceptHappyPath : Script ()
+testProposeAcceptHappyPath = do
+  tp <- allocateTestParties
+  runInit tp
+  fridCid <- seedUsdSofrIndex tp
+
+  proposalCid <- mkProposal tp
+
+  -- counterparty fires IrsProposeAccept → creates IrsAcceptAck
+  ackCid <- submit tp.partyB do
+    exerciseCmd proposalCid IrsProposeAccept with
+      operator             = tp.operator
+      regulators            = [tp.regulator]
+      floatingRateIndexCid = fridCid
+
+  -- ack contract should exist
+  acks <- query @IrsAcceptAck tp.operator
+  assertMsg "Should have 1 IrsAcceptAck" (length acks == 1)
+
+  -- operator fires IrsConfirmAccept → creates SwapWorkflow
+  _workflowCid <- submit tp.operator do
+    exerciseCmd ackCid IrsConfirmAccept
+
+  -- workflow assertions
+  workflows <- query @SwapWorkflow tp.partyA
+  assertMsg "Should have 1 SwapWorkflow" (length workflows == 1)
+
+  case workflows of
+    [(_, wf)] -> do
+      assertMsg "swapType must be IRS"         (wf.swapType == "IRS")
+      assertMsg "notional must be 10M"         (wf.notional == 10_000_000.0)
+      assertMsg "partyA is proposer"           (wf.partyA == tp.partyA)
+      assertMsg "partyB is counterparty"       (wf.partyB == tp.partyB)
+      let (Id instrId) = wf.instrumentKey.id
+      assertMsg ("instrumentKey has IRS- prefix: " <> instrId)
+        (isPrefixOf "IRS-" instrId)
+    _ -> assertFail "Expected exactly 1 workflow"
+
+  -- proposal must be archived
+  proposals <- query @SwapProposal tp.partyA
+  assertMsg "Proposal must be archived after IrsConfirmAccept" (null proposals)
+
+  -- ack must be archived
+  acksAfter <- query @IrsAcceptAck tp.operator
+  assertMsg "IrsAcceptAck must be archived after IrsConfirmAccept" (null acksAfter)
+
+  debug "testProposeAcceptHappyPath passed"
+  pure ()
+
+-- | Test 2: Counterparty cancels the pending ack.
+--   Ack is archived; original proposal is still live.
+testCancelByCounterparty : Script ()
+testCancelByCounterparty = do
+  tp <- allocateTestParties
+  runInit tp
+  fridCid <- seedUsdSofrIndex tp
+
+  proposalCid <- mkProposal tp
+
+  ackCid <- submit tp.partyB do
+    exerciseCmd proposalCid IrsProposeAccept with
+      operator             = tp.operator
+      regulators            = [tp.regulator]
+      floatingRateIndexCid = fridCid
+
+  -- counterparty cancels
+  submit tp.partyB do
+    exerciseCmd ackCid IrsAcceptAckCancelByCounterparty
+
+  -- ack must be gone
+  acks <- query @IrsAcceptAck tp.operator
+  assertMsg "IrsAcceptAck must be archived after cancel" (null acks)
+
+  -- IrsProposeAccept is nonconsuming: proposal still lives
+  proposals <- query @SwapProposal tp.partyA
+  assertMsg "Proposal must still be live after ack cancel" (length proposals == 1)
+
+  workflows <- query @SwapWorkflow tp.partyA
+  assertMsg "No SwapWorkflow should exist after cancel" (null workflows)
+
+  debug "testCancelByCounterparty passed"
+  pure ()
+
+-- | Test 3: Operator cancels the pending ack.
+testCancelByOperator : Script ()
+testCancelByOperator = do
+  tp <- allocateTestParties
+  runInit tp
+  fridCid <- seedUsdSofrIndex tp
+
+  proposalCid <- mkProposal tp
+
+  ackCid <- submit tp.partyB do
+    exerciseCmd proposalCid IrsProposeAccept with
+      operator             = tp.operator
+      regulators            = [tp.regulator]
+      floatingRateIndexCid = fridCid
+
+  -- operator cancels
+  submit tp.operator do
+    exerciseCmd ackCid IrsAcceptAckCancelByOperator
+
+  acks <- query @IrsAcceptAck tp.operator
+  assertMsg "IrsAcceptAck must be archived after operator cancel" (null acks)
+
+  -- IrsProposeAccept is nonconsuming: proposal still lives
+  proposals <- query @SwapProposal tp.partyA
+  assertMsg "Proposal must still be live after operator cancel" (length proposals == 1)
+
+  workflows <- query @SwapWorkflow tp.partyA
+  assertMsg "No SwapWorkflow should exist after operator cancel" (null workflows)
+
+  debug "testCancelByOperator passed"
+  pure ()
+
+-- | Test 4: Operator tries IrsConfirmAccept after the proposal was withdrawn.
+--   IrsProposeAccept is nonconsuming so the proposal stays live after ack creation.
+--   Proposer then withdraws. The ack's stored proposalCid becomes stale.
+--   IrsConfirmAccept must fail with CONTRACT_NOT_FOUND.
+testConfirmAfterProposalWithdrawn : Script ()
+testConfirmAfterProposalWithdrawn = do
+  tp <- allocateTestParties
+  runInit tp
+  fridCid <- seedUsdSofrIndex tp
+
+  proposalCid <- mkProposal tp
+
+  -- Counterparty creates the ack (nonconsuming — proposal stays live)
+  ackCid <- submit tp.partyB do
+    exerciseCmd proposalCid IrsProposeAccept with
+      operator             = tp.operator
+      regulators            = [tp.regulator]
+      floatingRateIndexCid = fridCid
+
+  -- Proposer withdraws the proposal while ack is pending
+  submit tp.partyA do
+    exerciseCmd proposalCid Withdraw
+
+  -- Proposal is now archived; ack holds stale proposalCid.
+  -- Operator tries IrsConfirmAccept — must fail.
+  submitMustFail tp.operator do
+    exerciseCmd ackCid IrsConfirmAccept
+
+  debug "testConfirmAfterProposalWithdrawn passed"
+  pure ()

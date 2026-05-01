@@ -1,0 +1,225 @@
+module Swap.Workflow where
+
+import Daml.Finance.Interface.Types.Common.V3.Types (Id(..), InstrumentKey, AccountKey)
+import Daml.Finance.Interface.Lifecycle.V4.Rule.Lifecycle qualified as Lifecycle
+import Daml.Finance.Interface.Lifecycle.V4.Observable.NumericObservable qualified as NumericObservable
+import Daml.Finance.Interface.Lifecycle.V4.Event qualified as Event
+import Daml.Finance.Interface.Lifecycle.V4.Effect qualified as Effect
+import Daml.Finance.Interface.Settlement.V4.Factory qualified as SettlementFactory
+import Daml.Finance.Interface.Settlement.V4.RouteProvider qualified as RouteProvider
+import Daml.Finance.Interface.Settlement.V4.Batch qualified as Batch
+import Daml.Finance.Interface.Holding.V4.Fungible qualified as Fungible
+import Audit.SettlementAudit (auditSwapSettlement)
+import Swap.Settlement (executeSettlement)
+
+template SwapWorkflow
+  with
+    swapType      : Text
+    operator      : Party
+    partyA        : Party
+    partyB        : Party
+    regulators     : [Party]
+    scheduler     : Party
+    instrumentKey : InstrumentKey
+    notional      : Decimal
+  where
+    signatory partyA, partyB
+    observer operator, regulators, scheduler
+
+    ensure notional > 0.0
+
+    nonconsuming choice TriggerLifecycle : (Optional InstrumentKey, [ContractId Effect.I])
+      with
+        lifecycleRuleCid : ContractId Lifecycle.Lifecycle
+        eventCid : ContractId Event.Event
+        observableCids : [ContractId NumericObservable.NumericObservable]
+      controller operator
+      do
+        exercise lifecycleRuleCid Lifecycle.Evolve with
+          eventCid
+          instrument = instrumentKey
+          observableCids
+
+    -- Widened controller path — scheduler JWT drives automated lifecycle.
+    -- Body is identical to TriggerLifecycle; operator retains the manual
+    -- demo-override path so existing call sites and tests stay untouched.
+    nonconsuming choice TriggerLifecycleByScheduler : (Optional InstrumentKey, [ContractId Effect.I])
+      with
+        lifecycleRuleCid : ContractId Lifecycle.Lifecycle
+        eventCid : ContractId Event.Event
+        observableCids : [ContractId NumericObservable.NumericObservable]
+      controller scheduler
+      do
+        exercise lifecycleRuleCid Lifecycle.Evolve with
+          eventCid
+          instrument = instrumentKey
+          observableCids
+
+    nonconsuming choice Settle : (ContractId Batch.I, Decimal)
+      with
+        effectCids           : [ContractId Effect.I]
+        settlementFactoryCid : ContractId SettlementFactory.I
+        routeProviderCid     : ContractId RouteProvider.I
+        partyAHoldingCid     : ContractId Fungible.I
+        partyBHoldingCid     : ContractId Fungible.I
+        partyAAccountKey     : AccountKey
+        partyBAccountKey     : AccountKey
+        usdInstrumentKey     : InstrumentKey
+      controller operator
+      do
+        result@(batchCid, netAmount) <- executeSettlement operator partyA partyB swapType instrumentKey
+          effectCids settlementFactoryCid routeProviderCid
+          partyAHoldingCid partyBHoldingCid
+          partyAAccountKey partyBAccountKey usdInstrumentKey
+        now <- getTime
+        let Id ccyLabel = usdInstrumentKey.id
+        _ <- auditSwapSettlement operator partyA partyB regulators scheduler
+          "swap-settle" (show self) swapType instrumentKey ccyLabel
+          netAmount (Some batchCid) now
+        pure result
+
+    -- Phase 2 (instrument-as-source-of-truth) moved economic dates off
+    -- SwapWorkflow onto the on-chain Daml Finance instrument. Mature now
+    -- takes both `maturityDate` and `actualMaturityDate` as choice args:
+    -- the operator (controller) reads `maturityDate` off the instrument
+    -- via /v1/query before triggering, then passes today's date as
+    -- `actualMaturityDate`. The `assertMsg` gate checks the operator
+    -- supplied a sensible pair (actual >= maturity); the actual "have we
+    -- matured" truth lives in the lifecycle effects produced by the
+    -- preceding TriggerLifecycle exercises.
+    choice Mature : ContractId MaturedSwap
+      with
+        maturityDate         : Date
+        actualMaturityDate   : Date
+        effectCids           : [ContractId Effect.I]
+        settlementFactoryCid : ContractId SettlementFactory.I
+        routeProviderCid     : ContractId RouteProvider.I
+        partyAHoldingCid     : Optional (ContractId Fungible.I)
+        partyBHoldingCid     : Optional (ContractId Fungible.I)
+        partyAAccountKey     : AccountKey
+        partyBAccountKey     : AccountKey
+        usdInstrumentKey     : InstrumentKey
+      controller operator
+      do
+        matureImpl
+          (show self)
+          operator partyA partyB regulators scheduler swapType instrumentKey notional
+          maturityDate actualMaturityDate effectCids
+          settlementFactoryCid routeProviderCid
+          partyAHoldingCid partyBHoldingCid
+          partyAAccountKey partyBAccountKey usdInstrumentKey
+
+    -- Widened controller path — scheduler JWT fires maturity when the
+    -- off-chain scheduler observes the maturity date has passed.
+    choice MatureByScheduler : ContractId MaturedSwap
+      with
+        maturityDate         : Date
+        actualMaturityDate   : Date
+        effectCids           : [ContractId Effect.I]
+        settlementFactoryCid : ContractId SettlementFactory.I
+        routeProviderCid     : ContractId RouteProvider.I
+        partyAHoldingCid     : Optional (ContractId Fungible.I)
+        partyBHoldingCid     : Optional (ContractId Fungible.I)
+        partyAAccountKey     : AccountKey
+        partyBAccountKey     : AccountKey
+        usdInstrumentKey     : InstrumentKey
+      controller scheduler
+      do
+        matureImpl
+          (show self)
+          operator partyA partyB regulators scheduler swapType instrumentKey notional
+          maturityDate actualMaturityDate effectCids
+          settlementFactoryCid routeProviderCid
+          partyAHoldingCid partyBHoldingCid
+          partyAAccountKey partyBAccountKey usdInstrumentKey
+
+-- Shared body used by `Mature` and `MatureByScheduler`. Extracted so the
+-- two controller paths do not drift — change here affects both.
+-- `sourceCidStr` is the stringified workflow cid (`show self`); used as
+-- the back-link on the SettlementAudit row.
+matureImpl
+  :  Text               -- sourceCidStr (show self of the workflow)
+  -> Party              -- operator
+  -> Party              -- partyA
+  -> Party              -- partyB
+  -> [Party]            -- regulators
+  -> Party              -- scheduler
+  -> Text               -- swapType
+  -> InstrumentKey      -- instrumentKey
+  -> Decimal            -- notional
+  -> Date               -- maturityDate
+  -> Date               -- actualMaturityDate
+  -> [ContractId Effect.I]
+  -> ContractId SettlementFactory.I
+  -> ContractId RouteProvider.I
+  -> Optional (ContractId Fungible.I)
+  -> Optional (ContractId Fungible.I)
+  -> AccountKey
+  -> AccountKey
+  -> InstrumentKey
+  -> Update (ContractId MaturedSwap)
+matureImpl
+    sourceCidStr
+    operator partyA partyB regulators scheduler swapType instrumentKey notional
+    maturityDate actualMaturityDate effectCids
+    settlementFactoryCid routeProviderCid
+    partyAHoldingCid partyBHoldingCid
+    partyAAccountKey partyBAccountKey usdInstrumentKey = do
+  assertMsg
+    ("actualMaturityDate (" <> show actualMaturityDate <>
+     ") must be on or after maturityDate (" <> show maturityDate <> ")")
+    (actualMaturityDate >= maturityDate)
+
+  (finalSettleBatchCid, finalNetAmount) <-
+    if null effectCids
+      then pure (None, 0.0)
+      else do
+        partyAH <- case partyAHoldingCid of
+          Some h  -> pure h
+          None    -> error "partyAHoldingCid required when effects present"
+        partyBH <- case partyBHoldingCid of
+          Some h  -> pure h
+          None    -> error "partyBHoldingCid required when effects present"
+        (batchCid, net) <- executeSettlement operator partyA partyB swapType instrumentKey
+          effectCids settlementFactoryCid routeProviderCid
+          partyAH partyBH
+          partyAAccountKey partyBAccountKey usdInstrumentKey
+        pure (Some batchCid, net)
+
+  -- Audit row for the cash leg, observable by regulator. Skipped when
+  -- finalNetAmount is exactly zero (no cash moved).
+  now <- getTime
+  let Id ccyLabel = usdInstrumentKey.id
+  _ <- auditSwapSettlement operator partyA partyB regulators scheduler
+    "swap-mature" sourceCidStr swapType instrumentKey ccyLabel
+    finalNetAmount finalSettleBatchCid now
+
+  create MaturedSwap with
+    operator
+    partyA
+    partyB
+    regulators
+    scheduler
+    swapType
+    instrumentKey
+    notional
+    actualMaturityDate
+    finalSettleBatchCid
+    finalNetAmount
+
+template MaturedSwap
+  with
+    operator             : Party
+    partyA               : Party
+    partyB               : Party
+    regulators            : [Party]
+    scheduler            : Party
+    swapType             : Text
+    instrumentKey        : InstrumentKey
+    notional             : Decimal
+    actualMaturityDate   : Date
+    finalSettleBatchCid  : Optional (ContractId Batch.I)
+    finalNetAmount       : Decimal
+  where
+    signatory partyA, partyB
+    observer operator, regulators, scheduler

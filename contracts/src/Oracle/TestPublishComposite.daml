@@ -1,0 +1,86 @@
+-- Test for NYFedOracleProvider.PublishCurveAndObservations — the composite
+-- choice that atomically publishes a discount Curve via the Provider
+-- interface AND a batch of Observations via the provider-specific PublishCurve
+-- choice. Verifies both sides emerge from a single transaction.
+module Oracle.TestPublishComposite where
+
+import Daml.Script
+import DA.Date (date, Month(..))
+import DA.Time (time)
+import Daml.Finance.Interface.Types.Common.V3.Types (Id(..))
+import Oracle.Curve qualified as C
+import Oracle.NYFedProvider
+import Oracle.Types
+import Setup.GeneratedRateFamilies
+
+publishCurveAndObservationsTest : Script ()
+publishCurveAndObservationsTest = do
+  operator <- allocatePartyWithHint "Operator" (PartyIdHint "Operator")
+  regulator <- allocatePartyWithHint "Regulator" (PartyIdHint "Regulator")
+  partyA <- allocatePartyWithHint "PartyA" (PartyIdHint "PartyA")
+
+  providerCid <- submit operator do
+    createCmd NYFedOracleProvider with
+      operator
+      subscribers = [partyA]
+      regulators = [regulator]
+      supportedRateIds = sofrTenorRateIds
+
+  let asOfTime = time (date 2026 Apr 15) 0 0 0
+      effDate  = date 2026 Apr 11
+
+  let curveArgs = PublishDiscountCurveArgs with
+        currency = "USD"
+        asOf = asOfTime
+        pillars =
+          [ Pillar with tenorDays = 1;   zeroRate = 0.0533
+          , Pillar with tenorDays = 30;  zeroRate = 0.0531
+          , Pillar with tenorDays = 365; zeroRate = 0.0510
+          ]
+        interpolation = LinearZero
+        dayCount = Act360
+        constructionMetadata = "{}"
+
+      observationArgs = PublishCurveArgs with
+        effectiveDate = effDate
+        points =
+          [ CurvePoint with rateId = "SOFR/ON";  value = 0.0433
+          , CurvePoint with rateId = "SOFR/1M";  value = 0.0432
+          , CurvePoint with rateId = "SOFR/3M";  value = 0.0431
+          ]
+
+  (curveCid, obsCids) <- submit operator do
+    exerciseCmd providerCid PublishCurveAndObservations with
+      curveArgs
+      observationArgs
+
+  -- Curve assertions
+  Some curve <- queryContractId operator curveCid
+  assertMsg "curve currency = USD" (curve.currency == "USD")
+  assertMsg "curve asOf matches" (curve.asOf == asOfTime)
+  assertMsg "curveType Discount" (curve.curveType == Discount)
+  assertMsg "indexId None for Discount" (curve.indexId == None)
+  assertMsg "3 pillars" (length curve.pillars == 3)
+
+  -- Observation assertions: one per rateId in observationArgs.points
+  assertMsg "3 observations created" (length obsCids == 3)
+  Some firstObs <- queryContractId operator (head obsCids)
+  assertMsg "first observation has provider = operator"
+    (firstObs.provider == operator)
+  assertMsg "first observation has rate id SOFR/ON"
+    (firstObs.id == Id "SOFR/ON")
+
+  -- partyA (subscriber) sees both sides
+  curveAsA <- queryContractId partyA curveCid
+  assertMsg "partyA observes the curve" (curveAsA == Some curve)
+  obsAsA <- queryContractId partyA (head obsCids)
+  assertMsg "partyA observes the first observation" (obsAsA == Some firstObs)
+  pure ()
+  where
+    head (x :: _) = x
+    head []       = error "empty list"
+
+-- Bring Curve module into scope so the test compiles even when the type
+-- doesn't appear by name (the interface choice returns ContractId Curve).
+_curveTypeShim : C.Curve -> ()
+_curveTypeShim _ = ()

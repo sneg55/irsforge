@@ -1,0 +1,77 @@
+---
+import type { Maturity } from '../data/products.ts'
+interface Props {
+  title: string
+  body: string
+  meta: string
+  maturity: Maturity
+  maturityNote: string
+}
+const { title, body, meta, maturity, maturityNote } = Astro.props
+
+const maturityLabel: Record<Maturity, string> = {
+  reference: 'Reference impl',
+  'demo-stub': 'Demo stub',
+  partial: 'Partial',
+}
+---
+<article class={`card maturity-${maturity}`}>
+  <div class="head">
+    <h3 class="title">{title}</h3>
+    <span class={`pill pill-${maturity}`} title={maturityNote}>{maturityLabel[maturity]}</span>
+  </div>
+  <p class="body">{body}</p>
+  <p class="meta mono">{meta}</p>
+</article>
+
+<style>
+  .card {
+    position: relative;
+    padding: 2rem;
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    border-top: 2px solid var(--color-accent);
+    display: flex;
+    flex-direction: column;
+    transition: transform .3s cubic-bezier(.2,.7,.2,1), border-color .3s ease, box-shadow .3s ease, border-top-width .25s ease;
+    will-change: transform;
+  }
+  .card::before {
+    content: "";
+    position: absolute; inset: -1px -1px auto -1px;
+    height: 2px; pointer-events: none;
+    background: var(--color-accent);
+    opacity: 0; transition: opacity .25s ease;
+  }
+  .card:hover {
+    transform: translateY(-4px);
+    border-color: rgba(201, 169, 97, 0.35);
+    box-shadow: 0 22px 50px -28px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(201, 169, 97, 0.1);
+  }
+  .card:hover::before { opacity: 0.45; }
+  .card.maturity-demo-stub { border-top-color: var(--color-fg-muted); }
+  .card.maturity-demo-stub::before { background: var(--color-fg-muted); }
+  .card.maturity-partial { border-top-color: var(--color-receive); }
+  .card.maturity-partial::before { background: var(--color-receive); }
+  .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; margin: 0 0 0.75rem; }
+  .title { font-size: 1.25rem; margin: 0; color: var(--color-fg); }
+  .pill {
+    font-family: var(--font-body);
+    font-size: 0.625rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.25rem 0.5rem;
+    border-radius: 2px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: background-color .2s ease, color .2s ease;
+  }
+  .card:hover .pill { background: rgba(255, 255, 255, 0.02); }
+  .pill-reference { color: var(--color-pay); }
+  .pill-demo-stub { color: var(--color-fg-muted); }
+  .pill-partial { color: var(--color-receive); }
+  .body { color: var(--color-fg-body); margin: 0 0 1.25rem; font-size: 0.9375rem; }
+  .meta { font-size: 0.75rem; color: var(--color-fg-muted); letter-spacing: 0.04em; margin: auto 0 0; }
+</style>

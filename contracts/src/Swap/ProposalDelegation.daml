@@ -1,0 +1,223 @@
+-- ProposalDelegation: lets traders create swap proposals using only their
+-- own party authority.
+--
+-- Why this exists:
+-- Every swap-family proposal template declares
+--   signatory proposer, operator
+-- because the Accept body exercises an IRS / CDS / CCY / FX / ASSET / etc.
+-- factory whose Create choice requires operator authority. With operator
+-- as a proposal signatory, the Accept body inherits operator authority
+-- transitively.
+--
+-- The cost: creating the proposal originally requires a multi-party
+-- submit (`submitMulti [proposer, operator] []`). In the demo profile
+-- that's fine — the demo JWT carries actAs for every party. In
+-- production OIDC profiles where each user's JWT scopes to one party,
+-- traders cannot submit a multi-party transaction listing operator.
+--
+-- This delegation contract sidesteps it: operator signs the delegation
+-- once at bootstrap (single-party submit, which the operator's own JWT
+-- always supports). Traders exercise per-family `Create<X>Proposal`
+-- choices on the delegation; the choice body has authority {operator
+-- (delegation sig), proposer (choice controller)}, exactly what each
+-- proposal template requires.
+module Swap.ProposalDelegation where
+
+import DA.Set qualified as Set
+import Daml.Finance.Interface.Types.Date.V3.DayCount (DayCountConventionEnum)
+import Swap.Proposal (SwapProposal(..))
+import Swap.OisProposal (OisProposal(..))
+import Swap.BasisSwapProposal (BasisSwapProposal(..))
+import Swap.XccyFixedFloatProposal (XccyFixedFloatProposal(..))
+import Swap.CdsProposal (CdsProposal(..))
+import Swap.CcySwapProposal (CcySwapProposal(..))
+import Swap.FxSwapProposal (FxSwapProposal(..))
+import Swap.AssetSwapProposal (AssetSwapProposal(..))
+import Swap.FpmlProposal (FpmlProposal(..))
+import Swap.Types (TenorEnum, FpmlLeg)
+
+-- Shared whitelist guard used by every Create*Proposal choice body.
+assertProposerWhitelisted : Party -> [Party] -> Update ()
+assertProposerWhitelisted proposer traders =
+  assertMsg "proposer must be in delegation whitelist"
+    (proposer `Set.member` Set.fromList traders)
+
+template ProposalDelegation
+  with
+    operator : Party
+    traders  : [Party]
+      -- ^ whitelist of parties allowed to exercise the Create*Proposal
+      -- choices. In demo + small-deployment profiles this is every
+      -- configured trader org. Larger deployments can scope per-pair.
+  where
+    signatory operator
+    observer traders
+
+    nonconsuming choice CreateSwapProposal : ContractId SwapProposal
+      with
+        proposer            : Party
+        counterparty        : Party
+        notional            : Decimal
+        fixRate             : Decimal
+        tenor               : TenorEnum
+        startDate           : Date
+        dayCountConvention  : DayCountConventionEnum
+      controller proposer
+      do
+        assertProposerWhitelisted proposer traders
+        create SwapProposal with
+          operator; proposer; counterparty; notional; fixRate
+          tenor; startDate; dayCountConvention
+
+    nonconsuming choice CreateOisProposal : ContractId OisProposal
+      with
+        proposer            : Party
+        counterparty        : Party
+        notional            : Decimal
+        fixRate             : Decimal
+        startDate           : Date
+        maturityDate        : Date
+        dayCountConvention  : DayCountConventionEnum
+      controller proposer
+      do
+        assertProposerWhitelisted proposer traders
+        create OisProposal with
+          operator; proposer; counterparty; notional; fixRate
+          startDate; maturityDate; dayCountConvention
+
+    nonconsuming choice CreateBasisSwapProposal : ContractId BasisSwapProposal
+      with
+        proposer            : Party
+        counterparty        : Party
+        notional            : Decimal
+        currency            : Text
+        leg0Spread          : Decimal
+        leg1Spread          : Decimal
+        startDate           : Date
+        maturityDate        : Date
+        dayCountConvention  : DayCountConventionEnum
+      controller proposer
+      do
+        assertProposerWhitelisted proposer traders
+        create BasisSwapProposal with
+          operator; proposer; counterparty; notional; currency
+          leg0Spread; leg1Spread; startDate; maturityDate
+          dayCountConvention
+
+    nonconsuming choice CreateXccyFixedFloatProposal
+      : ContractId XccyFixedFloatProposal
+      with
+        proposer            : Party
+        counterparty        : Party
+        fixedCurrency       : Text
+        fixedNotional       : Decimal
+        fixedRate           : Decimal
+        floatCurrency       : Text
+        floatNotional       : Decimal
+        startDate           : Date
+        maturityDate        : Date
+        dayCountConvention  : DayCountConventionEnum
+      controller proposer
+      do
+        assertProposerWhitelisted proposer traders
+        create XccyFixedFloatProposal with
+          operator; proposer; counterparty
+          fixedCurrency; fixedNotional; fixedRate
+          floatCurrency; floatNotional
+          startDate; maturityDate; dayCountConvention
+
+    nonconsuming choice CreateCdsProposal : ContractId CdsProposal
+      with
+        proposer            : Party
+        counterparty        : Party
+        notional            : Decimal
+        fixRate             : Decimal
+        referenceName       : Text
+        ownerReceivesFix    : Bool
+        startDate           : Date
+        maturityDate        : Date
+        dayCountConvention  : DayCountConventionEnum
+      controller proposer
+      do
+        assertProposerWhitelisted proposer traders
+        create CdsProposal with
+          operator; proposer; counterparty; notional; fixRate
+          referenceName; ownerReceivesFix
+          startDate; maturityDate; dayCountConvention
+
+    nonconsuming choice CreateCcySwapProposal : ContractId CcySwapProposal
+      with
+        proposer            : Party
+        counterparty        : Party
+        notional            : Decimal
+        baseRate            : Decimal
+        foreignRate         : Decimal
+        baseCurrency        : Text
+        foreignCurrency     : Text
+        fxRate              : Decimal
+        ownerReceivesBase   : Bool
+        startDate           : Date
+        maturityDate        : Date
+        dayCountConvention  : DayCountConventionEnum
+      controller proposer
+      do
+        assertProposerWhitelisted proposer traders
+        create CcySwapProposal with
+          operator; proposer; counterparty; notional
+          baseRate; foreignRate; baseCurrency; foreignCurrency
+          fxRate; ownerReceivesBase
+          startDate; maturityDate; dayCountConvention
+
+    nonconsuming choice CreateFxSwapProposal : ContractId FxSwapProposal
+      with
+        proposer            : Party
+        counterparty        : Party
+        notional            : Decimal
+        baseCurrency        : Text
+        foreignCurrency     : Text
+        firstFxRate         : Decimal
+        finalFxRate         : Decimal
+        firstPaymentDate    : Date
+        maturityDate        : Date
+      controller proposer
+      do
+        assertProposerWhitelisted proposer traders
+        create FxSwapProposal with
+          operator; proposer; counterparty; notional
+          baseCurrency; foreignCurrency
+          firstFxRate; finalFxRate; firstPaymentDate; maturityDate
+
+    nonconsuming choice CreateAssetSwapProposal : ContractId AssetSwapProposal
+      with
+        proposer            : Party
+        counterparty        : Party
+        notional            : Decimal
+        fixRate             : Decimal
+        ownerReceivesRate   : Bool
+        underlyingAssetIds  : [Text]
+        underlyingWeights   : [Decimal]
+        startDate           : Date
+        maturityDate        : Date
+        dayCountConvention  : DayCountConventionEnum
+      controller proposer
+      do
+        assertProposerWhitelisted proposer traders
+        create AssetSwapProposal with
+          operator; proposer; counterparty; notional; fixRate
+          ownerReceivesRate; underlyingAssetIds; underlyingWeights
+          startDate; maturityDate; dayCountConvention
+
+    nonconsuming choice CreateFpmlProposal : ContractId FpmlProposal
+      with
+        proposer            : Party
+        counterparty        : Party
+        legs                : [FpmlLeg]
+        startDate           : Date
+        maturityDate        : Date
+        description         : Text
+      controller proposer
+      do
+        assertProposerWhitelisted proposer traders
+        create FpmlProposal with
+          operator; proposer; counterparty; legs
+          startDate; maturityDate; description

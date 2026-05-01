@@ -1,0 +1,234 @@
+-- Choice-level tests for Csa.Csa. Pure-helper tests live in Csa.TestMath
+-- (kept separate so this file stays under the 300-line cap); scheduler
+-- authority lives in Csa.TestScheduler; the recovery-from-call-out loop
+-- lives in Csa.TestRecovery; SettleNet batch-settlement lives in
+-- Csa.TestSettleNet; the dispute open + escalate suite lives in
+-- Csa.TestDispute; and the dispute resolution paths
+-- (AcknowledgeDispute, AgreeToCounterMark) live in
+-- Csa.TestDisputeResolution.
+module Csa.Test where
+
+import Daml.Script
+import DA.Map qualified as Map
+import DA.Optional (fromOptional)
+import DA.Date (date, Month(..))
+import DA.Time (time)
+import qualified Csa.Types as T
+import qualified Csa.Csa as C
+import qualified Csa.Shortfall as S
+
+allocateThree : Script (Party, Party, Party, Party, Party)
+allocateThree = do
+  op  <- allocatePartyWithHint "Op"  (PartyIdHint "Op")
+  pa  <- allocatePartyWithHint "PA"  (PartyIdHint "PA")
+  pb  <- allocatePartyWithHint "PB"  (PartyIdHint "PB")
+  reg <- allocatePartyWithHint "Reg" (PartyIdHint "Reg")
+  sch <- allocatePartyWithHint "Sch" (PartyIdHint "Sch")
+  pure (op, pa, pb, reg, sch)
+
+baseCsa : Party -> Party -> Party -> Party -> Party -> C.Csa
+baseCsa op pa pb reg sch = C.Csa with
+  operator    = op
+  partyA      = pa
+  partyB      = pb
+  regulators   = [reg]
+  scheduler   = sch
+  threshold   = Map.fromList [(T.DirA, 0.0), (T.DirB, 0.0)]
+  mta         = 100_000.0
+  rounding    = 10_000.0
+  eligible    = [T.EligibleCollateral with currency = "USD"; haircut = 1.0]
+  valuationCcy = "USD"
+  csb         = Map.empty
+  state       = T.Active
+  lastMarkCid = None
+  isdaMasterAgreementRef = ""
+  governingLaw           = T.NewYork
+  imAmount               = 0.0
+  activeDispute          = None
+
+csbUsd : C.Csa -> Decimal
+csbUsd c = fromOptional 0.0 (Map.lookup "USD" c.csb)
+
+-- 1. Post by A moves csb positive (A is pledgor).
+testPostAPositive : Script ()
+testPostAPositive = do
+  (op, pa, pb, reg, sch) <- allocateThree
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  cid' <- submit pa do
+    exerciseCmd cid C.PostCollateral with
+      poster = pa; ccy = "USD"; amount = 5_000_000.0
+  Some c <- queryContractId pa cid'
+  assert (csbUsd c == 5_000_000.0)
+
+-- 2. Post by B moves csb negative (B is pledgor).
+testPostBNegative : Script ()
+testPostBNegative = do
+  (op, pa, pb, reg, sch) <- allocateThree
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  cid' <- submit pb do
+    exerciseCmd cid C.PostCollateral with
+      poster = pb; ccy = "USD"; amount = 3_000_000.0
+  Some c <- queryContractId pb cid'
+  assert (csbUsd c == (-3_000_000.0))
+
+-- 3. Post rejects zero amount
+testPostRejectsZero : Script ()
+testPostRejectsZero = do
+  (op, pa, pb, reg, sch) <- allocateThree
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  submitMustFail pa do
+    exerciseCmd cid C.PostCollateral with
+      poster = pa; ccy = "USD"; amount = 0.0
+
+-- 4. Withdraw by A reduces a positive csb toward zero.
+testWithdrawAHappy : Script ()
+testWithdrawAHappy = do
+  (op, pa, pb, reg, sch) <- allocateThree
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  cid <- submit pa do
+    exerciseCmd cid C.PostCollateral with
+      poster = pa; ccy = "USD"; amount = 5_000_000.0
+  cid <- submit pa do
+    exerciseCmd cid C.WithdrawExcess with
+      withdrawer = pa; ccy = "USD"; amount = 1_000_000.0
+  Some c <- queryContractId pa cid
+  assert (csbUsd c == 4_000_000.0)
+
+-- 5. Withdraw above own pledged balance fails.
+testWithdrawAboveOwnPledgeFails : Script ()
+testWithdrawAboveOwnPledgeFails = do
+  (op, pa, pb, reg, sch) <- allocateThree
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  cid <- submit pa do
+    exerciseCmd cid C.PostCollateral with
+      poster = pa; ccy = "USD"; amount = 5_000_000.0
+  submitMustFail pa do
+    exerciseCmd cid C.WithdrawExcess with
+      withdrawer = pa; ccy = "USD"; amount = 6_000_000.0
+
+-- 6. A cannot withdraw against B's pledge. csb = -5M ⇒ A's own pledge
+--    is zero, so any A-withdraw is a violation regardless of amount.
+testACannotWithdrawFromBsPledge : Script ()
+testACannotWithdrawFromBsPledge = do
+  (op, pa, pb, reg, sch) <- allocateThree
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  cid <- submit pb do
+    exerciseCmd cid C.PostCollateral with
+      poster = pb; ccy = "USD"; amount = 5_000_000.0
+  submitMustFail pa do
+    exerciseCmd cid C.WithdrawExcess with
+      withdrawer = pa; ccy = "USD"; amount = 1_000_000.0
+
+-- 7. PublishMark creates a MarkToMarket contract.
+testPublishMarkCreatesMark : Script ()
+testPublishMarkCreatesMark = do
+  (op, pa, pb, reg, sch) <- allocateThree
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  (_, markCid) <- submit op do
+    exerciseCmd cid C.PublishMark with
+      asOf     = time (date 2026 Apr 17) 12 0 0
+      exposure = 1_000_000.0
+      snapshot = "{}"
+  Some mk <- queryContractId op markCid
+  assert (mk.exposure == 1_000_000.0)
+
+-- 8. SettleVm is a no-op when target−csb is within MTA.
+testSettleNoOpBelowMta : Script ()
+testSettleNoOpBelowMta = do
+  (op, pa, pb, reg, sch) <- allocateThree
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  cid <- submit pa do
+    exerciseCmd cid C.PostCollateral with
+      poster = pa; ccy = "USD"; amount = 1_000_000.0
+  (cid, _) <- submit op do
+    exerciseCmd cid C.PublishMark with
+      asOf     = time (date 2026 Apr 17) 12 0 0
+      exposure = 1_050_000.0
+      snapshot = "{}"
+  cid <- submit op do exerciseCmd cid C.SettleVm
+  Some c <- queryContractId op cid
+  assert (c.state == T.Active)
+  -- csb is unchanged — SettleVm never moves balance.
+  assert (csbUsd c == 1_000_000.0)
+
+-- 9. SettleVm flips to MarginCallOutstanding when csb < target, emitting
+--    a MarginShortfall attributed to the pledgor side.
+testSettleEmitsShortfallAgainstPledgor : Script ()
+testSettleEmitsShortfallAgainstPledgor = do
+  (op, pa, pb, reg, sch) <- allocateThree
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  cid <- submit pa do
+    exerciseCmd cid C.PostCollateral with
+      poster = pa; ccy = "USD"; amount = 100_000.0
+  (cid, _) <- submit op do
+    exerciseCmd cid C.PublishMark with
+      asOf     = time (date 2026 Apr 17) 12 0 0
+      exposure = 1_000_000.0
+      snapshot = "{}"
+  cid <- submit op do exerciseCmd cid C.SettleVm
+  Some c <- queryContractId op cid
+  assert (csbUsd c == 100_000.0)
+  assert (c.state == T.MarginCallOutstanding)
+  shortfalls <- query @S.MarginShortfall op
+  -- delta +900k rounds to 900k at 10k; A is the pledgor / debtor.
+  assert (any (\(_, s) -> s.deficit == 900_000.0 && s.debtor == pa) shortfalls)
+  -- Regulator-visibility: shortfall is observable to the regulator
+  -- party (regulator-v2 made every CSA-related contract observe regs).
+  regShortfalls <- query @S.MarginShortfall reg
+  assert (length regShortfalls == length shortfalls)
+
+-- 10. REGRESSION for the phantom-call bug that motivated switching to
+--     signed CSB. Old pool math: B over-posts → rawCall flips sign and
+--     blames A → MarginShortfall against the wrong party, state pinned
+--     to call-out until resolved manually. New model: B can WithdrawExcess
+--     the surplus and the next SettleVm clears to Active.
+testOverpostDoesNotPinWrongSide : Script ()
+testOverpostDoesNotPinWrongSide = do
+  (op, pa, pb, reg, sch) <- allocateThree
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  cid <- submit pb do
+    exerciseCmd cid C.PostCollateral with
+      poster = pb; ccy = "USD"; amount = 10_000_000.0
+  (cid, _) <- submit op do
+    exerciseCmd cid C.PublishMark with
+      asOf     = time (date 2026 Apr 17) 12 0 0
+      exposure = (-8_420_000.0)
+      snapshot = "{}"
+  cid <- submit op do exerciseCmd cid C.SettleVm
+  Some c <- queryContractId op cid
+  assert (csbUsd c == (-10_000_000.0))
+  -- B returns the $1.58M excess; after the next mark+settle, state flips
+  -- back to Active. Critically: B can execute WithdrawExcess here — old
+  -- pool math would have locked the CSA with a wrong-party shortfall.
+  cid <- submit pb do
+    exerciseCmd cid C.WithdrawExcess with
+      withdrawer = pb; ccy = "USD"; amount = 1_580_000.0
+  (cid, _) <- submit op do
+    exerciseCmd cid C.PublishMark with
+      asOf     = time (date 2026 Apr 17) 13 0 0
+      exposure = (-8_420_000.0)
+      snapshot = "{}"
+  cid <- submit op do exerciseCmd cid C.SettleVm
+  Some c <- queryContractId op cid
+  assert (c.state == T.Active)
+  assert (csbUsd c == (-8_420_000.0))
+
+-- (Tests 11-13 — Dispute / AcknowledgeDispute / SettleVm-while-disputed —
+--  live in Csa.TestDispute alongside the rest of the dispute taxonomy
+--  suite, so this file stays under the 300-line cap.)
+
+-- 14. imAmount round-trips through the template.
+testCsaImAmountPersists : Script ()
+testCsaImAmountPersists = do
+  (op, pa, pb, reg, sch) <- allocateThree
+  let c = (baseCsa op pa pb reg sch) with imAmount = 25_000_000.0
+  cid <- submitMulti [op, pa, pb] [] do createCmd c
+  Some fetched <- queryContractId pa cid
+  assert (fetched.imAmount == 25_000_000.0)
+
+-- 15. ensure clause rejects negative imAmount.
+testCsaImAmountNegativeRejected : Script ()
+testCsaImAmountNegativeRejected = do
+  (op, pa, pb, reg, sch) <- allocateThree
+  let c = (baseCsa op pa pb reg sch) with imAmount = -1.0
+  submitMultiMustFail [op, pa, pb] [] do createCmd c

@@ -1,0 +1,155 @@
+-- ASSET-family coverage: propose + accept happy path, plus TriggerLifecycle
+-- without seeded ASSET observables must fail.
+module Swap.TestAssetSwap where
+
+import Daml.Script
+import DA.Date (date, Month(..))
+import DA.Time (time)
+import DA.Set qualified as Set
+import Daml.Finance.Interface.Types.Common.V3.Types (Id(..))
+import Daml.Finance.Interface.Types.Date.V3.DayCount (DayCountConventionEnum(..))
+import Daml.Finance.Instrument.Swap.V0.Asset.Instrument qualified as AssetInstrument
+import Daml.Finance.Data.V4.Time.DateClockUpdate qualified as DateClockUpdate
+import Daml.Finance.Claims.V3.Lifecycle.Rule qualified as LifecycleRule
+import Daml.Finance.Interface.Lifecycle.V4.Rule.Lifecycle qualified as Lifecycle
+import Daml.Finance.Interface.Lifecycle.V4.Event qualified as Event
+import Swap.AssetSwapProposal
+import Swap.Workflow
+import Swap.TestHelpers
+
+-- | Propose + accept an Asset swap; assert workflow fields.
+test_asset_accept_happy : Script ()
+test_asset_accept_happy = do
+  tp <- allocateTestParties
+  runInit tp
+  fridCid <- seedUsdSofrIndex tp
+
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd AssetSwapProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      notional = 10_000_000.0
+      fixRate = 0.03
+      ownerReceivesRate = True
+      underlyingAssetIds = ["UST-10Y"]
+      underlyingWeights = [1.0]
+      startDate = date 2026 Apr 16
+      maturityDate = date 2027 Apr 16
+      dayCountConvention = Act360
+
+  _ <- submit tp.partyB do
+    exerciseCmd proposalCid AssetAccept with
+      operator = tp.operator
+      regulators = [tp.regulator]
+      floatingRateIndexCid = fridCid
+
+  workflows <- query @SwapWorkflow tp.partyA
+  assertMsg "Should have 1 ASSET workflow" (length workflows == 1)
+  case workflows of
+    [(_, wf)] ->
+      assertMsg "swapType ASSET" (wf.swapType == "ASSET")
+    _ -> assertFail "Expected exactly one workflow"
+
+-- | Accept an ASSET proposal with a FloatingRateIndex that has
+--   lookback=2 and verify the created Asset instrument writes the
+--   lookback as a negative `periodMultiplier` into `fixingDates` on
+--   the float interest leg.
+testAssetAcceptWithFloatingRateIndex : Script ()
+testAssetAcceptWithFloatingRateIndex = do
+  tp <- allocateTestParties
+  runInit tp
+  fridCid <- seedUsdSofrIndex tp  -- lookback = 2
+
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd AssetSwapProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      notional = 10_000_000.0
+      fixRate = 0.03
+      ownerReceivesRate = True
+      underlyingAssetIds = ["UST-10Y"]
+      underlyingWeights = [1.0]
+      startDate = date 2026 Apr 16
+      maturityDate = date 2027 Apr 16
+      dayCountConvention = Act360
+
+  _ <- submit tp.partyB do
+    exerciseCmd proposalCid AssetAccept with
+      operator = tp.operator
+      regulators = [tp.regulator]
+      floatingRateIndexCid = fridCid
+
+  -- The AssetAccept body creates an Asset instrument via the Asset
+  -- factory. Query it off the ledger and drill into
+  -- `floatingRate.fixingDates.periodMultiplier` to verify the lookback
+  -- flowed through as `negate 2 = -2`.
+  instruments <- query @AssetInstrument.Instrument tp.operator
+  case instruments of
+    [(_, instr)] -> case instr.floatingRate of
+      Some fr -> do
+        assertMsg "referenceRateId = USD-SOFR"
+          (fr.referenceRateId == "USD-SOFR")
+        assertMsg ("fixingDates.periodMultiplier = -2, got " <>
+                   show fr.fixingDates.periodMultiplier)
+          (fr.fixingDates.periodMultiplier == -2)
+      None -> assertFail "Expected ASSET instrument to carry a FloatingRate after Accept"
+    _ -> assertFail ("Expected exactly 1 ASSET instrument, got " <>
+                     show (length instruments))
+
+  debug "testAssetAcceptWithFloatingRateIndex passed"
+  pure ()
+
+-- | ASSET observables are not seeded by InitImpl, so running
+--   TriggerLifecycle with an empty observable list (the only option
+--   without seeded data) must fail at Claims Evolve.
+test_asset_trigger_lifecycle_fails_without_observables : Script ()
+test_asset_trigger_lifecycle_fails_without_observables = do
+  tp <- allocateTestParties
+  runInit tp
+  fridCid <- seedUsdSofrIndex tp
+
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd AssetSwapProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      notional = 10_000_000.0
+      fixRate = 0.03
+      ownerReceivesRate = True
+      underlyingAssetIds = ["UST-10Y"]
+      underlyingWeights = [1.0]
+      startDate = date 2026 Apr 16
+      maturityDate = date 2027 Apr 16
+      dayCountConvention = Act360
+
+  workflowCid <- submit tp.partyB do
+    exerciseCmd proposalCid AssetAccept with
+      operator = tp.operator
+      regulators = [tp.regulator]
+      floatingRateIndexCid = fridCid
+
+  -- Phase 6 Stage C1 added a second scheduler-authorized rule; filter by
+  -- lifecycler so the manual path keeps resolving the operator rule.
+  rules <- query @LifecycleRule.Rule tp.operator
+  let operatorRules = filter (\(_, r) -> r.lifecycler == tp.operator) rules
+  [(lifecycleRuleImplCid, _)] <- pure operatorRules
+  let lifecycleRuleCid =
+        toInterfaceContractId @Lifecycle.Lifecycle lifecycleRuleImplCid
+
+  eventImplCid <- submit tp.operator do
+    createCmd DateClockUpdate.DateClockUpdateEvent with
+      providers   = Set.singleton tp.operator
+      date        = date 2026 Jul 16
+      eventTime   = time (date 2026 Jul 16) 0 0 0
+      id          = Id "asset-clock-1"
+      description = "ASSET lifecycle clock"
+      observers   = Set.singleton tp.operator
+  let eventCid = toInterfaceContractId @Event.Event eventImplCid
+
+  submitMustFail tp.operator do
+    exerciseCmd workflowCid TriggerLifecycle with
+      lifecycleRuleCid
+      eventCid
+      observableCids = []

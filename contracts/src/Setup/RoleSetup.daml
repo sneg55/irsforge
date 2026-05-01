@@ -1,0 +1,13 @@
+module Setup.RoleSetup where
+
+-- | RoleSetup is a simple coordination marker template that the operator
+-- creates to signal that infrastructure has been initialised for a given
+-- deployment.  The Init script creates one instance of this after all the
+-- factories, calendars, and rules are in place so that downstream automation
+-- can query for it as a readiness sentinel.
+template RoleSetup
+  with
+    operator : Party
+    description : Text
+  where
+    signatory operator

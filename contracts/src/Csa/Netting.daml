@@ -1,0 +1,98 @@
+-- NettedBatch audit template + settleNetImpl helper — Phase 6 Stage A.
+-- Split into its own module so Csa.Csa stays under the 300-line cap.
+-- Takes primitive-typed args (not the Csa record) to avoid a circular
+-- import with Csa.Csa — the choice body assembles the args from its
+-- template scope.
+module Csa.Netting where
+
+import DA.Foldable (forA_)
+import Daml.Finance.Interface.Settlement.V4.Factory qualified as SettlementFactory
+import Daml.Finance.Interface.Settlement.V4.RouteProvider qualified as RouteProvider
+import Daml.Finance.Interface.Settlement.V4.Batch qualified as Batch
+import Audit.SettlementAudit (auditCsaNet)
+import Csa.Types qualified as T
+import Swap.NettedSettlement (executeNettedSettlement)
+import Swap.Workflow (SwapWorkflow)
+
+template NettedBatch
+  with
+    operator         : Party
+    partyA           : Party
+    partyB           : Party
+    regulators        : [Party]
+    scheduler        : Party
+    csaCid           : Text                -- stringified ContractId of originating Csa
+    paymentTimestamp : Time
+    netByCcy         : [(Text, Decimal)]   -- signed: positive = partyA received
+    settledEffects   : [Text]              -- stringified Effect cids (audit)
+    batchCid         : Optional (ContractId Batch.I)
+                                           -- None when the entire netting
+                                           -- set cancelled to zero; the
+                                           -- audit row still records the
+                                           -- inputs consumed
+  where
+    signatory partyA, partyB
+    observer  operator, regulators, scheduler
+
+-- | SettleNet shared body. Called by both Csa.SettleNet (controller
+--   operator) and Csa.SettleNetByScheduler (controller scheduler).
+--   Defined with primitive-typed args so this module avoids a circular
+--   import with Csa.Csa — the choice bodies pack fields from `this`.
+settleNetImpl
+  :  Party                                 -- operator
+  -> Party                                 -- partyA
+  -> Party                                 -- partyB
+  -> [Party]                               -- regulators
+  -> Party                                 -- scheduler
+  -> Text                                  -- stringified self (csa cid)
+  -> Time                                  -- paymentTimestamp
+  -> [T.NettingEntry SwapWorkflow]
+  -> [T.CcyHoldings]
+  -> ContractId SettlementFactory.I
+  -> ContractId RouteProvider.I
+  -> Update (ContractId NettedBatch)
+settleNetImpl
+    operator partyA partyB regulators scheduler csaCidStr
+    paymentTimestamp entries holdings
+    settlementFactoryCid routeProviderCid = do
+  -- Verify every entry belongs to this CSA's netting set in either
+  -- orientation, and that its `reversed` flag matches reality.
+  forA_ entries \entry -> do
+    sw <- fetch entry.swapWorkflowCid
+    let inOrder    = sw.partyA == partyA && sw.partyB == partyB
+        flipped    = sw.partyA == partyB && sw.partyB == partyA
+    assertMsg
+      ("entry swap parties (" <> show sw.partyA <> ", " <> show sw.partyB <>
+       ") do not match CSA pair (" <> show partyA <> ", " <> show partyB <> ")")
+      (inOrder || flipped)
+    assertMsg
+      ("entry.reversed flag (" <> show entry.reversed <>
+       ") does not match swap orientation")
+      (entry.reversed == flipped)
+
+  let swapEffects = [(e.instrumentKey, e.effectCids, e.reversed) | e <- entries]
+  (batchCid, netByCcy) <- executeNettedSettlement
+    operator partyA partyB
+    ("csa-" <> show partyA <> "-" <> show partyB)
+    swapEffects holdings settlementFactoryCid routeProviderCid
+
+  let settledEffects = concat
+        [ [show ec | ec <- e.effectCids]
+        | e <- entries
+        ]
+
+  -- Per-currency audit rows for every non-zero leg of the netting set.
+  -- Regulator-observable; complements NettedBatch (summary) with per-leg
+  -- payer/payee/amount detail.
+  auditCsaNet operator partyA partyB regulators scheduler
+    csaCidStr batchCid paymentTimestamp netByCcy
+
+  create NettedBatch with
+    operator; partyA; partyB
+    regulators
+    scheduler
+    csaCid = csaCidStr
+    paymentTimestamp
+    netByCcy
+    settledEffects
+    batchCid

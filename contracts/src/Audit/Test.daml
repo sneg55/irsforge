@@ -1,0 +1,142 @@
+-- Tests for SettlementAudit. Covers two integration sites:
+--   1. SwapWorkflow.Settle / Mature → auditSwapSettlement creates one row
+--   2. (deferred to Csa.TestSettleNet — already exercises the netting path)
+-- Plus the regulator-visibility guarantee: a regulator's query returns
+-- the audit row even though it isn't a signatory or controller. The
+-- zero-net "no row" path is covered by test_mature_zero_effects_no_audit.
+module Audit.Test where
+
+import Daml.Script
+import Daml.Finance.Holding.V4.TransferableFungible qualified as TFungible
+import Daml.Finance.Interface.Holding.V4.Fungible qualified as Fungible
+import Audit.SettlementAudit qualified as A
+import Setup.CashSetup (cashSetup)
+import Swap.TestHelpers
+import Swap.Workflow
+
+-- 1. Settle creates exactly one SettlementAudit row visible to regulator.
+test_settle_creates_audit_row : Script ()
+test_settle_creates_audit_row = do
+  tp <- allocateTestParties
+  cashResult <- cashSetup tp.operator tp.partyA tp.partyB tp.regulator "USD" "US Dollar"
+  (workflowCid, effectCids, _ik, _rule, _mat) <- setupIrsThroughLifecycle tp cashResult
+
+  allHoldingsA <- query @TFungible.TransferableFungible tp.partyA
+  let [(aCid, _)] = [(c, h) | (c, h) <- allHoldingsA, h.account.owner == tp.partyA]
+  allHoldingsB <- query @TFungible.TransferableFungible tp.partyB
+  let [(bCid, _)] = [(c, h) | (c, h) <- allHoldingsB, h.account.owner == tp.partyB]
+
+  beforeAudits <- query @A.SettlementAudit tp.regulator
+  assertMsg "no audits before Settle" (null beforeAudits)
+
+  _ <- submit tp.operator do
+    exerciseCmd workflowCid Settle with
+      effectCids
+      settlementFactoryCid = cashResult.settlementFactoryCid
+      routeProviderCid     = cashResult.routeProviderCid
+      partyAHoldingCid     = toInterfaceContractId @Fungible.I aCid
+      partyBHoldingCid     = toInterfaceContractId @Fungible.I bCid
+      partyAAccountKey     = cashResult.partyAAccountKey
+      partyBAccountKey     = cashResult.partyBAccountKey
+      usdInstrumentKey     = cashResult.defaultInstrumentKey
+
+  audits <- query @A.SettlementAudit tp.regulator
+  assertMsg "one audit row after Settle" (length audits == 1)
+  let [(_, audit)] = audits
+  assertMsg "source tagged correctly"   (audit.source == "swap-settle")
+  assertMsg "swapType captured"         (audit.swapType == Some "IRS")
+  assertMsg "ccy captured"              (audit.ccy /= "")
+  assertMsg "amount positive"           (audit.amount > 0.0)
+  assertMsg "payer ∈ trading parties"   (audit.payer `elem` [tp.partyA, tp.partyB])
+  assertMsg "payee ∈ trading parties"   (audit.payee `elem` [tp.partyA, tp.partyB])
+  assertMsg "payer != payee"            (audit.payer /= audit.payee)
+  assertMsg "batchCid populated"        (audit.batchCid /= None)
+  assertMsg "instrumentId populated"    (audit.instrumentId /= None)
+
+-- 2. Mature creates an audit row tagged "swap-mature".
+test_mature_creates_audit_row : Script ()
+test_mature_creates_audit_row = do
+  tp <- allocateTestParties
+  cashResult <- cashSetup tp.operator tp.partyA tp.partyB tp.regulator "USD" "US Dollar"
+  (workflowCid, effectCids, _ik, _rule, maturityDate) <- setupIrsThroughLifecycle tp cashResult
+
+  allHoldingsA <- query @TFungible.TransferableFungible tp.partyA
+  let [(aCid, _)] = [(c, h) | (c, h) <- allHoldingsA, h.account.owner == tp.partyA]
+  allHoldingsB <- query @TFungible.TransferableFungible tp.partyB
+  let [(bCid, _)] = [(c, h) | (c, h) <- allHoldingsB, h.account.owner == tp.partyB]
+
+  advanceClockPastMaturity maturityDate
+
+  _ <- submit tp.operator do
+    exerciseCmd workflowCid Mature with
+      maturityDate
+      actualMaturityDate   = maturityDate
+      effectCids
+      settlementFactoryCid = cashResult.settlementFactoryCid
+      routeProviderCid     = cashResult.routeProviderCid
+      partyAHoldingCid     = Some (toInterfaceContractId @Fungible.I aCid)
+      partyBHoldingCid     = Some (toInterfaceContractId @Fungible.I bCid)
+      partyAAccountKey     = cashResult.partyAAccountKey
+      partyBAccountKey     = cashResult.partyBAccountKey
+      usdInstrumentKey     = cashResult.defaultInstrumentKey
+
+  audits <- query @A.SettlementAudit tp.regulator
+  assertMsg "one audit row after Mature" (length audits == 1)
+  let [(_, audit)] = audits
+  assertMsg "Mature audit source tag"    (audit.source == "swap-mature")
+
+-- 3. Mature with empty effects emits NO audit row (zero-net path).
+test_mature_zero_effects_no_audit : Script ()
+test_mature_zero_effects_no_audit = do
+  tp <- allocateTestParties
+  cashResult <- cashSetup tp.operator tp.partyA tp.partyB tp.regulator "USD" "US Dollar"
+  (workflowCid, _eff, _ik, _rule, maturityDate) <- setupIrsThroughLifecycle tp cashResult
+  advanceClockPastMaturity maturityDate
+
+  _ <- submit tp.operator do
+    exerciseCmd workflowCid Mature with
+      maturityDate
+      actualMaturityDate   = maturityDate
+      effectCids           = []
+      settlementFactoryCid = cashResult.settlementFactoryCid
+      routeProviderCid     = cashResult.routeProviderCid
+      partyAHoldingCid     = None
+      partyBHoldingCid     = None
+      partyAAccountKey     = cashResult.partyAAccountKey
+      partyBAccountKey     = cashResult.partyBAccountKey
+      usdInstrumentKey     = cashResult.defaultInstrumentKey
+
+  audits <- query @A.SettlementAudit tp.regulator
+  assertMsg "no audit row when no cash moved" (null audits)
+
+-- 4. Operator and scheduler also see the audit row (observers).
+test_observers_see_audit : Script ()
+test_observers_see_audit = do
+  tp <- allocateTestParties
+  cashResult <- cashSetup tp.operator tp.partyA tp.partyB tp.regulator "USD" "US Dollar"
+  (workflowCid, effectCids, _ik, _rule, _mat) <- setupIrsThroughLifecycle tp cashResult
+
+  allHoldingsA <- query @TFungible.TransferableFungible tp.partyA
+  let [(aCid, _)] = [(c, h) | (c, h) <- allHoldingsA, h.account.owner == tp.partyA]
+  allHoldingsB <- query @TFungible.TransferableFungible tp.partyB
+  let [(bCid, _)] = [(c, h) | (c, h) <- allHoldingsB, h.account.owner == tp.partyB]
+
+  _ <- submit tp.operator do
+    exerciseCmd workflowCid Settle with
+      effectCids
+      settlementFactoryCid = cashResult.settlementFactoryCid
+      routeProviderCid     = cashResult.routeProviderCid
+      partyAHoldingCid     = toInterfaceContractId @Fungible.I aCid
+      partyBHoldingCid     = toInterfaceContractId @Fungible.I bCid
+      partyAAccountKey     = cashResult.partyAAccountKey
+      partyBAccountKey     = cashResult.partyBAccountKey
+      usdInstrumentKey     = cashResult.defaultInstrumentKey
+
+  opAudits  <- query @A.SettlementAudit tp.operator
+  schAudits <- query @A.SettlementAudit tp.scheduler
+  paAudits  <- query @A.SettlementAudit tp.partyA
+  pbAudits  <- query @A.SettlementAudit tp.partyB
+  assertMsg "operator sees the audit"  (length opAudits  == 1)
+  assertMsg "scheduler sees the audit" (length schAudits == 1)
+  assertMsg "partyA sees the audit"    (length paAudits  == 1)
+  assertMsg "partyB sees the audit"    (length pbAudits  == 1)

@@ -1,0 +1,81 @@
+---
+const logos = [
+  {
+    name: 'ISDA',
+    src: '/logos/isda.svg',
+    alt: 'ISDA — International Swaps and Derivatives Association',
+    width: 214,
+    height: 35,
+  },
+  {
+    name: 'Digital Asset',
+    src: '/logos/digital-asset.svg',
+    alt: 'Digital Asset',
+    width: 200,
+    height: 32,
+  },
+  {
+    name: 'Canton Network',
+    src: '/logos/canton-network.svg',
+    alt: 'Canton Network',
+    width: 145,
+    height: 37,
+  },
+]
+---
+<div class="strip" role="list" aria-label="Standards and platforms IRSForge is built on">
+  {logos.map(({ name, src, alt, width, height }, i) => (
+    <span class="logo" role="listitem" style={`--i: ${i};`}>
+      <img src={src} alt={alt} width={width} height={height} loading="lazy" decoding="async" />
+      <span class="sr-only">{name}</span>
+    </span>
+  ))}
+</div>
+
+<style>
+  .strip {
+    display: flex;
+    gap: 3rem;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem 0;
+  }
+  .logo {
+    display: inline-flex;
+    align-items: center;
+    height: 32px;
+    opacity: 0.72;
+    transition: opacity .25s ease, transform .25s ease;
+    cursor: default;
+  }
+  .logo img {
+    height: 100%;
+    width: auto;
+    max-width: 220px;
+    display: block;
+  }
+  .logo:hover {
+    opacity: 1;
+    transform: translateY(-1px);
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0,0,0,0);
+    white-space: nowrap; border: 0;
+  }
+  .strip.in-view .logo {
+    animation: logo-rise .55s cubic-bezier(.2,.7,.2,1) backwards;
+    animation-delay: calc(var(--i) * 80ms);
+  }
+  @keyframes logo-rise {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 0.72; transform: translateY(0); }
+  }
+  @media (max-width: 600px) {
+    .strip { gap: 2rem; }
+    .logo { height: 26px; }
+  }
+</style>

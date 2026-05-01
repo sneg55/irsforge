@@ -1,0 +1,27 @@
+module Oracle.TestFloatingRateIndexSchema where
+
+import Daml.Script
+import DA.Assert
+import Oracle.FloatingRateIndex (FloatingRateIndex(..))
+import Oracle.Types (RateFamily(..), CompoundingMethod(..))
+
+-- Verifies the post-Phase-3 field set: deleted fields refuse to compile.
+testPhase3Shape : Script ()
+testPhase3Shape = do
+  operator <- allocateParty "Operator"
+  regulator <- allocateParty "Regulator"
+  cid <- submit operator do
+    createCmd FloatingRateIndex with
+      operator
+      subscribers = []
+      regulators = [regulator]
+      indexId = "USD-SOFR"
+      currency = "USD"
+      family = SOFR
+      compounding = CompoundedInArrears
+      lookback = 2
+      floor = Some 0.0
+
+  Some idx <- queryContractId operator cid
+  idx.lookback === 2
+  idx.floor === Some 0.0

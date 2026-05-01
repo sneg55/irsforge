@@ -1,0 +1,182 @@
+-- Full lifecycle integration test: IRS instrument, rule, SwapWorkflow, DateClockUpdateEvent
+module Swap.TestLifecycle where
+
+import Daml.Script
+import DA.Date (date, Month(..), DayOfWeek(..))
+import DA.Map qualified as Map
+import DA.Set qualified as Set
+import DA.Time (time)
+import Daml.Finance.Interface.Types.Common.V3.Types (Id(..), InstrumentKey(..), HoldingStandard(..))
+import Daml.Finance.Interface.Types.Date.V3.DayCount (DayCountConventionEnum(..))
+import Daml.Finance.Interface.Types.Date.V3.Calendar (BusinessDayAdjustment(..), BusinessDayConventionEnum(..), HolidayCalendarData(..))
+import Daml.Finance.Interface.Types.Date.V3.Schedule (PeriodicSchedule(..), Frequency(..), ScheduleFrequency(..))
+import Daml.Finance.Interface.Types.Date.V3.RollConvention (PeriodEnum(..), Period(..), RollConventionEnum(..))
+import Daml.Finance.Interface.Types.Date.V3.DateOffset (DateOffset(..), DayTypeEnum(..))
+import Daml.Finance.Interface.Instrument.Types.V2.FloatingRate (FloatingRate(..), ReferenceRateTypeEnum(..))
+import Daml.Finance.Interface.Instrument.Swap.V0.InterestRate.Types (InterestRate(..))
+import Daml.Finance.Interface.Instrument.Swap.V0.InterestRate.Factory qualified as IRSFactory
+import Daml.Finance.Instrument.Swap.V0.InterestRate.Factory qualified as IRSFactoryImpl
+import Daml.Finance.Data.V4.Numeric.Observation qualified as Observation
+import Daml.Finance.Data.V4.Reference.HolidayCalendar qualified as HolidayCalendar
+import Daml.Finance.Data.V4.Time.DateClockUpdate qualified as DateClockUpdate
+import Daml.Finance.Claims.V3.Lifecycle.Rule qualified as LifecycleRule
+import Daml.Finance.Interface.Lifecycle.V4.Rule.Lifecycle qualified as Lifecycle
+import Daml.Finance.Interface.Lifecycle.V4.Observable.NumericObservable qualified as NumericObservable
+import Daml.Finance.Interface.Lifecycle.V4.Event qualified as Event
+import Swap.Workflow
+import Swap.TestHelpers
+import Constants
+import Setup.GeneratedRateFamilies
+
+-- | Full lifecycle: IRS instrument via factory, lifecycle rule, SwapWorkflow,
+--   DateClockUpdateEvent, TriggerLifecycle — verify effects produced.
+lifecycleIntegrationTest : Script ()
+lifecycleIntegrationTest = do
+  tp <- allocateTestParties
+
+  let
+    operatorSet = Set.singleton tp.operator
+    observerMap = Map.fromList [("observers", Set.fromList [tp.partyA, tp.partyB, tp.regulator])]
+
+  -- 1. Create holiday calendar
+  _calendarCid <- submit tp.operator do
+    createCmd HolidayCalendar.HolidayCalendar with
+      calendar = HolidayCalendarData with
+        id = usdCalendarId
+        weekend = [Saturday, Sunday]
+        holidays = []
+      observers = observerMap
+      provider = tp.operator
+
+  -- 2. Create SOFR rate observations
+  let
+    sofrObsMap = Map.fromList
+      [ (time (date 2026 Apr 16) 0 0 0, 0.0530)
+      , (time (date 2026 Jul 16) 0 0 0, 0.0530)
+      ]
+
+  sofrObsCid <- submit tp.operator do
+    createCmd Observation.Observation with
+      provider = tp.operator
+      id = Id sofrOvernightRateId
+      observations = sofrObsMap
+      observers = observerMap
+
+  -- 3. Define instrument keys
+  let
+    instrumentKey = InstrumentKey with
+      depository = tp.operator
+      issuer = tp.operator
+      id = Id "IRS-001"
+      version = "0"
+      holdingStandard = TransferableFungible
+
+    currencyKey = InstrumentKey with
+      depository = tp.operator
+      issuer = tp.operator
+      id = Id usdInstrumentLabel
+      version = "0"
+      holdingStandard = TransferableFungible
+
+  -- 4. Create IRS Factory and IRS Instrument
+  irsFactoryCid <- submit tp.operator do
+    createCmd IRSFactoryImpl.Factory with
+      provider = tp.operator
+      observers = observerMap
+
+  let
+    periodicSchedule = PeriodicSchedule with
+      effectiveDate = date 2026 Apr 16
+      terminationDate = date 2026 Jul 16
+      firstRegularPeriodStartDate = None
+      lastRegularPeriodEndDate = None
+      frequency = Periodic Frequency with
+        period = Period with
+          period = M
+          periodMultiplier = 3
+        rollConvention = DOM 16
+      businessDayAdjustment = BusinessDayAdjustment with
+        calendarIds = [usdCalendarId]
+        convention = ModifiedFollowing
+      effectiveDateBusinessDayAdjustment = None
+      terminationDateBusinessDayAdjustment = None
+      stubPeriodType = None
+
+    floatingRate = FloatingRate with
+      referenceRateId = sofrOvernightRateId
+      referenceRateType = CompoundedIndex Act360
+      fixingDates = DateOffset with
+        period = D
+        periodMultiplier = 0
+        dayType = Some Business
+        businessDayConvention = NoAdjustment
+        businessCenters = [usdCalendarId]
+
+    interestRate = InterestRate with
+      instrument = instrumentKey
+      description = "IRS test swap"
+      floatingRate
+      ownerReceivesFix = True
+      fixRate = 0.0485
+      periodicSchedule
+      holidayCalendarIds = [usdCalendarId]
+      calendarDataProvider = tp.operator
+      dayCountConvention = Act360
+      currency = currencyKey
+      lastEventTimestamp = time (date 2026 Apr 16) 0 0 0
+
+  let irsFactoryInterfaceCid = toInterfaceContractId @IRSFactory.Factory irsFactoryCid
+
+  submit tp.operator do
+    exerciseCmd irsFactoryInterfaceCid IRSFactory.Create with
+      interestRate
+      observers = observerMap
+
+  -- 5. Create lifecycle rule
+  lifecycleRuleCid <- submit tp.operator do
+    createCmd LifecycleRule.Rule with
+      providers = operatorSet
+      lifecycler = tp.operator
+      observers = observerMap
+      id = Id "lifecycle-rule-001"
+      description = "IRS lifecycle rule"
+
+  -- 6. Create SwapWorkflow directly (partyA + partyB as signatories)
+  workflowCid <- submitMulti [tp.partyA, tp.partyB] [] do
+    createCmd SwapWorkflow with
+      swapType = "IRS"
+      operator = tp.operator
+      partyA = tp.partyA
+      partyB = tp.partyB
+      regulators = [tp.regulator]
+      scheduler = tp.scheduler
+      instrumentKey
+      notional = 10_000_000.0
+
+  -- 7. Create a DateClockUpdateEvent for the payment date
+  eventCid <- submit tp.operator do
+    createCmd DateClockUpdate.DateClockUpdateEvent with
+      providers = operatorSet
+      date = date 2026 Jul 16
+      eventTime = time (date 2026 Jul 16) 0 0 0
+      id = Id "clock-update-001"
+      description = "Coupon date event"
+      observers = operatorSet
+
+  -- 8. Trigger lifecycle via SwapWorkflow
+  let
+    lifecycleRuleInterfaceCid = toInterfaceContractId @Lifecycle.Lifecycle lifecycleRuleCid
+    eventInterfaceCid         = toInterfaceContractId @Event.Event eventCid
+    sofrObsInterfaceCid       = toInterfaceContractId @NumericObservable.NumericObservable sofrObsCid
+
+  (newInstrumentKeyOpt, effectCids) <- submit tp.operator do
+    exerciseCmd workflowCid TriggerLifecycle with
+      lifecycleRuleCid = lifecycleRuleInterfaceCid
+      eventCid         = eventInterfaceCid
+      observableCids   = [sofrObsInterfaceCid]
+
+  -- 9. Verify effects were created
+  assertMsg "Lifecycle should produce effects" (not (null effectCids))
+  debug $ "Lifecycle produced " <> show (length effectCids) <> " effect(s)"
+  debug $ "New instrument key: " <> show newInstrumentKeyOpt
+  pure ()

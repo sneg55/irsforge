@@ -1,0 +1,70 @@
+---
+import workspace from '../../assets/screenshots/workspace.png'
+import CtaPair from '../../components/CtaPair.astro'
+import ScreenshotFrame from '../../components/ScreenshotFrame.astro'
+---
+<section class="hero">
+  <div class="inner">
+    <div class="copy">
+      <h1>Hedge your Canton book <em>without leaving Canton.</em></h1>
+      <p class="sub">
+        Interest-rate, credit, and cross-currency swaps that settle on the same ledger as the trade.
+        Dealer-shaped screens your desk already knows, on Daml Finance, with the regulator and CSA
+        wired in from day one.
+      </p>
+      <CtaPair
+        primaryHref="https://demo.irsforge.com"
+        primaryLabel="Live Demo"
+        secondaryHref="https://cal.com/sawinyh/irsforge-demo"
+        secondaryLabel="Talk to the team"
+        size="lg"
+      />
+      <p class="tertiary">
+        <a href="https://github.com/sneg55/irsforge" target="_blank" rel="noopener">View the source on GitHub →</a>
+      </p>
+    </div>
+    <div class="anchor">
+      <ScreenshotFrame
+        src={workspace}
+        alt="IRSForge workspace, leg composer with cashflows, risk and CSA panels"
+        caption="The workspace, onchain. Leg composer, cashflows, risk, and CSA in one screen."
+        loading="eager"
+      />
+    </div>
+  </div>
+</section>
+
+<style>
+  .hero {
+    position: relative;
+    padding: 6rem 2rem 8rem;
+    background-image: radial-gradient(ellipse at top right, var(--color-bg-tint-gold), transparent 60%);
+  }
+  @media (min-width: 768px) { .hero { padding: 8rem 2rem 10rem; } }
+  .inner {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 3.5rem;
+    align-items: center;
+  }
+  @media (min-width: 1024px) {
+    .inner { grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.25fr); gap: 4rem; }
+  }
+  .copy { max-width: 56ch; }
+  .hero h1 {
+    font-size: clamp(2.25rem, 5vw, 3.5rem); line-height: 1.05;
+    letter-spacing: -0.015em; margin: 1rem 0 1.5rem;
+    max-width: 22ch;
+  }
+  .hero .sub {
+    font-size: 1.125rem; color: var(--color-fg-body);
+    max-width: 56ch; line-height: 1.55; margin: 0 0 2.5rem;
+  }
+  .anchor { width: 100%; }
+  .anchor :global(.frame) { box-shadow: 0 30px 80px -30px rgba(0, 0, 0, 0.6); }
+  .tertiary { margin: 1.25rem 0 0; font-size: 0.9375rem; }
+  .tertiary a { color: var(--color-fg-muted); text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 4px; }
+  .tertiary a:hover { color: var(--color-accent); }
+</style>

@@ -1,0 +1,62 @@
+-- Scheduler-authority tests for SwapWorkflow. Stage A verifies the
+-- topology: scheduler is observable on SwapWorkflow and cannot exercise
+-- operator-only choices. The widened sister choices
+-- (TriggerLifecycleByScheduler, MatureByScheduler) exist as scaffolding —
+-- their bodies still call Daml Finance's Lifecycle.Evolve, which requires
+-- operator-owned downstream reads (Instrument, HolidayCalendar). A
+-- separate delegation contract in Stage C lifts operator authority into
+-- the scheduler-driven path for full end-to-end lifecycle.
+module Swap.TestSchedulerAuthority where
+
+import Daml.Script
+import DA.Set qualified as Set
+import DA.Date (date, Month(..))
+import DA.Time (time)
+import Daml.Finance.Data.V4.Time.DateClockUpdate qualified as DateClockUpdate
+import Daml.Finance.Interface.Lifecycle.V4.Event qualified as Event
+import Daml.Finance.Interface.Types.Common.V3.Types (Id(..))
+import Setup.CashSetup (cashSetup)
+import Swap.Workflow
+import Swap.TestHelpers
+
+-- | Scheduler can fetch the SwapWorkflow — proves the widened observer
+--   set on the template is wired correctly. Without this, an off-chain
+--   scheduler service could not even see the contracts it needs to drive.
+test_scheduler_observes_workflow : Script ()
+test_scheduler_observes_workflow = do
+  tp <- allocateTestParties
+  cashResult <- cashSetup tp.operator tp.partyA tp.partyB tp.regulator "USD" "US Dollar"
+  (workflowCid, _effectCids, _instrumentKey, _lifecycleRuleIfaceCid, _maturityDate) <-
+    setupIrsThroughLifecycleWith tp cashResult 0.0530 True
+
+  Some wf <- queryContractId tp.scheduler workflowCid
+  assertMsg "scheduler field on workflow matches allocated scheduler party"
+    (wf.scheduler == tp.scheduler)
+
+-- | Scheduler is NOT authorised to exercise the operator-only
+--   TriggerLifecycle choice. The sister `TriggerLifecycleByScheduler`
+--   exists so scheduler drives automation while operator retains an
+--   independent manual-override path.
+test_scheduler_cannot_use_operator_trigger : Script ()
+test_scheduler_cannot_use_operator_trigger = do
+  tp <- allocateTestParties
+  cashResult <- cashSetup tp.operator tp.partyA tp.partyB tp.regulator "USD" "US Dollar"
+  (workflowCid, _effectCids, _instrumentKey, lifecycleRuleIfaceCid, _maturityDate) <-
+    setupIrsThroughLifecycleWith tp cashResult 0.0530 True
+
+  let operatorSet = Set.singleton tp.operator
+  eventCid <- submit tp.operator do
+    createCmd DateClockUpdate.DateClockUpdateEvent with
+      providers = operatorSet
+      date = date 2026 Jul 16
+      eventTime = time (date 2026 Jul 16) 0 0 0
+      id = Id "clock-update-scheduler-neg-test"
+      description = "Scheduler negative auth event"
+      observers = Set.fromList [tp.operator, tp.scheduler]
+  let eventInterfaceCid = toInterfaceContractId @Event.Event eventCid
+
+  submitMustFail tp.scheduler do
+    exerciseCmd workflowCid TriggerLifecycle with
+      lifecycleRuleCid = lifecycleRuleIfaceCid
+      eventCid         = eventInterfaceCid
+      observableCids   = []

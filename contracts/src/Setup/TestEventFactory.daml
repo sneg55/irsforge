@@ -1,0 +1,116 @@
+-- Tests for EventFactory's CreateFixingEvent and CreateFixingEventByScheduler
+-- choices. Both choices share `createFixingEventImpl`; one test per controller
+-- path covers the structurally-identical body.
+--
+-- The factory is created by `runInit` so we just queryContractKey-style fetch
+-- from CashSetupRecord and exercise the choice.
+module Setup.TestEventFactory where
+
+import Daml.Script
+import DA.Date (date, Month(..))
+import DA.Set qualified as Set
+import DA.Time (time)
+import Daml.Finance.Interface.Types.Common.V3.Types (Id(..))
+import Daml.Finance.Data.V4.Time.DateClockUpdate qualified as DCUE
+import Setup.CashSetup (CashSetupRecord(..), cashSetupKey)
+import Setup.EventFactory
+import Swap.TestHelpers
+
+-- | Helper: fetch the EventFactory cid that runInit created.
+fetchEventFactoryCid : TestParties -> Script (ContractId EventFactory)
+fetchEventFactoryCid tp = do
+  result <- queryContractKey @CashSetupRecord tp.operator
+    (cashSetupKey tp.operator tp.partyA tp.partyB)
+  case result of
+    Some (_, setup) -> pure setup.eventFactoryCid
+    None -> abort "CashSetupRecord not seeded — runInit did not run"
+
+-- | Operator path: CreateFixingEvent. Verifies a DateClockUpdateEvent
+--   emerges with the expected Id namespace, date, eventTime, and observers.
+testCreateFixingEvent : Script ()
+testCreateFixingEvent = do
+  tp <- allocateTestParties
+  runInit tp
+  factoryCid <- fetchEventFactoryCid tp
+
+  let eventDate = date 2026 Jul 16
+
+  eventCid <- submit tp.operator do
+    exerciseCmd factoryCid CreateFixingEvent with
+      eventDate
+
+  Some event <- queryContractId tp.operator eventCid
+  assertMsg ("Id should be fixing-" <> show eventDate)
+    (event.id == Id ("fixing-" <> show eventDate))
+  assertMsg "date matches eventDate" (event.date == eventDate)
+  assertMsg "eventTime is midnight UTC of eventDate"
+    (event.eventTime == time eventDate 0 0 0)
+  assertMsg "Description carries eventDate"
+    (event.description == "Fixing event for " <> show eventDate)
+
+  -- partyA, partyB, regulator, scheduler are all observers
+  evA <- queryContractId tp.partyA eventCid
+  assertMsg "partyA should observe the event" (evA == Some event)
+  evB <- queryContractId tp.partyB eventCid
+  assertMsg "partyB should observe the event" (evB == Some event)
+  evReg <- queryContractId tp.regulator eventCid
+  assertMsg "regulator should observe the event" (evReg == Some event)
+  evSch <- queryContractId tp.scheduler eventCid
+  assertMsg "scheduler should observe the event" (evSch == Some event)
+  pure ()
+
+-- | Scheduler path: CreateFixingEventByScheduler. Body shared with
+--   CreateFixingEvent via createFixingEventImpl, so the produced event
+--   should be structurally identical.
+testCreateFixingEventByScheduler : Script ()
+testCreateFixingEventByScheduler = do
+  tp <- allocateTestParties
+  runInit tp
+  factoryCid <- fetchEventFactoryCid tp
+
+  let eventDate = date 2026 Aug 16
+
+  eventCid <- submit tp.scheduler do
+    exerciseCmd factoryCid CreateFixingEventByScheduler with
+      eventDate
+
+  Some event <- queryContractId tp.scheduler eventCid
+  assertMsg "Id matches" (event.id == Id ("fixing-" <> show eventDate))
+  assertMsg "date matches" (event.date == eventDate)
+  assertMsg "eventTime midnight UTC" (event.eventTime == time eventDate 0 0 0)
+
+  -- Authority gate: operator could NOT have signed via this controller path
+  -- (controller is scheduler). The producer is still the operator's `provider`
+  -- set, since the body is shared with the operator path.
+  assertMsg "providers contains exactly the operator"
+    (event.providers == Set.singleton tp.operator)
+  pure ()
+
+-- | Failure case: operator cannot fire CreateFixingEventByScheduler
+--   (controller is the scheduler).
+testSchedulerChoiceRejectsOperator : Script ()
+testSchedulerChoiceRejectsOperator = do
+  tp <- allocateTestParties
+  runInit tp
+  factoryCid <- fetchEventFactoryCid tp
+  submitMustFail tp.operator do
+    exerciseCmd factoryCid CreateFixingEventByScheduler with
+      eventDate = date 2026 Sep 16
+  pure ()
+
+-- | Failure case: scheduler cannot fire CreateFixingEvent
+--   (controller is the operator).
+testOperatorChoiceRejectsScheduler : Script ()
+testOperatorChoiceRejectsScheduler = do
+  tp <- allocateTestParties
+  runInit tp
+  factoryCid <- fetchEventFactoryCid tp
+  submitMustFail tp.scheduler do
+    exerciseCmd factoryCid CreateFixingEvent with
+      eventDate = date 2026 Sep 16
+  pure ()
+
+-- Suppress unused-import warning when DCUE module is not directly referenced
+-- inside the body (the type appears only via choice return).
+_unused : ContractId DCUE.DateClockUpdateEvent -> ()
+_unused _ = ()

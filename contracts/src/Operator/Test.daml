@@ -1,0 +1,69 @@
+module Operator.Test where
+
+import Daml.Script
+import Operator.Policy
+
+allocateParties : Script (Party, Party, Party)
+allocateParties = do
+  operator  <- allocatePartyWithHint "Operator"  (PartyIdHint "Operator")
+  regulator <- allocatePartyWithHint "Regulator" (PartyIdHint "Regulator")
+  trader    <- allocatePartyWithHint "Trader"    (PartyIdHint "Trader")
+  pure (operator, regulator, trader)
+
+baseIrsAuto : Party -> Party -> OperatorPolicy
+baseIrsAuto operator regulator = OperatorPolicy with
+  operator
+  regulators = [regulator]
+  traders    = []
+  family     = "IRS"
+  mode       = Auto
+
+baseIrsAutoWithTrader : Party -> Party -> Party -> OperatorPolicy
+baseIrsAutoWithTrader operator regulator trader = OperatorPolicy with
+  operator
+  regulators = [regulator]
+  traders    = [trader]
+  family     = "IRS"
+  mode       = Auto
+
+-- 1. Happy path: operator creates a policy and flips it manual → auto → manual.
+testSetMode : Script ()
+testSetMode = do
+  (operator, regulator, _) <- allocateParties
+  cid0 <- submit operator do createCmd (baseIrsAuto operator regulator)
+  cid1 <- submit operator do exerciseCmd cid0 SetMode with newMode = Manual
+  Some p1 <- queryContractId operator cid1
+  assert (p1.mode == Manual)
+  cid2 <- submit operator do exerciseCmd cid1 SetMode with newMode = Auto
+  Some p2 <- queryContractId operator cid2
+  assert (p2.mode == Auto)
+
+-- 2. Trader cannot SetMode — controller must be operator.
+testTraderCannotSetMode : Script ()
+testTraderCannotSetMode = do
+  (operator, regulator, trader) <- allocateParties
+  cid <- submit operator do createCmd (baseIrsAuto operator regulator)
+  submitMustFail trader do exerciseCmd cid SetMode with newMode = Manual
+
+-- 3. Regulator (observer) cannot SetMode either.
+testRegulatorCannotSetMode : Script ()
+testRegulatorCannotSetMode = do
+  (operator, regulator, _) <- allocateParties
+  cid <- submit operator do createCmd (baseIrsAuto operator regulator)
+  submitMustFail regulator do exerciseCmd cid SetMode with newMode = Manual
+
+-- 4. Key uniqueness — second create with same (operator, family) fails.
+testKeyUniqueness : Script ()
+testKeyUniqueness = do
+  (operator, regulator, _) <- allocateParties
+  _ <- submit operator do createCmd (baseIrsAuto operator regulator)
+  submitMustFail operator do createCmd (baseIrsAuto operator regulator)
+
+-- 5. Trader can observe (queryContractId returns Some) when listed.
+testTraderObserver : Script ()
+testTraderObserver = do
+  (operator, regulator, trader) <- allocateParties
+  cid <- submit operator do
+    createCmd (baseIrsAutoWithTrader operator regulator trader)
+  Some _ <- queryContractId trader cid
+  pure ()

@@ -1,0 +1,9 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import type { ReactNode } from 'react'
+
+export function makeQueryWrapper() {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+  return function Wrapper({ children }: { children: ReactNode }) {
+    return <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+  }
+}

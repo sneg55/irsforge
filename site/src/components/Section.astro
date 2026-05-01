@@ -1,0 +1,34 @@
+---
+interface Props {
+  id?: string
+  label: string
+  headline: string
+  sub?: string
+  variant?: 'default' | 'tight' | 'wide'
+}
+const { id, label, headline, sub, variant = 'default' } = Astro.props
+const widthClass = variant === 'wide' ? 'wide' : variant === 'tight' ? 'tight' : 'default'
+---
+<section id={id} class={`section ${widthClass}`}>
+  <header class="section-header">
+    <p class="label rule-top">{label}</p>
+    <h2 set:html={headline} />
+    {sub && <p class="sub">{sub}</p>}
+  </header>
+  <div class="section-body"><slot /></div>
+</section>
+
+<style>
+  .section { padding: 6rem 2rem; }
+  .section.tight { padding: 4rem 2rem; }
+  .section.wide { padding: 6rem 2rem; }
+  @media (min-width: 768px) { .section { padding: 8rem 2rem; } }
+  .section-header { max-width: 900px; margin: 0 auto 3rem; }
+  .section.wide .section-header,
+  .section.wide .section-body { max-width: 1200px; margin-left: auto; margin-right: auto; }
+  .section.tight .section-header,
+  .section.tight .section-body { max-width: 720px; margin-left: auto; margin-right: auto; }
+  .section h2 { font-size: 2.75rem; line-height: 1.1; margin: 0.75rem 0 1rem; max-width: 28ch; }
+  .section .sub { color: var(--color-fg-body); font-size: 1.125rem; max-width: 60ch; margin: 0; }
+  .section-body { max-width: 900px; margin: 0 auto; }
+</style>

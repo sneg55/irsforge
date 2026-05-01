@@ -1,0 +1,138 @@
+-- Oracle + index seed helpers called from Setup.InitImpl. Extracted so
+-- InitImpl stays under the 300-line cap; nothing here is referenced from
+-- outside the init flow.
+module Setup.InitSeeds where
+
+import Daml.Script
+import DA.Date (date, Month(..))
+import DA.Foldable (forA_)
+import Oracle.DemoStubProvider (DemoStubOracleProvider(..))
+import Oracle.FloatingRateIndex (FloatingRateIndex(..))
+import Oracle.NYFedProvider
+import Oracle.Types (PublishCurveArgs(..), CurvePoint(..), RateFamily(..), CompoundingMethod(..))
+import Setup.GeneratedRateFamilies (sofrIndexRateId, sofrOvernightRateId)
+import Setup.GeneratedConfig qualified as Config
+
+-- | Seed the NYFed oracle provider + the SOFR curve snapshot + historical
+--   SOFR overnight fixings + per-reference-name CDS histories. Mirrors the
+--   shape the demo smoke-test expects at `T0`; production deployments can
+--   replace this with a no-op or a real subscription.
+seedOracleData : Party -> Party -> Party -> Party -> Script ()
+seedOracleData operator partyA partyB regulator = do
+  providerCid <- submit operator do
+    createCmd NYFedOracleProvider with
+      operator         = operator
+      subscribers      = [partyA, partyB, regulator]
+      regulators        = [regulator]
+      supportedRateIds =
+        [ sofrIndexRateId, sofrOvernightRateId
+        , "SOFR/1M", "SOFR/3M", "SOFR/6M", "SOFR/1Y"
+        , "SOFR/2Y", "SOFR/3Y", "SOFR/5Y", "SOFR/10Y"
+        ] <>
+        concatMap
+          (\name -> [ "CDS/" <> name <> "/DefaultProb"
+                    , "CDS/" <> name <> "/Recovery" ])
+          Config.cdsReferenceNames
+
+  submit operator do
+    exerciseCmd providerCid PublishCurve with
+      args = PublishCurveArgs with
+        effectiveDate = date 2026 Apr 11
+        points =
+          [ CurvePoint with rateId = "SOFR/ON";  value = 0.0433
+          , CurvePoint with rateId = "SOFR/1M";  value = 0.0433
+          , CurvePoint with rateId = "SOFR/3M";  value = 0.0431
+          , CurvePoint with rateId = "SOFR/6M";  value = 0.0428
+          , CurvePoint with rateId = "SOFR/1Y";  value = 0.0415
+          , CurvePoint with rateId = "SOFR/2Y";  value = 0.0398
+          , CurvePoint with rateId = "SOFR/3Y";  value = 0.0392
+          , CurvePoint with rateId = "SOFR/5Y";  value = 0.0387
+          , CurvePoint with rateId = "SOFR/10Y"; value = 0.0395
+          ]
+
+  let sofrFixings =
+        [ (date 2025 Jan 16, 0.0433)
+        , (date 2025 Apr 16, 0.0430)
+        , (date 2025 Jul 16, 0.0425)
+        , (date 2025 Oct 16, 0.0420)
+        , (date 2026 Jan 16, 0.0435)
+        , (date 2026 Apr 16, 0.0433)
+        , (date 2026 Jul 16, 0.0432)
+        , (date 2026 Oct 16, 0.0431)
+        , (date 2027 Jan 16, 0.0430)
+        ]
+  submit operator do
+    exerciseCmd providerCid PublishHistory with
+      rateId = "SOFR/ON"
+      entries = sofrFixings
+
+  -- DemoStubOracleProvider is the publisher the oracle's `seedCurves`
+  -- exercises when a currency's provider is `demo-stub`. Without it, the
+  -- seed call silently skips with `seed_provider_missing` and leaves the
+  -- mark publisher unable to price (no Discount curve on chain).
+  _ <- submit operator do
+    createCmd DemoStubOracleProvider with
+      operator         = operator
+      subscribers      = [partyA, partyB, regulator]
+      regulators        = [regulator]
+      supportedRateIds = ["USD-Discount", "USD-SOFR-Projection", "EUR-Discount", "EUR-ESTR-Projection"]
+
+  let
+    -- CDS lifecycle Evolve reads observations via exact-time Map.lookup.
+    -- lastEventTimestamp at accept is rounded to midnight-UTC of the
+    -- accept date, so the grid must include every day a CDS might be
+    -- accepted or evolved across. Quarterly SOFR fixings alone leave
+    -- multi-month gaps; daily grid closes them for the demo window.
+    dailyCdsFixings =
+      [ date 2026 Apr  20, date 2026 Apr  21, date 2026 Apr  22
+      , date 2026 Apr  23, date 2026 Apr  24, date 2026 Apr  25
+      , date 2026 Apr  26, date 2026 Apr  27, date 2026 Apr  28
+      , date 2026 Apr  29, date 2026 Apr  30, date 2026 May   1
+      , date 2026 May   2, date 2026 May   3, date 2026 May   4
+      , date 2026 May   5, date 2026 May   6, date 2026 May   7
+      , date 2026 May   8, date 2026 May   9, date 2026 May  10
+      ]
+    cdsFixings  = [ d | (d, _) <- sofrFixings ] <> dailyCdsFixings
+    cdsProb     = [ (d, 0.02) | d <- cdsFixings ]
+    cdsRecovery = [ (d, 0.40) | d <- cdsFixings ]
+  forA_ Config.cdsReferenceNames $ \name -> do
+    submit operator do
+      exerciseCmd providerCid PublishHistory with
+        rateId  = "CDS/" <> name <> "/DefaultProb"
+        entries = cdsProb
+    submit operator do
+      exerciseCmd providerCid PublishHistory with
+        rateId  = "CDS/" <> name <> "/Recovery"
+        entries = cdsRecovery
+
+-- | Seed the two FloatingRateIndex contracts (USD-SOFR, USD-EFFR) the
+--   proposal Accept flows resolve against. USD-SOFR uses the ARRC T-2
+--   CompoundedInArrears convention; USD-EFFR is overnight-averaged as
+--   the second BasisSwap leg.
+seedFloatingRateIndices : Party -> Party -> Party -> Party -> Script ()
+seedFloatingRateIndices operator partyA partyB regulator = do
+  _ <- submit operator do
+    createCmd FloatingRateIndex with
+      operator    = operator
+      subscribers = [partyA, partyB]
+      regulators   = [regulator]
+      indexId     = "USD-SOFR"
+      currency    = "USD"
+      family      = SOFR
+      compounding = CompoundedInArrears
+      lookback    = 2
+      floor       = Some 0.0
+
+  _ <- submit operator do
+    createCmd FloatingRateIndex with
+      operator    = operator
+      subscribers = [partyA, partyB]
+      regulators   = [regulator]
+      indexId     = "USD-EFFR"
+      currency    = "USD"
+      family      = SOFR
+      compounding = OvernightAverage
+      lookback    = 0
+      floor       = None
+
+  pure ()

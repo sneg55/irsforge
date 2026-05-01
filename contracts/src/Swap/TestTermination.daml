@@ -1,0 +1,260 @@
+-- Termination tests: happy-path + edge cases (reverse-direction, zero-PV, reject, withdraw, insufficient-holding).
+module Swap.TestTermination where
+
+import Daml.Script
+import DA.Assert ((===))
+import Daml.Finance.Interface.Holding.V4.Holding qualified as Holding
+import Daml.Finance.Interface.Holding.V4.Fungible qualified as Fungible
+import Daml.Finance.Holding.V4.TransferableFungible qualified as TFungible
+import Swap.Workflow (SwapWorkflow)
+import Swap.Terminate
+import Swap.TestHelpers
+import Setup.CashSetup (cashSetup)
+
+-- Helper: sum USD amounts held by a party (filtered by owner).
+partyBalance : [(ContractId TFungible.TransferableFungible, TFungible.TransferableFungible)] -> Party -> Decimal
+partyBalance holdings party =
+  sum [h.amount | (_, h) <- holdings, h.account.owner == party]
+
+-- | Propose termination with a nonzero PV (10_000 from partyA to partyB).
+--   Asserts: TerminatedSwap created with correct fields, SwapWorkflow archived,
+--   proposer's holding reduced, counterparty's holding increased.
+test_terminate_happy_path : Script ()
+test_terminate_happy_path = do
+  tp <- allocateTestParties
+  cashResult <- cashSetup tp.operator tp.partyA tp.partyB tp.regulator "USD" "US Dollar"
+  (workflowCid, _effectCids, _, _, _maturityDate) <- setupIrsThroughLifecycle tp cashResult
+
+  -- Record balances before termination (query from operator who sees all).
+  holdingsBefore <- query @TFungible.TransferableFungible tp.operator
+  let partyABalanceBefore = partyBalance holdingsBefore tp.partyA
+      partyBBalanceBefore = partyBalance holdingsBefore tp.partyB
+      pvAmount = 10_000.0
+
+  now <- getTime
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd TerminateProposal with
+      operator         = tp.operator
+      proposer         = tp.partyA
+      counterparty     = tp.partyB
+      regulators        = [tp.regulator]
+      workflowCid
+      proposedPvAmount = pvAmount
+      reason           = "early termination test"
+      proposedAt       = now
+
+  -- Query holdings from operator (sees all) for exercise args.
+  allHoldings <- query @TFungible.TransferableFungible tp.operator
+  let [(partyAHoldingCid, _)] = filter (\(_, h) -> h.account.owner == tp.partyA) allHoldings
+      [(partyBHoldingCid, _)] = filter (\(_, h) -> h.account.owner == tp.partyB) allHoldings
+
+  terminatedCid <- submit tp.partyB do
+    exerciseCmd proposalCid TpAccept with
+      settlementFactoryCid   = cashResult.settlementFactoryCid
+      routeProviderCid       = cashResult.routeProviderCid
+      proposerHoldingCid     = toInterfaceContractId @Holding.I partyAHoldingCid
+      counterpartyHoldingCid = toInterfaceContractId @Holding.I partyBHoldingCid
+      proposerAccountKey     = cashResult.partyAAccountKey
+      counterpartyAccountKey = cashResult.partyBAccountKey
+      usdInstrumentKey       = cashResult.defaultInstrumentKey
+
+  -- 1. SwapWorkflow must be archived.
+  None <- queryContractId tp.operator workflowCid
+  assertMsg "SwapWorkflow archived" True
+
+  -- 2. TerminatedSwap must exist with correct fields.
+  Some ts <- queryContractId tp.partyA terminatedCid
+  assertMsg "agreedPvAmount matches"       (ts.agreedPvAmount == pvAmount)
+  assertMsg "terminatedByParty is partyB"  (ts.terminatedByParty == tp.partyB)
+  assertMsg "settleBatchCid is Some"       (ts.settleBatchCid /= None)
+  assertMsg "reason matches"               (ts.reason == "early termination test")
+
+  -- 3. Balance shift: partyA paid pvAmount to partyB.
+  holdingsAfter <- query @TFungible.TransferableFungible tp.operator
+  let partyABalanceAfter = partyBalance holdingsAfter tp.partyA
+      partyBBalanceAfter = partyBalance holdingsAfter tp.partyB
+
+  assertMsg "partyA balance decreased by pvAmount"
+    (partyABalanceBefore - partyABalanceAfter == pvAmount)
+  assertMsg "partyB balance increased by pvAmount"
+    (partyBBalanceAfter - partyBBalanceBefore == pvAmount)
+
+  -- 4. No workflows remain.
+  workflows <- query @SwapWorkflow tp.partyA
+  assertMsg "No workflows remain" (null workflows)
+
+  debug "test_terminate_happy_path passed"
+  pure ()
+
+-- | Negative PV: counterparty owes proposer; partyA should receive 5_000.
+test_terminate_reverse_direction : Script ()
+test_terminate_reverse_direction = do
+  tp <- allocateTestParties
+  cashResult <- cashSetup tp.operator tp.partyA tp.partyB tp.regulator "USD" "US Dollar"
+  (workflowCid, _, _, _, _) <- setupIrsThroughLifecycle tp cashResult
+
+  now <- getTime
+  holdingsBefore <- query @TFungible.TransferableFungible tp.operator
+  let [(partyAHoldingCid, _)] = filter (\(_, h) -> h.account.owner == tp.partyA) holdingsBefore
+      [(partyBHoldingCid, _)] = filter (\(_, h) -> h.account.owner == tp.partyB) holdingsBefore
+      balABefore = partyBalance holdingsBefore tp.partyA
+
+  -- Negative PV: counterparty owes proposer $5,000
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd TerminateProposal with
+      operator         = tp.operator
+      proposer         = tp.partyA
+      counterparty     = tp.partyB
+      regulators        = [tp.regulator]
+      workflowCid
+      proposedPvAmount = -5_000.0
+      reason           = "reverse unwind"
+      proposedAt       = now
+
+  _ <- submit tp.partyB do
+    exerciseCmd proposalCid TpAccept with
+      settlementFactoryCid   = cashResult.settlementFactoryCid
+      routeProviderCid       = cashResult.routeProviderCid
+      proposerHoldingCid     = toInterfaceContractId @Holding.I partyAHoldingCid
+      counterpartyHoldingCid = toInterfaceContractId @Holding.I partyBHoldingCid
+      proposerAccountKey     = cashResult.partyAAccountKey
+      counterpartyAccountKey = cashResult.partyBAccountKey
+      usdInstrumentKey       = cashResult.defaultInstrumentKey
+
+  holdingsAfter <- query @TFungible.TransferableFungible tp.operator
+  let balAAfter = partyBalance holdingsAfter tp.partyA
+  assertMsg "partyA received 5_000" (balAAfter == balABefore + 5_000.0)
+  pure ()
+
+-- | Zero PV: no settlement batch, balances unchanged.
+test_terminate_zero_pv : Script ()
+test_terminate_zero_pv = do
+  tp <- allocateTestParties
+  cashResult <- cashSetup tp.operator tp.partyA tp.partyB tp.regulator "USD" "US Dollar"
+  (workflowCid, _, _, _, _) <- setupIrsThroughLifecycle tp cashResult
+
+  now <- getTime
+  holdingsBefore <- query @TFungible.TransferableFungible tp.operator
+  let [(partyAHoldingCid, _)] = filter (\(_, h) -> h.account.owner == tp.partyA) holdingsBefore
+      [(partyBHoldingCid, _)] = filter (\(_, h) -> h.account.owner == tp.partyB) holdingsBefore
+      balABefore = partyBalance holdingsBefore tp.partyA
+
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd TerminateProposal with
+      operator         = tp.operator
+      proposer         = tp.partyA
+      counterparty     = tp.partyB
+      regulators        = [tp.regulator]
+      workflowCid
+      proposedPvAmount = 0.0
+      reason           = "zero"
+      proposedAt       = now
+
+  terminatedCid <- submit tp.partyB do
+    exerciseCmd proposalCid TpAccept with
+      settlementFactoryCid   = cashResult.settlementFactoryCid
+      routeProviderCid       = cashResult.routeProviderCid
+      proposerHoldingCid     = toInterfaceContractId @Holding.I partyAHoldingCid
+      counterpartyHoldingCid = toInterfaceContractId @Holding.I partyBHoldingCid
+      proposerAccountKey     = cashResult.partyAAccountKey
+      counterpartyAccountKey = cashResult.partyBAccountKey
+      usdInstrumentKey       = cashResult.defaultInstrumentKey
+
+  Some terminated <- queryContractId tp.operator terminatedCid
+  terminated.settleBatchCid === None
+
+  holdingsAfter <- query @TFungible.TransferableFungible tp.operator
+  let balAAfter = partyBalance holdingsAfter tp.partyA
+  assertMsg "partyA balance unchanged" (balAAfter == balABefore)
+  pure ()
+
+-- | Counterparty rejects: proposal archived, workflow intact.
+test_terminate_reject : Script ()
+test_terminate_reject = do
+  tp <- allocateTestParties
+  cashResult <- cashSetup tp.operator tp.partyA tp.partyB tp.regulator "USD" "US Dollar"
+  (workflowCid, _, _, _, _) <- setupIrsThroughLifecycle tp cashResult
+
+  now <- getTime
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd TerminateProposal with
+      operator         = tp.operator
+      proposer         = tp.partyA
+      counterparty     = tp.partyB
+      regulators        = [tp.regulator]
+      workflowCid
+      proposedPvAmount = 1_000.0
+      reason           = "try unwind"
+      proposedAt       = now
+
+  submit tp.partyB do exerciseCmd proposalCid TpReject
+
+  None <- queryContractId tp.operator proposalCid
+  Some _ <- queryContractId tp.operator workflowCid
+  pure ()
+
+-- | Proposer withdraws: proposal archived, workflow intact.
+test_terminate_withdraw : Script ()
+test_terminate_withdraw = do
+  tp <- allocateTestParties
+  cashResult <- cashSetup tp.operator tp.partyA tp.partyB tp.regulator "USD" "US Dollar"
+  (workflowCid, _, _, _, _) <- setupIrsThroughLifecycle tp cashResult
+
+  now <- getTime
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd TerminateProposal with
+      operator         = tp.operator
+      proposer         = tp.partyA
+      counterparty     = tp.partyB
+      regulators        = [tp.regulator]
+      workflowCid
+      proposedPvAmount = 1_000.0
+      reason           = "withdraw me"
+      proposedAt       = now
+
+  submit tp.partyA do exerciseCmd proposalCid TpWithdraw
+
+  None <- queryContractId tp.operator proposalCid
+  Some _ <- queryContractId tp.operator workflowCid
+  pure ()
+
+-- | Insufficient holding: TpAccept must fail when proposer can't cover PV.
+test_terminate_insufficient_holding : Script ()
+test_terminate_insufficient_holding = do
+  tp <- allocateTestParties
+  cashResult <- cashSetup tp.operator tp.partyA tp.partyB tp.regulator "USD" "US Dollar"
+  (workflowCid, _, _, _, _) <- setupIrsThroughLifecycle tp cashResult
+
+  now <- getTime
+  holdingsBefore <- query @TFungible.TransferableFungible tp.operator
+  let [(partyAHoldingCid, _)] = filter (\(_, h) -> h.account.owner == tp.partyA) holdingsBefore
+      [(partyBHoldingCid, _)] = filter (\(_, h) -> h.account.owner == tp.partyB) holdingsBefore
+
+  -- Split partyA's holding: keep only 100.0, discard the rest
+  splitResult <- submit tp.partyA do
+    exerciseCmd (coerceContractId @Holding.I @Fungible.I (toInterfaceContractId @Holding.I partyAHoldingCid))
+      Fungible.Split with amounts = [100.0]
+  let (tinyFungibleCid :: _) = splitResult.splitCids
+      tinyHoldingCid = toInterfaceContractId @Holding.I tinyFungibleCid
+
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd TerminateProposal with
+      operator         = tp.operator
+      proposer         = tp.partyA
+      counterparty     = tp.partyB
+      regulators        = [tp.regulator]
+      workflowCid
+      proposedPvAmount = 1_000_000.0
+      reason           = "too much"
+      proposedAt       = now
+
+  submitMultiMustFail [tp.partyB] [] do
+    exerciseCmd proposalCid TpAccept with
+      settlementFactoryCid   = cashResult.settlementFactoryCid
+      routeProviderCid       = cashResult.routeProviderCid
+      proposerHoldingCid     = tinyHoldingCid
+      counterpartyHoldingCid = toInterfaceContractId @Holding.I partyBHoldingCid
+      proposerAccountKey     = cashResult.partyAAccountKey
+      counterpartyAccountKey = cashResult.partyBAccountKey
+      usdInstrumentKey       = cashResult.defaultInstrumentKey
+  pure ()

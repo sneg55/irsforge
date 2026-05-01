@@ -1,0 +1,140 @@
+-- Dispute *resolution-path* tests for Csa.Csa.
+--
+-- Lifted out of Csa.TestDispute so that file stays under the 300-line cap
+-- as the dispute taxonomy grows (Tier 2 #8). Same pattern as Csa.TestMath /
+-- Csa.TestScheduler / Csa.TestRecovery / Csa.TestSettleNet / Csa.TestDispute.
+--
+-- Scope: the two resolution paths out of MarkDisputed/Escalated —
+--   * `AcknowledgeDispute` (operator-arbitrated unfreeze)
+--   * `AgreeToCounterMark` (bilateral, counterparty accepts disputer's mark)
+-- TestDispute.daml retains the open + escalate authority/state-flip tests.
+module Csa.TestDisputeResolution where
+
+import Daml.Script
+import DA.Map qualified as Map
+import DA.Date (date, Month(..))
+import DA.Time (time)
+import qualified Csa.Types as T
+import qualified Csa.Csa as C
+import Csa.Test (allocateThree, baseCsa)
+
+-- 13. AcknowledgeDispute (operator) flips state back to Active and
+--     SettleVm resumes. Closes Stage D's freeze → ack → unfreeze loop.
+testAckDisputeFlipsToActive : Script ()
+testAckDisputeFlipsToActive = do
+  (op, pa, pb, reg, sch) <- allocateThree
+  cid <- submitMulti [op, pa, pb] [] do
+    createCmd (baseCsa op pa pb reg sch) with
+      csb = Map.fromList [("USD", 1_000_000.0)]
+  (cid, _) <- submit op do
+    exerciseCmd cid C.PublishMark with
+      asOf     = time (date 2026 Apr 17) 12 0 0
+      exposure = 1_000_000.0
+      snapshot = "{}"
+  cid <- submit pa do
+    exerciseCmd cid C.Dispute with
+      disputer = pa; counterMark = 800_000.0; reason = T.Valuation; notes = "off by 200k"
+  Some c <- queryContractId pa cid
+  assert (c.state == T.MarkDisputed)
+  submitMustFail op do exerciseCmd cid C.SettleVm
+  cid <- submit op do
+    exerciseCmd cid C.AcknowledgeDispute with
+      newAsOf     = time (date 2026 Apr 17) 13 0 0
+      newExposure = 850_000.0
+      newSnapshot = "{}"
+  Some c <- queryContractId pa cid
+  assert (c.state == T.Active)
+  _ <- submit op do exerciseCmd cid C.SettleVm
+  pure ()
+
+-- 24. AgreeToCounterMark by counterparty re-publishes mark at counterMark
+--     and flips state to Active with activeDispute cleared.
+testAgreeToCounterMarkRepublishes : Script ()
+testAgreeToCounterMarkRepublishes = do
+  (op, pa, pb, reg, sch) <- allocateThree
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  (cid, _) <- submit op do
+    exerciseCmd cid C.PublishMark with
+      asOf     = time (date 2026 Apr 17) 12 0 0
+      exposure = 1_000_000.0
+      snapshot = "{}"
+  cid <- submit pa do
+    exerciseCmd cid C.Dispute with
+      disputer = pa; counterMark = 800_000.0; reason = T.Valuation; notes = ""
+  cid <- submit pb do
+    exerciseCmd cid C.AgreeToCounterMark with
+      agreer = pb
+      asOf   = time (date 2026 Apr 17) 13 0 0
+      snapshot = "{}"
+  Some c <- queryContractId pb cid
+  assert (c.state == T.Active)
+  assert (c.activeDispute == None)
+  case c.lastMarkCid of
+    None -> abort "expected new mark"
+    Some mCid -> do
+      Some mk <- queryContractId pb mCid
+      assert (mk.exposure == 800_000.0)
+
+-- 25. Disputer cannot AgreeToCounterMark with themselves.
+testAgreeRejectedFromDisputer : Script ()
+testAgreeRejectedFromDisputer = do
+  (op, pa, pb, reg, sch) <- allocateThree
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  (cid, _) <- submit op do
+    exerciseCmd cid C.PublishMark with
+      asOf     = time (date 2026 Apr 17) 12 0 0
+      exposure = 1_000_000.0
+      snapshot = "{}"
+  cid <- submit pa do
+    exerciseCmd cid C.Dispute with
+      disputer = pa; counterMark = 800_000.0; reason = T.Valuation; notes = ""
+  submitMustFail pa do
+    exerciseCmd cid C.AgreeToCounterMark with
+      agreer = pa
+      asOf   = time (date 2026 Apr 17) 13 0 0
+      snapshot = "{}"
+
+-- 26. AgreeToCounterMark blocked once Escalated.
+testAgreeBlockedAfterEscalate : Script ()
+testAgreeBlockedAfterEscalate = do
+  (op, pa, pb, reg, sch) <- allocateThree
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  (cid, _) <- submit op do
+    exerciseCmd cid C.PublishMark with
+      asOf     = time (date 2026 Apr 17) 12 0 0
+      exposure = 1_000_000.0
+      snapshot = "{}"
+  cid <- submit pa do
+    exerciseCmd cid C.Dispute with
+      disputer = pa; counterMark = 800_000.0; reason = T.Valuation; notes = ""
+  cid <- submit pb do
+    exerciseCmd cid C.EscalateDispute with escalator = pb
+  submitMustFail pb do
+    exerciseCmd cid C.AgreeToCounterMark with
+      agreer = pb
+      asOf   = time (date 2026 Apr 17) 13 0 0
+      snapshot = "{}"
+
+-- 27. Operator can clear Escalated state via AcknowledgeDispute.
+testEscalatedOperatorAck : Script ()
+testEscalatedOperatorAck = do
+  (op, pa, pb, reg, sch) <- allocateThree
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  (cid, _) <- submit op do
+    exerciseCmd cid C.PublishMark with
+      asOf     = time (date 2026 Apr 17) 12 0 0
+      exposure = 1_000_000.0
+      snapshot = "{}"
+  cid <- submit pa do
+    exerciseCmd cid C.Dispute with
+      disputer = pa; counterMark = 800_000.0; reason = T.Valuation; notes = ""
+  cid <- submit pb do
+    exerciseCmd cid C.EscalateDispute with escalator = pb
+  cid <- submit op do
+    exerciseCmd cid C.AcknowledgeDispute with
+      newAsOf     = time (date 2026 Apr 17) 14 0 0
+      newExposure = 850_000.0
+      newSnapshot = "{}"
+  Some c <- queryContractId op cid
+  assert (c.state == T.Active)
+  assert (c.activeDispute == None)

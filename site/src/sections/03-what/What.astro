@@ -1,0 +1,30 @@
+---
+import ProductCard from '../../components/ProductCard.astro'
+import Section from '../../components/Section.astro'
+import { products } from '../../data/products.ts'
+---
+<Section
+  id="what"
+  label="The platform"
+  headline="Three swap families. One Canton-native platform."
+  variant="wide"
+>
+  <div class="grid">
+    {products.map(p => (
+      <ProductCard
+        title={p.title}
+        body={p.body}
+        meta={p.meta}
+        maturity={p.maturity}
+        maturityNote={p.maturityNote}
+      />
+    ))}
+  </div>
+  <p class="footer-line">Same Daml Finance lifecycle underneath all three. Trade in, trade out, in your existing FpML.</p>
+</Section>
+
+<style>
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; }
+  @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
+  .footer-line { text-align: center; color: var(--color-fg-muted); margin-top: 3rem; font-size: 0.875rem; letter-spacing: 0.04em; }
+</style>

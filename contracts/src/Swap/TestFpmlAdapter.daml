@@ -1,0 +1,240 @@
+-- | Unit tests for Swap.FpmlAdapter.legToSwapStream.
+--   Each script allocates its own parties and constructs ScheduleDefaults
+--   directly — no CashSetupRecord or init infrastructure needed.
+module Swap.TestFpmlAdapter where
+
+import Daml.Script
+import DA.Date (date, Month(..))
+import DA.List (head, last)
+import Daml.Finance.Interface.Types.Date.V3.Calendar (BusinessDayAdjustment(..), BusinessDayConventionEnum(..))
+import Daml.Finance.Interface.Types.Date.V3.DayCount (DayCountConventionEnum(..))
+import Daml.Finance.Interface.Types.Date.V3.RollConvention (RollConventionEnum(..))
+import qualified Daml.Finance.Interface.Instrument.Swap.V0.Fpml.FpmlTypes as Fpml
+import Oracle.FloatingRateIndex (FloatingRateIndex(..))
+import Oracle.Types (RateFamily(..), CompoundingMethod(..))
+import Setup.CashSetup (ScheduleDefaults(..))
+import Swap.Types (FpmlLeg(..))
+import Swap.FpmlAdapter (legToSwapStream)
+
+-- | Shared ScheduleDefaults matching the "FPML" entry seeded by InitImpl.
+testScheduleDefaults : ScheduleDefaults
+testScheduleDefaults = ScheduleDefaults with
+  frequencyMonths       = 3
+  rollConvention        = DOM 16
+  dayCountConvention    = Act360
+  businessDayAdjustment = BusinessDayAdjustment with
+    calendarIds = ["USD"]
+    convention  = ModifiedFollowing
+
+-- | Fixed leg at index 0: proposer pays, counterparty receives.
+--   Verifies payer/receiver references, unadjusted effective/termination
+--   dates, RateType_Fixed with the leg's rate, and the notional/currency
+--   inside NotionalSchedule_Regular.
+test_fixedLegToSwapStream : Script ()
+test_fixedLegToSwapStream = do
+  proposer     <- allocatePartyWithHint "Proposer"     (PartyIdHint "Proposer")
+  counterparty <- allocatePartyWithHint "Counterparty" (PartyIdHint "Counterparty")
+
+  let
+    fixedLeg = FpmlLeg with
+      legType            = "fixed"
+      currency           = "USD"
+      notional           = 10_000_000.0
+      rate               = Some 0.0485
+      indexId            = None
+      spread             = None
+      dayCountConvention = Act360
+
+    effectiveDate    = date 2026 Apr 16
+    terminationDate  = date 2027 Apr 16
+
+    stream = legToSwapStream
+      0 fixedLeg effectiveDate terminationDate
+      testScheduleDefaults None proposer counterparty
+
+  -- Payer/receiver: even index → proposer pays
+  assertMsg "payer is proposer"
+    (stream.payerPartyReference == show proposer)
+  assertMsg "receiver is counterparty"
+    (stream.receiverPartyReference == show counterparty)
+
+  -- Unadjusted dates survive into the SwapStream
+  assertMsg "effectiveDate unadjusted"
+    (stream.calculationPeriodDates.effectiveDate.unadjustedDate == effectiveDate)
+  assertMsg "terminationDate unadjusted"
+    (stream.calculationPeriodDates.terminationDate.unadjustedDate == terminationDate)
+
+  -- Rate type is fixed at 0.0485
+  case stream.calculationPeriodAmount.calculation.rateTypeValue of
+    Fpml.RateType_Fixed frs ->
+      assertMsg "fixed rate == 0.0485" (frs.initialValue == 0.0485)
+    Fpml.RateType_Floating _ ->
+      assertFail "Expected RateType_Fixed"
+
+  -- Notional schedule
+  case stream.calculationPeriodAmount.calculation.notionalScheduleValue of
+    Fpml.NotionalSchedule_Regular ns -> do
+      assertMsg "notional == 10_000_000"
+        (ns.notionalStepSchedule.initialValue == 10_000_000.0)
+      assertMsg "currency == USD"
+        (ns.notionalStepSchedule.currency == "USD")
+    Fpml.NotionalSchedule_FxLinked _ ->
+      assertFail "Expected NotionalSchedule_Regular"
+
+  -- No reset dates for a fixed leg
+  assertMsg "no resetDates on fixed leg" (stream.resetDates == None)
+
+  pure ()
+
+-- | Float leg at index 1: counterparty pays, proposer receives.
+--   Verifies payer/receiver reversal, resetDates presence, floatingRateIndex,
+--   and spread carried into SpreadSchedule.
+test_floatLegProducesResetDates : Script ()
+test_floatLegProducesResetDates = do
+  proposer     <- allocatePartyWithHint "Proposer2"     (PartyIdHint "Proposer2")
+  counterparty <- allocatePartyWithHint "Counterparty2" (PartyIdHint "Counterparty2")
+
+  let
+    floatLeg = FpmlLeg with
+      legType            = "float"
+      currency           = "USD"
+      notional           = 10_000_000.0
+      rate               = None
+      indexId            = Some "SOFR/ON"
+      spread             = Some 0.0010
+      dayCountConvention = Act360
+
+    effectiveDate   = date 2026 Apr 16
+    terminationDate = date 2027 Apr 16
+
+    stream = legToSwapStream
+      1 floatLeg effectiveDate terminationDate
+      testScheduleDefaults None proposer counterparty
+
+  -- Odd index → counterparty pays, proposer receives
+  assertMsg "payer is counterparty"
+    (stream.payerPartyReference == show counterparty)
+  assertMsg "receiver is proposer"
+    (stream.receiverPartyReference == show proposer)
+
+  -- resetDates must be present
+  case stream.resetDates of
+    None -> assertFail "Expected resetDates for float leg"
+    Some rd -> do
+      assertMsg "resetRelativeTo CalculationPeriodStartDate"
+        (rd.resetRelativeTo == Fpml.CalculationPeriodStartDate)
+
+  -- Rate type is floating
+  case stream.calculationPeriodAmount.calculation.rateTypeValue of
+    Fpml.RateType_Floating frc -> do
+      assertMsg "floatingRateIndex == SOFR/ON"
+        (frc.floatingRateIndex == "SOFR/ON")
+      assertMsg "spread schedule has one entry"
+        (length frc.spreadSchedule == 1)
+      case frc.spreadSchedule of
+        [ss] -> assertMsg "spread == 0.0010" (ss.initialValue == 0.0010)
+        _    -> assertFail "Expected exactly one SpreadSchedule"
+    Fpml.RateType_Fixed _ ->
+      assertFail "Expected RateType_Floating"
+
+  pure ()
+
+-- | Phase 2 Stage A Task 3 — wiring coverage.
+--   Confirms that mapping legToSwapStream over a 2-element legs list
+--   (the same loop FpmlProposal.FpmlAccept uses) produces exactly 2
+--   SwapStream records, one per leg.  No ledger operations needed since
+--   legToSwapStream is a pure function.
+test_twoLegWiring : Script ()
+test_twoLegWiring = do
+  proposer     <- allocatePartyWithHint "Proposer3"     (PartyIdHint "Proposer3")
+  counterparty <- allocatePartyWithHint "Counterparty3" (PartyIdHint "Counterparty3")
+
+  let
+    effectiveDate   = date 2026 Apr 16
+    terminationDate = date 2026 Jul 16
+
+    fixedLeg = FpmlLeg with
+      legType            = "fixed"
+      currency           = "USD"
+      notional           = 25_000_000.0
+      rate               = Some 0.0485
+      indexId            = None
+      spread             = None
+      dayCountConvention = Act360
+
+    floatLeg = FpmlLeg with
+      legType            = "float"
+      currency           = "USD"
+      notional           = 25_000_000.0
+      rate               = None
+      indexId            = Some "SOFR/ON"
+      spread             = Some 0.0010
+      dayCountConvention = Act360
+
+    legs = [fixedLeg, floatLeg]
+
+    -- Exactly the expression used inside FpmlProposal.FpmlAccept.
+    swapStreams =
+      map (\(idx, l) -> legToSwapStream idx l effectiveDate terminationDate
+                                        testScheduleDefaults None proposer counterparty)
+          (zip [0..length legs - 1] legs)
+
+  assertMsg "one swapStream per leg" (length swapStreams == 2)
+
+  -- Even index (0) → proposer pays first stream.
+  assertMsg "stream 0 payer is proposer"
+    ((head swapStreams).payerPartyReference == show proposer)
+
+  -- Odd index (1) → counterparty pays second stream.
+  assertMsg "stream 1 payer is counterparty"
+    ((last swapStreams).payerPartyReference == show counterparty)
+
+  debug "test_twoLegWiring passed"
+  pure ()
+
+-- | Phase 3 Stage A Task 8 — lookback threading.
+--   Passes `Some FloatingRateIndex` with lookback = 2 and asserts the
+--   produced SwapStream.resetDates.fixingDates.periodMultiplier == -2.
+test_legToSwapStreamWithLookback : Script ()
+test_legToSwapStreamWithLookback = do
+  operator     <- allocatePartyWithHint "OperatorFRID"     (PartyIdHint "OperatorFRID")
+  proposer     <- allocatePartyWithHint "Proposer4"        (PartyIdHint "Proposer4")
+  counterparty <- allocatePartyWithHint "Counterparty4"    (PartyIdHint "Counterparty4")
+  regulator    <- allocatePartyWithHint "RegulatorFRID"    (PartyIdHint "RegulatorFRID")
+
+  let
+    floatLeg = FpmlLeg with
+      legType            = "float"
+      currency           = "USD"
+      notional           = 10_000_000.0
+      rate               = None
+      indexId            = Some "USD-SOFR"
+      spread             = Some 0.0
+      dayCountConvention = Act360
+
+    frid = FloatingRateIndex with
+      operator    = operator
+      subscribers = [proposer, counterparty]
+      regulators   = [regulator]
+      indexId     = "USD-SOFR"
+      currency    = "USD"
+      family      = SOFR
+      compounding = CompoundedInArrears
+      lookback    = 2
+      floor       = Some 0.0
+
+    effectiveDate   = date 2026 Apr 16
+    terminationDate = date 2031 Apr 16
+
+    stream = legToSwapStream
+      0 floatLeg effectiveDate terminationDate
+      testScheduleDefaults (Some frid) proposer counterparty
+
+  case stream.resetDates of
+    Some rd ->
+      assertMsg "fixingDates.periodMultiplier == -2 (lookback threaded)"
+        (rd.fixingDates.periodMultiplier == -2)
+    None ->
+      assertFail "float leg must have resetDates"
+
+  pure ()

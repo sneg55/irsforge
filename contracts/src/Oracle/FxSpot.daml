@@ -1,0 +1,36 @@
+-- On-chain FX spot rate observable. The operator publishes one FxSpot per
+-- currency pair (base → quote); the frontend reads these for XCCY
+-- reporting-currency NPV translation.
+--
+-- Live FX provider integration is deferred — see Phase 9. Today the
+-- demo-stub oracle seeds one FxSpot per `demo.fxSpots` entry at startup
+-- and refreshes via `UpdateRate` if the YAML value changes.
+module Oracle.FxSpot where
+
+template FxSpot
+  with
+    operator    : Party
+    subscribers : [Party]
+    regulators   : [Party]
+    baseCcy     : Text
+    quoteCcy    : Text
+    rate        : Decimal
+    asOf        : Time
+  where
+    signatory operator
+    observer subscribers, regulators
+    key (operator, baseCcy, quoteCcy) : (Party, Text, Text)
+    maintainer key._1
+
+    ensure rate > 0.0 && baseCcy /= quoteCcy
+
+    -- Archive this contract and create a successor with a new rate. The
+    -- oracle calls UpdateRate when the configured spot drifts; downstream
+    -- readers (frontend, pricer) resolve by key so the CID churn is invisible.
+    choice UpdateRate : ContractId FxSpot
+      with
+        newRate : Decimal
+        newAsOf : Time
+      controller operator
+      do
+        create this with rate = newRate; asOf = newAsOf

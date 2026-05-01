@@ -1,0 +1,249 @@
+-- Tests for `Swap.ProposalDelegation`. The delegation lets traders create
+-- swap proposals with only their own party authority — the production-OIDC
+-- gap that Bug 1 (2026-04-28 audit) called out.
+module Swap.TestProposalDelegation where
+
+import Daml.Script
+import DA.Date (date, Month(..))
+import Daml.Finance.Interface.Types.Date.V3.DayCount (DayCountConventionEnum(..))
+import Swap.Proposal (SwapProposal(..))
+import Swap.OisProposal (OisProposal(..))
+import Swap.BasisSwapProposal (BasisSwapProposal(..))
+import Swap.XccyFixedFloatProposal (XccyFixedFloatProposal(..))
+import Swap.CdsProposal (CdsProposal(..))
+import Swap.CcySwapProposal (CcySwapProposal(..))
+import Swap.FxSwapProposal (FxSwapProposal(..))
+import Swap.AssetSwapProposal (AssetSwapProposal(..))
+import Swap.FpmlProposal (FpmlProposal(..))
+import Swap.ProposalDelegation
+  ( ProposalDelegation(..)
+  , CreateSwapProposal(..)
+  , CreateOisProposal(..)
+  , CreateBasisSwapProposal(..)
+  , CreateXccyFixedFloatProposal(..)
+  , CreateCdsProposal(..)
+  , CreateCcySwapProposal(..)
+  , CreateFxSwapProposal(..)
+  , CreateAssetSwapProposal(..)
+  , CreateFpmlProposal(..)
+  )
+import Swap.Types (TenorEnum(..), FpmlLeg(..))
+import Swap.TestHelpers
+
+-- | Bug 1 regression: a trader with single-party authority (no operator
+--   actAs) creates an IRS proposal via the delegation. The resulting
+--   SwapProposal still has signatory {proposer, operator} so existing
+--   Accept paths are unchanged.
+proposerOnlyCreateViaDelegation : Script ()
+proposerOnlyCreateViaDelegation = do
+  tp <- allocateTestParties
+
+  delegationCid <- submit tp.operator do
+    createCmd ProposalDelegation with
+      operator = tp.operator
+      traders  = [tp.partyA, tp.partyB]
+
+  _proposalCid <- submit tp.partyA do
+    exerciseCmd delegationCid CreateSwapProposal with
+      proposer           = tp.partyA
+      counterparty       = tp.partyB
+      notional           = 10_000_000.0
+      fixRate            = 0.0485
+      tenor              = D90
+      startDate          = date 2026 Apr 16
+      dayCountConvention = Act360
+
+  proposals <- query @SwapProposal tp.partyB
+  assertMsg "PartyB sees 1 proposal created via delegation"
+    (length proposals == 1)
+  case proposals of
+    ((_, p) :: _) ->
+      assertMsg "delegated-created proposal still names operator"
+        (p.operator == tp.operator)
+    [] -> error "unreachable: length-1 list is non-empty"
+
+-- | A party not in the delegation whitelist cannot use it.
+delegationRejectsNonWhitelistedProposer : Script ()
+delegationRejectsNonWhitelistedProposer = do
+  tp <- allocateTestParties
+  outsider <- allocatePartyWithHint "Outsider" (PartyIdHint "outsider")
+
+  delegationCid <- submit tp.operator do
+    createCmd ProposalDelegation with
+      operator = tp.operator
+      traders  = [tp.partyA, tp.partyB]
+
+  submitMustFail outsider do
+    exerciseCmd delegationCid CreateSwapProposal with
+      proposer           = outsider
+      counterparty       = tp.partyB
+      notional           = 10_000_000.0
+      fixRate            = 0.0485
+      tenor              = D90
+      startDate          = date 2026 Apr 16
+      dayCountConvention = Act360
+
+-- Helper: stand up a delegation contract for the standard test pair.
+mkDelegation : TestParties -> Script (ContractId ProposalDelegation)
+mkDelegation tp = submit tp.operator do
+  createCmd ProposalDelegation with
+    operator = tp.operator
+    traders  = [tp.partyA, tp.partyB]
+
+-- Per-family proposer-only smoke tests. Each demonstrates that a
+-- single-party `submit proposer` is sufficient to create a proposal of
+-- that family via the delegation, and that the resulting contract still
+-- carries operator as a signatory (so existing Accept paths are
+-- unchanged).
+
+oisProposerOnly : Script ()
+oisProposerOnly = do
+  tp <- allocateTestParties
+  d <- mkDelegation tp
+  _ <- submit tp.partyA do
+    exerciseCmd d CreateOisProposal with
+      proposer            = tp.partyA
+      counterparty        = tp.partyB
+      notional            = 10_000_000.0
+      fixRate             = 0.04
+      startDate           = date 2026 Apr 16
+      maturityDate        = date 2027 Apr 16
+      dayCountConvention  = Act360
+  ps <- query @OisProposal tp.partyB
+  assertMsg "OIS proposal created" (length ps == 1)
+
+basisProposerOnly : Script ()
+basisProposerOnly = do
+  tp <- allocateTestParties
+  d <- mkDelegation tp
+  _ <- submit tp.partyA do
+    exerciseCmd d CreateBasisSwapProposal with
+      proposer            = tp.partyA
+      counterparty        = tp.partyB
+      notional            = 10_000_000.0
+      currency            = "USD"
+      leg0Spread          = 0.001
+      leg1Spread          = 0.002
+      startDate           = date 2026 Apr 16
+      maturityDate        = date 2027 Apr 16
+      dayCountConvention  = Act360
+  ps <- query @BasisSwapProposal tp.partyB
+  assertMsg "Basis proposal created" (length ps == 1)
+
+xccyProposerOnly : Script ()
+xccyProposerOnly = do
+  tp <- allocateTestParties
+  d <- mkDelegation tp
+  _ <- submit tp.partyA do
+    exerciseCmd d CreateXccyFixedFloatProposal with
+      proposer            = tp.partyA
+      counterparty        = tp.partyB
+      fixedCurrency       = "USD"
+      fixedNotional       = 10_000_000.0
+      fixedRate           = 0.04
+      floatCurrency       = "EUR"
+      floatNotional       = 9_000_000.0
+      startDate           = date 2026 Apr 16
+      maturityDate        = date 2027 Apr 16
+      dayCountConvention  = Act360
+  ps <- query @XccyFixedFloatProposal tp.partyB
+  assertMsg "XCCY proposal created" (length ps == 1)
+
+cdsProposerOnly : Script ()
+cdsProposerOnly = do
+  tp <- allocateTestParties
+  d <- mkDelegation tp
+  _ <- submit tp.partyA do
+    exerciseCmd d CreateCdsProposal with
+      proposer            = tp.partyA
+      counterparty        = tp.partyB
+      notional            = 10_000_000.0
+      fixRate             = 0.01
+      referenceName       = "ACME-SR-USD"
+      ownerReceivesFix    = True
+      startDate           = date 2026 Apr 16
+      maturityDate        = date 2027 Apr 16
+      dayCountConvention  = Act360
+  ps <- query @CdsProposal tp.partyB
+  assertMsg "CDS proposal created" (length ps == 1)
+
+ccyProposerOnly : Script ()
+ccyProposerOnly = do
+  tp <- allocateTestParties
+  d <- mkDelegation tp
+  _ <- submit tp.partyA do
+    exerciseCmd d CreateCcySwapProposal with
+      proposer            = tp.partyA
+      counterparty        = tp.partyB
+      notional            = 10_000_000.0
+      baseRate            = 0.04
+      foreignRate         = 0.03
+      baseCurrency        = "USD"
+      foreignCurrency     = "EUR"
+      fxRate              = 0.9
+      ownerReceivesBase   = True
+      startDate           = date 2026 Apr 16
+      maturityDate        = date 2027 Apr 16
+      dayCountConvention  = Act360
+  ps <- query @CcySwapProposal tp.partyB
+  assertMsg "CCY proposal created" (length ps == 1)
+
+fxProposerOnly : Script ()
+fxProposerOnly = do
+  tp <- allocateTestParties
+  d <- mkDelegation tp
+  _ <- submit tp.partyA do
+    exerciseCmd d CreateFxSwapProposal with
+      proposer            = tp.partyA
+      counterparty        = tp.partyB
+      notional            = 10_000_000.0
+      baseCurrency        = "USD"
+      foreignCurrency     = "EUR"
+      firstFxRate         = 0.9
+      finalFxRate         = 0.91
+      firstPaymentDate    = date 2026 Apr 16
+      maturityDate        = date 2027 Apr 16
+  ps <- query @FxSwapProposal tp.partyB
+  assertMsg "FX proposal created" (length ps == 1)
+
+assetProposerOnly : Script ()
+assetProposerOnly = do
+  tp <- allocateTestParties
+  d <- mkDelegation tp
+  _ <- submit tp.partyA do
+    exerciseCmd d CreateAssetSwapProposal with
+      proposer            = tp.partyA
+      counterparty        = tp.partyB
+      notional            = 10_000_000.0
+      fixRate             = 0.04
+      ownerReceivesRate   = True
+      underlyingAssetIds  = ["AAPL"]
+      underlyingWeights   = [1.0]
+      startDate           = date 2026 Apr 16
+      maturityDate        = date 2027 Apr 16
+      dayCountConvention  = Act360
+  ps <- query @AssetSwapProposal tp.partyB
+  assertMsg "Asset proposal created" (length ps == 1)
+
+fpmlProposerOnly : Script ()
+fpmlProposerOnly = do
+  tp <- allocateTestParties
+  d <- mkDelegation tp
+  let fixedLeg = FpmlLeg with
+        legType = "fixed"
+        currency = "USD"
+        notional = 10_000_000.0
+        rate = Some 0.04
+        indexId = None
+        spread = None
+        dayCountConvention = Act360
+  _ <- submit tp.partyA do
+    exerciseCmd d CreateFpmlProposal with
+      proposer     = tp.partyA
+      counterparty = tp.partyB
+      legs         = [fixedLeg]
+      startDate    = date 2026 Apr 16
+      maturityDate = date 2027 Apr 16
+      description  = "demo FpML"
+  ps <- query @FpmlProposal tp.partyB
+  assertMsg "FpML proposal created" (length ps == 1)

@@ -1,0 +1,172 @@
+-- Netted-settlement helper — Phase 6 Stage A. Runs Effect.Calculate on
+-- every effect across a list of swaps, folds per-currency signed nets,
+-- produces one Step per currency with non-zero flow, and runs a SINGLE
+-- Batch.Settle. Keeps Swap.Settlement under 300 lines.
+module Swap.NettedSettlement where
+
+import DA.Foldable (forA_)
+import DA.Set qualified as Set
+import Daml.Finance.Interface.Types.Common.V3.Types
+  (Id(..), InstrumentKey(..), AccountKey, Quantity(..))
+import Daml.Finance.Interface.Lifecycle.V4.Effect qualified as Effect
+import Daml.Finance.Interface.Settlement.V4.Factory qualified as SettlementFactory
+import Daml.Finance.Interface.Settlement.V4.RouteProvider qualified as RouteProvider
+import Daml.Finance.Interface.Settlement.V4.Batch qualified as Batch
+import Daml.Finance.Interface.Settlement.V4.Instruction qualified as Instruction
+import Daml.Finance.Interface.Settlement.V4.Types (Step(..), Allocation(..), Approval(..))
+import Daml.Finance.Interface.Holding.V4.Holding qualified as Holding
+import Daml.Finance.Interface.Holding.V4.Fungible qualified as Fungible
+import Csa.Types (CcyHoldings(..))
+
+-- | A single step built from per-currency netting. Used internally to
+--   remember which holding and account each step draws from so the
+--   Allocate/Approve pass can pair them up correctly.
+data NettedStep = NettedStep
+  with
+    step         : Step
+    payerHolding : ContractId Holding.I
+    receiverAcc  : AccountKey
+    sender       : Party
+    receiver     : Party
+  deriving (Eq, Show)
+
+-- | Insert (ccy, amount) into a list-based accumulator, summing duplicates.
+bumpAmount : [(Text, Decimal)] -> Text -> Decimal -> [(Text, Decimal)]
+bumpAmount acc ccy amt = case break (\(k, _) -> k == ccy) acc of
+  (pre, [])          -> (ccy, amt) :: pre
+  (pre, (_, v) :: r) -> pre <> ((ccy, v + amt) :: r)
+
+-- | Reduce a list of (ccy, signed) pairs into a canonical sorted-by-ccy
+--   list with duplicates summed and zero-nets dropped.
+foldCcyAmounts : [(Text, Decimal)] -> [(Text, Decimal)]
+foldCcyAmounts pairs =
+  let folded = foldl (\acc (k, v) -> bumpAmount acc k v) ([] : [(Text, Decimal)]) pairs
+  in filter (\(_, v) -> v /= 0.0) folded
+
+-- | Extract per-currency contributions from one Effect.Calculate result.
+--   Key each Quantity by its unit.id.unpack (the ccy code the
+--   instrument was seeded with, e.g. "USD"). Positive sign for produced,
+--   negative for consumed.
+effectContributions
+  : [Quantity InstrumentKey Decimal] -> [Quantity InstrumentKey Decimal]
+  -> [(Text, Decimal)]
+effectContributions produced consumed =
+  [ (unpackCcy q.unit, q.amount)          | q <- produced ]
+  <> [ (unpackCcy q.unit, negate q.amount) | q <- consumed ]
+  where
+    unpackCcy : InstrumentKey -> Text
+    unpackCcy k = case k.id of Id t -> t
+
+-- | Run Effect.Calculate over every (instrumentKey, effects, reversed)
+--   triple and produce a consolidated signed-net list per currency.
+--
+--   Sign convention: positive => csa.partyA receives (csa.partyB pays).
+--   Effect.Calculate's produced/consumed are relative to the swap's
+--   own partyA. When `reversed` is True, the swap was proposed with
+--   csa.partyB as its partyA, so we flip the contribution sign to
+--   keep the netted amount in csa.partyA's frame of reference.
+netAcrossSwaps
+  :  Party                                                  -- operator (Calculate actor)
+  -> [(InstrumentKey, [ContractId Effect.I], Bool)]         -- per-swap (instrument, effects, reversed)
+  -> Update [(Text, Decimal)]
+netAcrossSwaps operator swapEffects = do
+  contributions <- forA swapEffects \(instrKey, effectCids, reversed) ->
+    forA effectCids \eCid -> do
+      result <- exercise eCid Effect.Calculate with
+        actor    = operator
+        quantity = Quantity with unit = instrKey; amount = 1.0
+      let raw = effectContributions result.produced result.consumed
+          signFlip = if reversed then negate else identity
+      pure [(ccy, signFlip amt) | (ccy, amt) <- raw]
+  pure $ foldCcyAmounts (concat (concat contributions))
+
+-- | Build the per-currency NettedStep from a signed-amount + CcyHoldings.
+--   Positive amount -> partyB pays partyA (owner-side convention).
+--   Fails loudly if the caller did not supply holdings for the ccy —
+--   callers must run the prediction step off-chain first.
+buildNettedStep
+  : Party -> Party -> [CcyHoldings] -> (Text, Decimal) -> Update NettedStep
+buildNettedStep partyA partyB holdings (ccy, netAmount) = do
+  case find (\h -> h.currency == ccy) holdings of
+    None ->
+      error ("executeNettedSettlement: no CcyHoldings for ccy " <> ccy)
+    Some h -> do
+      let
+        (sender, senderHoldingFung, receiverAcc, absAmt) =
+          if netAmount > 0.0
+            then (partyB, h.partyBHoldingCid, h.partyAAccountKey,  netAmount)
+            else (partyA, h.partyAHoldingCid, h.partyBAccountKey, -netAmount)
+        receiver = if sender == partyA then partyB else partyA
+
+      splitResult <- exercise senderHoldingFung Fungible.Split with
+        amounts = [absAmt]
+      let [exactFungibleCid] = splitResult.splitCids
+          payerHolding       = toInterfaceContractId @Holding.I exactFungibleCid
+
+      pure NettedStep with
+        step = Step with
+          sender
+          receiver
+          quantity = Quantity with
+            unit   = h.instrumentKey
+            amount = absAmt
+        payerHolding
+        receiverAcc
+        sender
+        receiver
+
+-- | Full netted-settlement pipeline:
+--   (1) net flows across every effect and swap,
+--   (2) build one NettedStep per non-zero ccy,
+--   (3) Discover + Instruct + Allocate + Approve + Settle once.
+--
+--   Returns (batchCid, signedNetByCcy). An empty signedNetByCcy means
+--   the entire netting set cancelled to zero — no batch is created and
+--   the caller is expected to still record an audit row.
+executeNettedSettlement
+  :  Party                                          -- operator
+  -> Party                                          -- partyA
+  -> Party                                          -- partyB
+  -> Text                                           -- description prefix
+  -> [(InstrumentKey, [ContractId Effect.I], Bool)] -- per-swap (.., reversed)
+  -> [CcyHoldings]                                  -- per-ccy wiring
+  -> ContractId SettlementFactory.I
+  -> ContractId RouteProvider.I
+  -> Update (Optional (ContractId Batch.I), [(Text, Decimal)])
+executeNettedSettlement
+    operator partyA partyB description
+    swapEffects holdings settlementFactoryCid routeProviderCid = do
+  nonZero <- netAcrossSwaps operator swapEffects
+  if null nonZero
+    then pure (None, [])
+    else do
+      nettedSteps <- forA nonZero (buildNettedStep partyA partyB holdings)
+      let stepList = [s.step | s <- nettedSteps]
+
+      routedSteps <- exercise routeProviderCid RouteProvider.Discover with
+        discoverors = Set.singleton operator
+        contextId   = None
+        steps       = stepList
+
+      (batchCid, instructionCids) <- exercise settlementFactoryCid SettlementFactory.Instruct with
+        instructor     = operator
+        consenters     = Set.fromList [partyA, partyB]
+        settlers       = Set.singleton operator
+        id             = Id ("net-" <> description)
+        description    = description <> " netted settlement"
+        contextId      = None
+        routedSteps
+        settlementTime = None
+
+      forA_ (zip instructionCids nettedSteps) \(instrCid, ns) -> do
+        (allocCid, _) <- exercise instrCid Instruction.Allocate with
+          actors     = Set.singleton ns.sender
+          allocation = Pledge ns.payerHolding
+        exercise allocCid Instruction.Approve with
+          actors   = Set.singleton ns.receiver
+          approval = TakeDelivery ns.receiverAcc
+
+      _ <- exercise batchCid Batch.Settle with
+        actors = Set.fromList [operator, partyA, partyB]
+
+      pure (Some batchCid, nonZero)

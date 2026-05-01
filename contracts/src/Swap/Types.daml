@@ -1,0 +1,66 @@
+module Swap.Types where
+
+import Daml.Finance.Interface.Types.Date.V3.DayCount (DayCountConventionEnum)
+import Daml.Finance.Interface.Types.Date.V3.RollConvention (Period(..), PeriodEnum(..))
+import Daml.Finance.Util.V4.Date.RollConvention (addPeriod)
+
+-- ISDA/Bloomberg-style stub handling. When a proposer's startDate+tenor
+-- lands on a day-of-month that the frequency-based roll schedule doesn't
+-- reach, Daml Finance's PeriodicSchedule rejects the contract ("day X does
+-- not match roll convention DOM Y" / "expecting regular schedule between
+-- regular dates"). Real swap systems (Bloomberg SWPM, ISDA 2006) treat the
+-- last period as an irregular back-stub instead.
+--
+-- Returns the last date reachable from `start` by whole multiples of the
+-- schedule's frequency that is <= `maturity`. `None` means maturity itself
+-- lands on a regular roll (no stub needed); `Some d` means callers should
+-- pass `d` as `lastRegularPeriodEndDate` and let Daml Finance emit a
+-- short back-stub from `d` to `maturity`.
+lastRegularEndFor : Date -> Int -> Date -> Optional Date
+lastRegularEndFor start freqMonths maturity =
+  walkForwardByPeriod start freqMonths maturity 1 start
+
+-- Top-level recursion (Daml forbids locally recursive `let`). `lastKnown`
+-- accumulates the most recent regular date we've confirmed ≤ `maturity`;
+-- we stop as soon as the next candidate overshoots.
+walkForwardByPeriod : Date -> Int -> Date -> Int -> Date -> Optional Date
+walkForwardByPeriod start freqMonths maturity k lastKnown =
+  let candidate = addPeriod start (Period with periodMultiplier = k * freqMonths, period = M)
+  in if candidate > maturity then
+       if lastKnown == start
+         then None  -- not even one full period fits — no stub, let the
+                    -- library reject (caller's `ensure` should prevent this)
+         else Some lastKnown
+     else if candidate == maturity then
+       None  -- maturity itself is a regular date
+     else
+       walkForwardByPeriod start freqMonths maturity (k + 1) candidate
+
+
+-- Supported tenors (used by IRS proposals to calculate maturity)
+data TenorEnum
+  = D30
+  | D90
+  | D180
+  | Y1
+  deriving (Eq, Show, Ord)
+
+-- Calculate days from tenor
+tenorToDays : TenorEnum -> Int
+tenorToDays D30 = 30
+tenorToDays D90 = 91
+tenorToDays D180 = 182
+tenorToDays Y1 = 365
+
+-- Simplified leg description for FpML multi-stream proposals
+data FpmlLeg = FpmlLeg
+  with
+    legType : Text  -- "fixed" or "float"
+    currency : Text
+    notional : Decimal
+    rate : Optional Decimal  -- for fixed legs
+    indexId : Optional Text  -- for float legs
+    spread : Optional Decimal  -- for float legs
+    dayCountConvention : DayCountConventionEnum
+  deriving (Eq, Show)
+

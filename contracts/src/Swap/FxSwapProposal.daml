@@ -1,0 +1,144 @@
+module Swap.FxSwapProposal where
+
+import DA.Map qualified as Map
+import DA.Set qualified as Set
+import Daml.Finance.Interface.Types.Common.V3.Types (Id(..), InstrumentKey(..), HoldingStandard(..))
+import Daml.Finance.Interface.Instrument.Swap.V0.ForeignExchange.Types (ForeignExchange(..))
+import Daml.Finance.Interface.Instrument.Swap.V0.ForeignExchange.Factory qualified as FxFactory
+import Setup.CashSetup (CashSetupRecord(..), cashSetupKey)
+import Swap.Workflow (SwapWorkflow(..))
+
+template FxSwapProposal
+  with
+    operator : Party
+    proposer : Party
+    counterparty : Party
+    notional : Decimal
+    baseCurrency : Text
+    foreignCurrency : Text
+    firstFxRate : Decimal
+    finalFxRate : Decimal
+    firstPaymentDate : Date
+    maturityDate : Date
+  where
+    -- Operator co-signs so FxAccept inherits factory auth.
+    signatory proposer, operator
+    observer counterparty
+
+    ensure notional > 0.0
+      && firstFxRate > 0.0
+      && finalFxRate > 0.0
+      && baseCurrency /= foreignCurrency
+
+    choice FxAccept : ContractId SwapWorkflow
+      with
+        operator : Party
+        regulators : [Party]
+      controller counterparty
+      do
+        assertMsg "operator arg must match proposal's operator signatory"
+          (operator == this.operator)
+        (_, setup) <- fetchByKey @CashSetupRecord (cashSetupKey operator this.proposer this.counterparty)
+
+        let
+          baseCcyKey = case Map.lookup this.baseCurrency setup.currencies of
+            Some k -> k
+            None   -> error ("Currency " <> this.baseCurrency <> " not seeded — operator must add it to config")
+
+          foreignCcyKey = case Map.lookup this.foreignCurrency setup.currencies of
+            Some k -> k
+            None   -> error ("Currency " <> this.foreignCurrency <> " not seeded — operator must add it to config")
+
+        now <- getTime
+
+        let
+          instrumentId =
+            "FX-" <> show this.proposer <> "-" <> show this.counterparty
+              <> "-" <> show this.firstPaymentDate <> "-" <> show this.notional
+
+          instrumentKey = InstrumentKey with
+            depository      = operator
+            issuer          = operator
+            id              = Id instrumentId
+            version         = "0"
+            holdingStandard = TransferableFungible
+
+          observerMap = Map.fromList
+            [("observers", Set.fromList ([this.proposer, this.counterparty] <> regulators))]
+
+          foreignExchange = ForeignExchange with
+            instrument         = instrumentKey
+            description        = "FX " <> instrumentId
+            firstFxRate        = this.firstFxRate
+            finalFxRate        = this.finalFxRate
+            issueDate          = this.firstPaymentDate
+            firstPaymentDate   = this.firstPaymentDate
+            maturityDate       = this.maturityDate
+            baseCurrency       = baseCcyKey
+            foreignCurrency    = foreignCcyKey
+            lastEventTimestamp = now
+
+        exercise setup.factories.fx FxFactory.Create with
+          foreignExchange
+          observers = observerMap
+
+        create SwapWorkflow with
+          swapType = "FX"
+          operator
+          partyA = this.proposer
+          partyB = this.counterparty
+          regulators
+          scheduler = setup.scheduler
+          instrumentKey
+          notional = this.notional
+
+    -- Manual operator co-sign path: counterparty fires this instead of FxAccept.
+    nonconsuming choice FxProposeAccept : ContractId FxAcceptAck
+      with
+        operator  : Party
+        regulators : [Party]
+      controller counterparty
+      do
+        assertMsg "operator arg must match proposal's operator signatory"
+          (operator == this.operator)
+        create FxAcceptAck with
+          proposer     = this.proposer
+          counterparty = this.counterparty
+          operator
+          regulators
+          proposalCid  = self
+
+    choice FxReject : ()
+      controller counterparty
+      do pure ()
+
+    choice FxWithdraw : ()
+      controller proposer
+      do pure ()
+
+-- | FxAcceptAck: pending ack awaiting operator confirmation.
+template FxAcceptAck
+  with
+    proposer     : Party
+    counterparty : Party
+    operator     : Party
+    regulators    : [Party]
+    proposalCid  : ContractId FxSwapProposal
+  where
+    signatory proposer, counterparty, operator
+    observer  regulators
+
+    choice FxConfirmAccept : ContractId SwapWorkflow
+      controller operator
+      do
+        exercise proposalCid FxAccept with
+          operator
+          regulators
+
+    choice FxAcceptAckCancelByCounterparty : ()
+      controller counterparty
+      do pure ()
+
+    choice FxAcceptAckCancelByOperator : ()
+      controller operator
+      do pure ()

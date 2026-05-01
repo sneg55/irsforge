@@ -1,0 +1,98 @@
+-- Regression tests for the "Call Out trap" — MarginCallOutstanding used to
+-- be a sink state because SettleVm was the only choice that could produce
+-- it and also the only choice that could clear it, while asserting the
+-- CSA was already Active. These scripts cover the recovery paths.
+module Csa.TestRecovery where
+
+import Daml.Script
+import DA.Map qualified as Map
+import DA.Optional (fromOptional)
+import DA.Date (date, Month(..))
+import DA.Time (time)
+import qualified Csa.Types as T
+import qualified Csa.Csa as C
+
+allocate : Script (Party, Party, Party, Party, Party)
+allocate = do
+  op  <- allocatePartyWithHint "Op"  (PartyIdHint "Op")
+  pa  <- allocatePartyWithHint "PA"  (PartyIdHint "PA")
+  pb  <- allocatePartyWithHint "PB"  (PartyIdHint "PB")
+  reg <- allocatePartyWithHint "Reg" (PartyIdHint "Reg")
+  sch <- allocatePartyWithHint "Sch" (PartyIdHint "Sch")
+  pure (op, pa, pb, reg, sch)
+
+baseCsa : Party -> Party -> Party -> Party -> Party -> C.Csa
+baseCsa op pa pb reg sch = C.Csa with
+  operator     = op
+  partyA       = pa
+  partyB       = pb
+  regulators    = [reg]
+  scheduler    = sch
+  threshold    = Map.fromList [(T.DirA, 0.0), (T.DirB, 0.0)]
+  mta          = 100_000.0
+  rounding     = 10_000.0
+  eligible     = [T.EligibleCollateral with currency = "USD"; haircut = 1.0]
+  valuationCcy = "USD"
+  csb          = Map.empty
+  state        = T.Active
+  lastMarkCid  = None
+  isdaMasterAgreementRef = ""
+  governingLaw           = T.NewYork
+  imAmount               = 0.0
+  activeDispute          = None
+
+-- After the debtor posts enough to cover the deficit, the next SettleVm
+-- flips state back to Active. Signed-CSB model: Post by A increments csb
+-- toward the target (+exposure); once csb ≥ target - MTA, SettleVm clears
+-- the call.
+testSettleClearsCallOutAfterTopUp : Script ()
+testSettleClearsCallOutAfterTopUp = do
+  (op, pa, pb, reg, sch) <- allocate
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  cid <- submit pa do
+    exerciseCmd cid C.PostCollateral with
+      poster = pa; ccy = "USD"; amount = 100_000.0
+  (cid, _) <- submit op do
+    exerciseCmd cid C.PublishMark with
+      asOf     = time (date 2026 Apr 17) 12 0 0
+      exposure = 1_000_000.0  -- target csb +1M, current +100k, delta 900k
+      snapshot = "{}"
+  cid <- submit op do exerciseCmd cid C.SettleVm
+  Some c <- queryContractId op cid
+  assert (c.state == T.MarginCallOutstanding)
+  -- A tops up the deficit; now csb = 1M, same as target.
+  cid <- submit pa do
+    exerciseCmd cid C.PostCollateral with
+      poster = pa; ccy = "USD"; amount = 900_000.0
+  (cid, _) <- submit op do
+    exerciseCmd cid C.PublishMark with
+      asOf     = time (date 2026 Apr 17) 13 0 0
+      exposure = 1_000_000.0
+      snapshot = "{}"
+  cid <- submit op do exerciseCmd cid C.SettleVm
+  Some c <- queryContractId op cid
+  assert (c.state == T.Active)
+  -- csb reflects A's two Post calls; SettleVm itself never moves balance.
+  assert (fromOptional 0.0 (Map.lookup "USD" c.csb) == 1_000_000.0)
+
+-- Disputed marks must still block SettleVm; the recovery change relaxed
+-- the gate to accept MarginCallOutstanding but MarkDisputed is unchanged.
+testSettleStillFailsWhileDisputed : Script ()
+testSettleStillFailsWhileDisputed = do
+  (op, pa, pb, reg, sch) <- allocate
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  cid <- submit pa do
+    exerciseCmd cid C.PostCollateral with
+      poster = pa; ccy = "USD"; amount = 5_000_000.0
+  cid <- submit pb do
+    exerciseCmd cid C.PostCollateral with
+      poster = pb; ccy = "USD"; amount = 5_000_000.0
+  (cid, _) <- submit op do
+    exerciseCmd cid C.PublishMark with
+      asOf     = time (date 2026 Apr 17) 12 0 0
+      exposure = 1_000_000.0
+      snapshot = "{}"
+  cid <- submit pa do
+    exerciseCmd cid C.Dispute with
+      disputer = pa; counterMark = 0.0; reason = T.Other; notes = "x"
+  submitMustFail op do exerciseCmd cid C.SettleVm

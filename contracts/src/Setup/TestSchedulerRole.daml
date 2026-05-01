@@ -1,0 +1,56 @@
+-- Scheduler role marker tests. Verifies operator can create the role,
+-- scheduler can exercise IsActive, and operator can archive the role
+-- to revoke automation.
+module Setup.TestSchedulerRole where
+
+import Daml.Script
+import Setup.SchedulerRole
+
+test_scheduler_role_create_and_is_active : Script ()
+test_scheduler_role_create_and_is_active = do
+  operator  <- allocatePartyWithHint "Operator"  (PartyIdHint "Operator")
+  scheduler <- allocatePartyWithHint "Scheduler" (PartyIdHint "Scheduler")
+  regulator <- allocatePartyWithHint "Regulator" (PartyIdHint "Regulator")
+
+  roleCid <- submit operator do
+    createCmd SchedulerRole with
+      operator
+      scheduler
+      regulators = [regulator]
+
+  -- Scheduler can exercise IsActive (nonconsuming; proves controller topology).
+  submit scheduler do exerciseCmd roleCid IsActive
+
+  pure ()
+
+test_scheduler_role_archive_by_operator : Script ()
+test_scheduler_role_archive_by_operator = do
+  operator  <- allocatePartyWithHint "Operator"  (PartyIdHint "Operator")
+  scheduler <- allocatePartyWithHint "Scheduler" (PartyIdHint "Scheduler")
+  regulator <- allocatePartyWithHint "Regulator" (PartyIdHint "Regulator")
+
+  roleCid <- submit operator do
+    createCmd SchedulerRole with
+      operator
+      scheduler
+      regulators = [regulator]
+
+  -- Operator can archive the role at any time (revoke automation).
+  submit operator do archiveCmd roleCid
+
+  pure ()
+
+test_scheduler_role_scheduler_cannot_create : Script ()
+test_scheduler_role_scheduler_cannot_create = do
+  operator  <- allocatePartyWithHint "Operator"  (PartyIdHint "Operator")
+  scheduler <- allocatePartyWithHint "Scheduler" (PartyIdHint "Scheduler")
+  regulator <- allocatePartyWithHint "Regulator" (PartyIdHint "Regulator")
+
+  -- Scheduler cannot create the role themselves — operator is signatory.
+  submitMustFail scheduler do
+    createCmd SchedulerRole with
+      operator
+      scheduler
+      regulators = [regulator]
+
+  pure ()

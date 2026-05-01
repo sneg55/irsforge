@@ -1,0 +1,201 @@
+module Swap.TestSettlement where
+
+import Daml.Script
+import Daml.Finance.Holding.V4.TransferableFungible qualified as TFungible
+import Daml.Finance.Interface.Holding.V4.Fungible qualified as Fungible
+import Daml.Finance.Interface.Types.Common.V3.Types (Id(..))
+import Swap.Workflow
+import Swap.TestHelpers
+import Setup.CashSetup (cashSetup)
+import Constants
+
+-- | TriggerLifecycle -> Settle. Verify balances shifted.
+test_settle_happy_path : Script ()
+test_settle_happy_path = do
+  tp <- allocateTestParties
+
+  -- Run cash setup
+  cashResult <- cashSetup tp.operator tp.partyA tp.partyB tp.regulator "USD" "US Dollar"
+
+  -- Set up IRS through lifecycle to get effectCids
+  (workflowCid, effectCids, _instrumentKey, _lifecycleRuleCid, _maturityDate) <-
+    setupIrsThroughLifecycle tp cashResult
+
+  assertMsg "Lifecycle should produce effects" (not (null effectCids))
+
+  -- Read balances before
+  holdingsBeforeA <- query @TFungible.TransferableFungible tp.partyA
+  let partyABalanceBefore = sumOwnedUsdBalances holdingsBeforeA tp.partyA
+
+  holdingsBeforeB <- query @TFungible.TransferableFungible tp.partyB
+  let partyBBalanceBefore = sumOwnedUsdBalances holdingsBeforeB tp.partyB
+
+  -- Pick the single USD holding for each party (filter by account owner), convert to Holding.I
+  allHoldingsA <- query @TFungible.TransferableFungible tp.partyA
+  let usdHoldingsA = [(cid, h) | (cid, h) <- allHoldingsA, isUsd h, h.account.owner == tp.partyA]
+  [(partyAHoldingCidRaw, _)] <- pure usdHoldingsA
+
+  allHoldingsB <- query @TFungible.TransferableFungible tp.partyB
+  let usdHoldingsB = [(cid, h) | (cid, h) <- allHoldingsB, isUsd h, h.account.owner == tp.partyB]
+  [(partyBHoldingCidRaw, _)] <- pure usdHoldingsB
+
+  let
+    partyAHoldingCid = toInterfaceContractId @Fungible.I partyAHoldingCidRaw
+    partyBHoldingCid = toInterfaceContractId @Fungible.I partyBHoldingCidRaw
+
+  -- Exercise Settle
+  (_batchCid, _netAmount) <- submitMulti [tp.operator] [tp.partyA, tp.partyB] do
+    exerciseCmd workflowCid Settle with
+      effectCids
+      settlementFactoryCid = cashResult.settlementFactoryCid
+      routeProviderCid     = cashResult.routeProviderCid
+      partyAHoldingCid
+      partyBHoldingCid
+      partyAAccountKey     = cashResult.partyAAccountKey
+      partyBAccountKey     = cashResult.partyBAccountKey
+      usdInstrumentKey     = cashResult.defaultInstrumentKey
+
+  -- Read balances after
+  holdingsAfterA <- query @TFungible.TransferableFungible tp.partyA
+  let partyABalanceAfter = sumOwnedUsdBalances holdingsAfterA tp.partyA
+
+  holdingsAfterB <- query @TFungible.TransferableFungible tp.partyB
+  let partyBBalanceAfter = sumOwnedUsdBalances holdingsAfterB tp.partyB
+
+  debug $ "partyA before=" <> show partyABalanceBefore <> " after=" <> show partyABalanceAfter
+  debug $ "partyB before=" <> show partyBBalanceBefore <> " after=" <> show partyBBalanceAfter
+  debug $ "Holdings A after count=" <> show (length holdingsAfterA) <> " B after count=" <> show (length holdingsAfterB)
+
+  -- Sum preserved (no value created or destroyed)
+  let
+    sumBefore = partyABalanceBefore + partyBBalanceBefore
+    sumAfter  = partyABalanceAfter  + partyBBalanceAfter
+  debug $ "sumBefore=" <> show sumBefore <> " sumAfter=" <> show sumAfter
+  assertMsg "PartyA + PartyB sum is invariant" (sumBefore == sumAfter)
+
+  -- At least one side moved
+  assertMsg "Some balance moved" (partyABalanceAfter /= partyABalanceBefore)
+
+  pure ()
+
+-- Helper: sum of owned USD balances (filters by account owner and instrument "USD").
+sumOwnedUsdBalances : [(ContractId TFungible.TransferableFungible, TFungible.TransferableFungible)] -> Party -> Decimal
+sumOwnedUsdBalances holdings owner =
+  sum [h.amount | (_, h) <- holdings, isUsd h, h.account.owner == owner]
+
+isUsd : TFungible.TransferableFungible -> Bool
+isUsd h =
+  let (Id label) = h.instrument.id
+  in label == usdInstrumentLabel
+
+-- | Settle with empty effectCids — must fail at the assertMsg guard.
+test_settle_empty_effects : Script ()
+test_settle_empty_effects = do
+  tp <- allocateTestParties
+  cashResult <- cashSetup tp.operator tp.partyA tp.partyB tp.regulator "USD" "US Dollar"
+  (workflowCid, _effectCids, _, _, _) <- setupIrsThroughLifecycle tp cashResult
+
+  allHoldingsA <- query @TFungible.TransferableFungible tp.partyA
+  let [(partyAHoldingCidRaw, _)] = [(cid, h) | (cid, h) <- allHoldingsA, isUsd h, h.account.owner == tp.partyA]
+
+  allHoldingsB <- query @TFungible.TransferableFungible tp.partyB
+  let [(partyBHoldingCidRaw, _)] = [(cid, h) | (cid, h) <- allHoldingsB, isUsd h, h.account.owner == tp.partyB]
+
+  let
+    partyAHoldingCid = toInterfaceContractId @Fungible.I partyAHoldingCidRaw
+    partyBHoldingCid = toInterfaceContractId @Fungible.I partyBHoldingCidRaw
+
+  submitMultiMustFail [tp.operator] [tp.partyA, tp.partyB] do
+    exerciseCmd workflowCid Settle with
+      effectCids           = []
+      settlementFactoryCid = cashResult.settlementFactoryCid
+      routeProviderCid     = cashResult.routeProviderCid
+      partyAHoldingCid
+      partyBHoldingCid
+      partyAAccountKey     = cashResult.partyAAccountKey
+      partyBAccountKey     = cashResult.partyBAccountKey
+      usdInstrumentKey     = cashResult.defaultInstrumentKey
+
+-- | Settle where partyB's holding is too small — the internal Split must fail.
+test_settle_insufficient_holding : Script ()
+test_settle_insufficient_holding = do
+  tp <- allocateTestParties
+  cashResult <- cashSetup tp.operator tp.partyA tp.partyB tp.regulator "USD" "US Dollar"
+  (workflowCid, effectCids, _, _, _) <- setupIrsThroughLifecycle tp cashResult
+
+  allHoldingsA <- query @TFungible.TransferableFungible tp.partyA
+  let [(partyAHoldingCidRaw, _)] = [(cid, h) | (cid, h) <- allHoldingsA, isUsd h, h.account.owner == tp.partyA]
+
+  allHoldingsB <- query @TFungible.TransferableFungible tp.partyB
+  let [(partyBHoldingCidRaw, _)] = [(cid, h) | (cid, h) <- allHoldingsB, isUsd h, h.account.owner == tp.partyB]
+
+  -- Split off a micro-slice (0.001 USD) from partyB's holding.
+  -- The expected payment per unit is ~0.0122 USD, so 0.001 is well below that.
+  let partyBFungibleCid = toInterfaceContractId @Fungible.I partyBHoldingCidRaw
+  splitResult <- submit tp.partyB do
+    exerciseCmd partyBFungibleCid Fungible.Split with
+      amounts = [0.001]
+
+  let
+    [tinyHoldingCidRaw] = splitResult.splitCids
+    partyAHoldingCid    = toInterfaceContractId @Fungible.I partyAHoldingCidRaw
+    partyBHoldingCid    = toInterfaceContractId @Fungible.I tinyHoldingCidRaw
+
+  submitMultiMustFail [tp.operator] [tp.partyA, tp.partyB] do
+    exerciseCmd workflowCid Settle with
+      effectCids
+      settlementFactoryCid = cashResult.settlementFactoryCid
+      routeProviderCid     = cashResult.routeProviderCid
+      partyAHoldingCid
+      partyBHoldingCid
+      partyAAccountKey     = cashResult.partyAAccountKey
+      partyBAccountKey     = cashResult.partyBAccountKey
+      usdInstrumentKey     = cashResult.defaultInstrumentKey
+
+-- | Settle with a very low SOFR fixing so partyA (fix-receiver) must pay.
+test_settle_reverse_direction : Script ()
+test_settle_reverse_direction = do
+  tp <- allocateTestParties
+  cashResult <- cashSetup tp.operator tp.partyA tp.partyB tp.regulator "USD" "US Dollar"
+  -- ownerReceivesFix=False makes partyA the fix-payer (floating-receiver).
+  -- With SOFR=0.001 (tiny), partyA receives almost nothing and pays the fixed coupon.
+  -- net outflow for partyA → partyAAfter < partyABefore.
+  (workflowCid, effectCids, _, _, _) <-
+    setupIrsThroughLifecycleWith tp cashResult 0.001 False
+
+  allHoldingsA <- query @TFungible.TransferableFungible tp.partyA
+  let [(partyAHoldingCidRaw, _)] = [(cid, h) | (cid, h) <- allHoldingsA, isUsd h, h.account.owner == tp.partyA]
+
+  allHoldingsB <- query @TFungible.TransferableFungible tp.partyB
+  let [(partyBHoldingCidRaw, _)] = [(cid, h) | (cid, h) <- allHoldingsB, isUsd h, h.account.owner == tp.partyB]
+
+  let
+    partyAHoldingCid = toInterfaceContractId @Fungible.I partyAHoldingCidRaw
+    partyBHoldingCid = toInterfaceContractId @Fungible.I partyBHoldingCidRaw
+
+  let partyABefore = sumOwnedUsdBalances allHoldingsA tp.partyA
+
+  allHoldingsBRev <- query @TFungible.TransferableFungible tp.partyB
+  let partyBBefore = sumOwnedUsdBalances allHoldingsBRev tp.partyB
+
+  (_batchCid, _netAmount) <- submitMulti [tp.operator] [tp.partyA, tp.partyB] do
+    exerciseCmd workflowCid Settle with
+      effectCids
+      settlementFactoryCid = cashResult.settlementFactoryCid
+      routeProviderCid     = cashResult.routeProviderCid
+      partyAHoldingCid
+      partyBHoldingCid
+      partyAAccountKey     = cashResult.partyAAccountKey
+      partyBAccountKey     = cashResult.partyBAccountKey
+      usdInstrumentKey     = cashResult.defaultInstrumentKey
+
+  holdingsAfterA <- query @TFungible.TransferableFungible tp.partyA
+  let partyAAfter = sumOwnedUsdBalances holdingsAfterA tp.partyA
+
+  holdingsAfterB <- query @TFungible.TransferableFungible tp.partyB
+  let partyBAfter = sumOwnedUsdBalances holdingsAfterB tp.partyB
+
+  debug $ "REVERSE: partyA before=" <> show partyABefore <> " after=" <> show partyAAfter
+  debug $ "REVERSE: partyB before=" <> show partyBBefore <> " after=" <> show partyBAfter
+
+  assertMsg "PartyA paid in reverse-direction scenario" (partyAAfter < partyABefore)

@@ -1,0 +1,296 @@
+module Csa.Csa
+  ( module Csa.Csa
+  , module Csa.Math
+  ) where
+
+import DA.Map qualified as Map
+import DA.Optional (fromOptional)
+import Daml.Finance.Interface.Settlement.V4.Factory qualified as SettlementFactory
+import Daml.Finance.Interface.Settlement.V4.RouteProvider qualified as RouteProvider
+import qualified Csa.Types as T
+import qualified Csa.Mark as M
+import qualified Csa.Netting as N
+import qualified Csa.Shortfall as S
+import qualified Csa.Dispute as D
+import qualified Csa.DisputeOps as DOps
+import Csa.Math
+import Swap.Workflow (SwapWorkflow)
+
+-- ---------------------------------------------------------------------------
+-- Signed Credit Support Balance (CSB) model
+--
+-- The CSA tracks one signed per-currency balance, `csb`, representing net
+-- collateral A has pledged toward B. Positive `csb` means A is the pledgor
+-- and B holds the collateral; negative means B is the pledgor and A holds.
+-- Zero means neither side has any pledge outstanding.
+--
+-- This mirrors the "Credit Support Balance" convention used by Bloomberg
+-- MARS, AcadiaSoft and real ISDA CSAs, where only one side is ever pledgor
+-- at a time. The two-map pool model it replaced admitted a state — both
+-- sides simultaneously posted — that real CSAs never reach, and produced
+-- phantom margin calls on the wrong side when one side over-posted.
+--
+-- Pure helpers (computeRequired, targetCsb, gateCall, RequiredPair) live
+-- in Csa.Math so this module stays under the 300-line cap. They are
+-- re-exported from this module so existing call sites (`C.computeRequired`,
+-- `C.targetCsb`, `C.gateCall`) keep compiling unchanged.
+-- ---------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
+-- Csa template
+-- ---------------------------------------------------------------------------
+
+template Csa
+  with
+    operator      : Party
+    partyA        : Party
+    partyB        : Party
+    regulators     : [Party]
+    scheduler     : Party
+    threshold     : Map.Map T.Direction Decimal
+    mta           : Decimal
+    rounding      : Decimal
+    eligible      : [T.EligibleCollateral]
+    valuationCcy  : Text
+    csb           : Map.Map Text Decimal
+    state         : T.CsaState
+    lastMarkCid   : Optional (ContractId M.MarkToMarket)
+    isdaMasterAgreementRef : Text
+    governingLaw           : T.GoverningLaw
+    imAmount               : Decimal
+    activeDispute          : Optional (ContractId D.DisputeRecord)
+  where
+    signatory operator, partyA, partyB
+    observer  regulators, scheduler
+
+    ensure
+      mta >= 0.0
+      && rounding >= 0.0
+      && imAmount >= 0.0
+      && Map.size threshold == 2
+      && fromOptional False (fmap (>= 0.0) (Map.lookup T.DirA threshold))
+      && fromOptional False (fmap (>= 0.0) (Map.lookup T.DirB threshold))
+
+    -- Post increments the signed CSB in the poster's direction:
+    --   partyA posts  ⇒ csb += amount  (A is pledgor, CSB becomes more positive)
+    --   partyB posts  ⇒ csb -= amount  (B is pledgor, CSB becomes more negative)
+    choice PostCollateral : ContractId Csa
+      with
+        poster : Party
+        ccy    : Text
+        amount : Decimal
+      controller poster
+      do
+        assertMsg "amount must be positive" (amount > 0.0)
+        assertMsg "ccy must be eligible"
+                  (any (\e -> e.currency == ccy) eligible)
+        assertMsg "poster must be partyA or partyB"
+                  (poster == partyA || poster == partyB)
+        let current = fromOptional 0.0 (Map.lookup ccy csb)
+            delta   = if poster == partyA then amount else -amount
+        create this with csb = Map.insert ccy (current + delta) csb
+
+    -- Withdraw pulls the withdrawer's own pledge back toward zero. A party
+    -- can only withdraw up to the amount *they themselves* have pledged:
+    -- A can withdraw up to `max 0 csb`, B can withdraw up to `max 0 (-csb)`.
+    -- Attempting to withdraw from the counterparty's pledge is rejected.
+    choice WithdrawExcess : ContractId Csa
+      with
+        withdrawer : Party
+        ccy        : Text
+        amount     : Decimal
+      controller withdrawer
+      do
+        assertMsg "amount must be positive" (amount > 0.0)
+        assertMsg "withdrawer must be partyA or partyB"
+                  (withdrawer == partyA || withdrawer == partyB)
+        let current = fromOptional 0.0 (Map.lookup ccy csb)
+            myPledge = if withdrawer == partyA then max 0.0 current
+                       else max 0.0 (-current)
+            delta = if withdrawer == partyA then -amount else amount
+        assertMsg "withdraw above own pledged balance is forbidden"
+                  (amount <= myPledge)
+        create this with csb = Map.insert ccy (current + delta) csb
+
+    choice PublishMark : (ContractId Csa, ContractId M.MarkToMarket)
+      with
+        asOf     : Time
+        exposure : Decimal
+        snapshot : Text
+      controller operator
+      do
+        publishMarkImpl self this asOf exposure snapshot
+
+    -- Widened controller path — scheduler JWT publishes marks on the
+    -- automation cadence. Body shared with PublishMark.
+    choice PublishMarkByScheduler : (ContractId Csa, ContractId M.MarkToMarket)
+      with
+        asOf     : Time
+        exposure : Decimal
+        snapshot : Text
+      controller scheduler
+      do
+        publishMarkImpl self this asOf exposure snapshot
+
+    choice SettleVm : ContractId Csa
+      controller operator
+      do
+        settleVmImpl self this
+
+    -- Widened controller path — scheduler JWT settles VM on the
+    -- automation cadence. Body shared with SettleVm.
+    choice SettleVmByScheduler : ContractId Csa
+      controller scheduler
+      do
+        settleVmImpl self this
+
+    choice Dispute : ContractId Csa
+      with
+        disputer    : Party
+        counterMark : Decimal
+        reason      : T.DisputeReason
+        notes       : Text
+      controller disputer
+      do
+        drCid <- DOps.disputeImpl operator partyA partyB regulators scheduler
+          (show self) state lastMarkCid activeDispute
+          disputer counterMark reason notes
+        create this with
+          state         = T.MarkDisputed
+          activeDispute = Some drCid
+
+    -- Counterparty escalation: only the non-disputer side can flip a
+    -- MarkDisputed CSA into Escalated. From there, only operator
+    -- AcknowledgeDispute resolves; AgreeToCounterMark is no longer valid.
+    choice EscalateDispute : ContractId Csa
+      with
+        escalator : Party
+      controller escalator
+      do
+        DOps.escalateDisputeImpl partyA partyB state activeDispute escalator
+        create this with state = T.Escalated
+
+    -- Bilateral resolution: the non-disputer counterparty accepts the
+    -- disputer's counter-mark verbatim. Publishes a fresh mark with that
+    -- exposure, archives the DisputeRecord, and flips back to Active. Not
+    -- valid in Escalated (use operator AcknowledgeDispute instead).
+    choice AgreeToCounterMark : ContractId Csa
+      with
+        agreer   : Party
+        asOf     : Time
+        snapshot : Text
+      controller agreer
+      do
+        markCid <- DOps.agreeToCounterMarkImpl operator partyA partyB regulators
+          scheduler (show self) state activeDispute agreer asOf snapshot
+        create this with
+          lastMarkCid   = Some markCid
+          state         = T.Active
+          activeDispute = None
+
+    -- Netted-settlement: runs Effect.Calculate across every entry, folds
+    -- per-currency signed flows, and drops entries with zero net. Emits a
+    -- single Batch.Settle plus a NettedBatch audit row. controller is
+    -- operator | scheduler via sister-choice SettleNetByScheduler.
+    nonconsuming choice SettleNet : ContractId N.NettedBatch
+      with
+        paymentTimestamp     : Time
+        entries              : [T.NettingEntry SwapWorkflow]
+        holdings             : [T.CcyHoldings]
+        settlementFactoryCid : ContractId SettlementFactory.I
+        routeProviderCid     : ContractId RouteProvider.I
+      controller operator
+      do
+        N.settleNetImpl operator partyA partyB regulators scheduler
+          (show self) paymentTimestamp entries holdings
+          settlementFactoryCid routeProviderCid
+
+    nonconsuming choice SettleNetByScheduler : ContractId N.NettedBatch
+      with
+        paymentTimestamp     : Time
+        entries              : [T.NettingEntry SwapWorkflow]
+        holdings             : [T.CcyHoldings]
+        settlementFactoryCid : ContractId SettlementFactory.I
+        routeProviderCid     : ContractId RouteProvider.I
+      controller scheduler
+      do
+        N.settleNetImpl operator partyA partyB regulators scheduler
+          (show self) paymentTimestamp entries holdings
+          settlementFactoryCid routeProviderCid
+
+    -- Operator-arbitrated unfreeze: valid in MarkDisputed *or* Escalated.
+    -- Publishes a fresh mark, archives the active DisputeRecord (if any),
+    -- and flips state back to Active. PublishMark stays a pure mark-write
+    -- (no state-clearing side effect) so a stuck publisher can't silently
+    -- clear a disputed mark by republishing it.
+    choice AcknowledgeDispute : ContractId Csa
+      with
+        newAsOf     : Time
+        newExposure : Decimal
+        newSnapshot : Text
+      controller operator
+      do
+        assertMsg "ack only valid in MarkDisputed or Escalated state"
+                  (state == T.MarkDisputed || state == T.Escalated)
+        markCid <- DOps.acknowledgeDisputeImpl
+          operator partyA partyB regulators scheduler
+          (show self) newAsOf newExposure newSnapshot
+        case activeDispute of
+          Some drCid -> archive drCid
+          None       -> pure ()
+        create this with
+          lastMarkCid   = Some markCid
+          state         = T.Active
+          activeDispute = None
+
+-- Shared bodies for the operator/scheduler controller pairs. Kept at
+-- module scope so both choices call the same code path.
+
+publishMarkImpl
+  :  ContractId Csa -> Csa -> Time -> Decimal -> Text
+  -> Update (ContractId Csa, ContractId M.MarkToMarket)
+publishMarkImpl self csa asOf exposure snapshot = do
+  markCid <- create M.MarkToMarket with
+    operator  = csa.operator
+    partyA    = csa.partyA
+    partyB    = csa.partyB
+    regulators = csa.regulators
+    scheduler = csa.scheduler
+    csaCid    = show self
+    asOf; exposure; snapshot
+  csaCid' <- create csa with lastMarkCid = Some markCid
+  pure (csaCid', markCid)
+
+-- Signed-CSB settlement. SettleVm is a pure *assessment* step: computes
+-- target - current, gates by MTA/rounding, sets Active (within MTA) or
+-- MarginCallOutstanding + emits MarginShortfall attributed to the side
+-- whose action would close the gap. Does NOT move csb — explicit
+-- Post/Withdraw choices change balance. Rationale: docs/superpowers/
+-- specs/2026-04-18-csa-signed-csb-design.md.
+settleVmImpl : ContractId Csa -> Csa -> Update (ContractId Csa)
+settleVmImpl self csa = do
+  assertMsg "SettleVm cannot run while CSA mark is disputed or escalated"
+            (csa.state /= T.MarkDisputed && csa.state /= T.Escalated)
+  case csa.lastMarkCid of
+    None -> abort "no published mark to settle against"
+    Some mCid -> do
+      mk <- fetch mCid
+      let target   = targetCsb mk.exposure csa.threshold
+          current  = fromOptional 0.0 (Map.lookup csa.valuationCcy csa.csb)
+          gated    = gateCall (target - current) csa.mta csa.rounding
+      if gated == 0.0
+        then create csa with state = T.Active
+        else do
+          let (debtor, creditor) =
+                if gated > 0.0 then (csa.partyA, csa.partyB)
+                               else (csa.partyB, csa.partyA)
+          _ <- create S.MarginShortfall with
+            operator    = csa.operator
+            csaCid      = show self
+            debtor; creditor
+            regulators  = csa.regulators
+            currency    = csa.valuationCcy
+            deficit     = abs gated
+            asOf        = mk.asOf
+            relatedMark = show mCid
+          create csa with state = T.MarginCallOutstanding

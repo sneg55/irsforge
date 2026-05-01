@@ -1,0 +1,128 @@
+-- OIS proposal lifecycle tests: create / reject / withdraw / accept.
+-- OIS reuses the IRS factory but takes an explicit maturityDate (rather
+-- than a TenorEnum) and a 12-month default schedule.
+module Swap.TestOisProposal where
+
+import Daml.Script
+import DA.Date (date, Month(..))
+import DA.Text (isPrefixOf)
+import Daml.Finance.Interface.Types.Common.V3.Types (Id(..))
+import Daml.Finance.Interface.Types.Date.V3.DayCount (DayCountConventionEnum(..))
+import Daml.Finance.Instrument.Swap.V0.InterestRate.Instrument qualified as IRSInstrument
+import Swap.OisProposal
+import Swap.Workflow
+import Swap.TestHelpers
+
+proposalCreateTest : Script ()
+proposalCreateTest = do
+  tp <- allocateTestParties
+
+  _ <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd OisProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      notional = 10_000_000.0
+      fixRate = 0.04
+      startDate = date 2026 Apr 16
+      maturityDate = date 2031 Apr 16
+      dayCountConvention = Act360
+
+  proposals <- query @OisProposal tp.partyB
+  assertMsg "PartyB should see 1 OIS proposal" (length proposals == 1)
+  pure ()
+
+proposalRejectTest : Script ()
+proposalRejectTest = do
+  tp <- allocateTestParties
+
+  propCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd OisProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      notional = 10_000_000.0
+      fixRate = 0.04
+      startDate = date 2026 Apr 16
+      maturityDate = date 2031 Apr 16
+      dayCountConvention = Act360
+
+  submit tp.partyB do
+    exerciseCmd propCid OisReject
+
+  proposals <- query @OisProposal tp.partyB
+  assertMsg "No OIS proposals remain after OisReject" (null proposals)
+  pure ()
+
+proposalWithdrawTest : Script ()
+proposalWithdrawTest = do
+  tp <- allocateTestParties
+
+  propCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd OisProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      notional = 10_000_000.0
+      fixRate = 0.04
+      startDate = date 2026 Apr 16
+      maturityDate = date 2031 Apr 16
+      dayCountConvention = Act360
+
+  submit tp.partyA do
+    exerciseCmd propCid OisWithdraw
+
+  proposals <- query @OisProposal tp.partyA
+  assertMsg "No OIS proposals remain after OisWithdraw" (null proposals)
+  pure ()
+
+-- | Happy path: proposer creates, counterparty accepts, SwapWorkflow
+--   emerges with swapType = "OIS" and instrumentKey prefixed "OIS-".
+proposalAcceptTest : Script ()
+proposalAcceptTest = do
+  tp <- allocateTestParties
+  runInit tp
+  fridCid <- seedUsdSofrIndex tp
+
+  propCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd OisProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      notional = 25_000_000.0
+      fixRate = 0.04
+      startDate = date 2026 Apr 16
+      maturityDate = date 2031 Apr 16
+      dayCountConvention = Act360
+
+  _ <- submitMulti [tp.partyB, tp.operator] [] do
+    exerciseCmd propCid OisAccept with
+      operator = tp.operator
+      regulators = [tp.regulator]
+      floatingRateIndexCid = fridCid
+
+  workflows <- query @SwapWorkflow tp.partyA
+  assertMsg "Should have 1 OIS workflow" (length workflows == 1)
+
+  case workflows of
+    [(_, wf)] -> do
+      assertMsg "swapType = OIS"  (wf.swapType == "OIS")
+      assertMsg "notional = 25M"  (wf.notional == 25_000_000.0)
+      let (Id instrId) = wf.instrumentKey.id
+      assertMsg ("instrumentKey.id has OIS- prefix: " <> instrId)
+        (isPrefixOf "OIS-" instrId)
+    _ -> assertFail "Expected exactly 1 workflow"
+
+  -- Verify the InterestRate instrument came out with the ARRC-style
+  -- negative fixingDates.periodMultiplier encoding the index lookback (2).
+  instruments <- query @IRSInstrument.Instrument tp.operator
+  case instruments of
+    [(_, instr)] -> do
+      assertMsg "referenceRateId = USD-SOFR"
+        (instr.floatingRate.referenceRateId == "USD-SOFR")
+      assertMsg ("fixingDates.periodMultiplier = -2, got " <>
+                 show instr.floatingRate.fixingDates.periodMultiplier)
+        (instr.floatingRate.fixingDates.periodMultiplier == -2)
+    _ -> assertFail "Expected exactly 1 IR instrument after OIS accept"
+
+  pure ()

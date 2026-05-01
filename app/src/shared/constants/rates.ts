@@ -1,0 +1,4 @@
+export const RATE_IDS = {
+  SOFR_INDEX: 'SOFR/INDEX',
+  SOFR_OVERNIGHT: 'SOFR/OVERNIGHT',
+} as const

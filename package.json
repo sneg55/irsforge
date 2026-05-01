@@ -1,0 +1,46 @@
+{
+  "name": "irsforge",
+  "private": true,
+  "workspaces": [
+    "app",
+    "site",
+    "oracle",
+    "auth",
+    "shared-config",
+    "shared-pricing",
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "npm test --workspaces --if-present",
+    "test:coverage": "npm run test:coverage --workspaces --if-present",
+    "lint": "biome check . && eslint .",
+    "lint:fix": "biome check --write . && eslint --fix .",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx,mjs,cjs}": [
+      "biome check --write --no-errors-on-unmatched",
+      "eslint --fix --no-warn-ignored --cache --cache-location node_modules/.cache/eslint/"
+    ],
+    "*.{json,md,yaml,yml}": [
+      "biome format --write --no-errors-on-unmatched"
+    ]
+  },
+  "overrides": {
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.0.0",
+    "@next/eslint-plugin-next": "^16.2.4",
+    "eslint": "^9.0.0",
+    "eslint-import-resolver-typescript": "^4.4.4",
+    "eslint-plugin-eslint-comments": "^3.2.0",
+    "eslint-plugin-import": "^2.31.0",
+    "eslint-plugin-security": "^3.0.1",
+    "eslint-plugin-sonarjs": "^4.0.3",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
+    "typescript-eslint": "^8.0.0"
+  }
+}

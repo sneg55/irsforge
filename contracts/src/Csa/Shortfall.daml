@@ -1,0 +1,27 @@
+-- MarginShortfall: emitted when SettleVm finds the short side under-funded.
+--
+-- Operator-signed, observed by debtor (the under-funded short side) and
+-- creditor (the in-the-money side). Records the deficit in the CSA settlement
+-- currency at the asOf of the triggering MarkToMarket.
+--
+-- Back-reference design: `csaCid` and `relatedMark` are both Text (stringified
+-- ContractIds) rather than typed back-references. See Csa.Mark for rationale —
+-- this avoids mutual imports between Csa.Csa, Csa.Mark, and Csa.Shortfall.
+-- Frontends and downstream services re-resolve the typed ContractId via the
+-- JSON API when they need to exercise choices.
+module Csa.Shortfall where
+
+template MarginShortfall
+  with
+    operator    : Party
+    csaCid      : Text     -- stringified ContractId of the originating Csa
+    debtor      : Party    -- the short side that under-funded
+    creditor    : Party    -- the in-the-money side
+    regulators  : [Party]  -- regulator-v2: full lifecycle observability
+    currency    : Text
+    deficit     : Decimal  -- positive
+    asOf        : Time
+    relatedMark : Text     -- stringified ContractId of the MarkToMarket that triggered this
+  where
+    signatory operator
+    observer debtor, creditor, regulators

@@ -1,0 +1,48 @@
+sdk-version: 2.10.4
+name: irsforge-contracts
+source: src
+version: 0.0.1
+dependencies:
+  - daml-prim
+  - daml-stdlib
+  - daml-script-lts
+data-dependencies:
+  # Interface types
+  - ./lib/daml-finance-interface-types-common-v3-3.0.0.dar
+  - ./lib/daml-finance-interface-types-date-v3-3.0.0.dar
+  - ./lib/daml-finance-interface-instrument-types-v2-2.0.0.dar
+  # Interface packages
+  - ./lib/daml-finance-interface-util-v3-3.0.0.dar
+  - ./lib/daml-finance-interface-holding-v4-4.0.0.dar
+  - ./lib/daml-finance-interface-account-v4-4.0.0.dar
+  - ./lib/daml-finance-interface-instrument-base-v4-4.0.0.dar
+  - ./lib/daml-finance-interface-claims-v4-4.0.0.dar
+  - ./lib/daml-finance-interface-settlement-v4-4.0.0.dar
+  - ./lib/daml-finance-interface-lifecycle-v4-4.0.0.dar
+  - ./lib/daml-finance-interface-data-v4-4.0.0.dar
+  # Interface swap
+  - ./lib/daml-finance-interface-instrument-swap-v0-0.5.0.dar
+  # Interface token instrument
+  - ./lib/daml-finance-interface-instrument-token-v4-4.0.0.dar
+  # Implementation packages
+  - ./lib/daml-finance-util-v4-4.0.0.dar
+  - ./lib/daml-finance-holding-v4-4.0.0.dar
+  - ./lib/daml-finance-account-v4-4.0.0.dar
+  - ./lib/daml-finance-settlement-v4-4.0.0.dar
+  - ./lib/daml-finance-lifecycle-v4-4.0.0.dar
+  - ./lib/daml-finance-data-v4-4.0.0.dar
+  - ./lib/daml-finance-claims-v3-3.0.0.dar
+  # Instrument implementations
+  - ./lib/daml-finance-instrument-token-v4-4.0.0.dar
+  # Instrument swap implementation
+  - ./lib/daml-finance-instrument-swap-v0-0.5.0.dar
+  # Contingent claims
+  - ./lib/contingent-claims-core-v3-3.0.0.dar
+  - ./lib/contingent-claims-lifecycle-v3-3.0.0.dar
+init-script: Setup.Init:init
+build-options:
+  - --target=1.17
+  # Suppresses interfaces-in-upgradeable-package warning.
+  # Long-term cleaner: extract Oracle.Interface to a
+  # separate non-upgradeable package (deferred follow-up).
+  - -Wno-upgrade-interfaces

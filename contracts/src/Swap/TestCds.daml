@@ -1,0 +1,114 @@
+-- CDS-family coverage: propose + accept + run lifecycle against the
+-- CDS/TSLA/DefaultProb + Recovery observations seeded by Setup.InitImpl.
+module Swap.TestCds where
+
+import Daml.Script
+import DA.Date (date, Month(..))
+import DA.Time (time)
+import Daml.Finance.Interface.Types.Common.V3.Types (Id(..))
+import Daml.Finance.Interface.Types.Date.V3.DayCount (DayCountConventionEnum(..))
+import Daml.Finance.Data.V4.Numeric.Observation qualified as Observation
+import Daml.Finance.Data.V4.Time.DateClockUpdate qualified as DateClockUpdate
+import Daml.Finance.Claims.V3.Lifecycle.Rule qualified as LifecycleRule
+import Daml.Finance.Interface.Lifecycle.V4.Rule.Lifecycle qualified as Lifecycle
+import Daml.Finance.Interface.Lifecycle.V4.Observable.NumericObservable qualified as NumericObservable
+import Daml.Finance.Interface.Lifecycle.V4.Event qualified as Event
+import DA.Set qualified as Set
+import Swap.CdsProposal
+import Swap.Workflow
+import Swap.TestHelpers
+
+-- | Propose + accept; assert SwapWorkflow created with CDS terms.
+test_cds_accept_happy : Script ()
+test_cds_accept_happy = do
+  tp <- allocateTestParties
+  runInit tp
+
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd CdsProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      notional = 5_000_000.0
+      fixRate = 0.015
+      referenceName = "TSLA"
+      ownerReceivesFix = True
+      startDate = date 2026 Apr 16
+      maturityDate = date 2027 Apr 16
+      dayCountConvention = Act360
+
+  _ <- submit tp.partyB do
+    exerciseCmd proposalCid CdsAccept with
+      operator = tp.operator
+      regulators = [tp.regulator]
+  workflows <- query @SwapWorkflow tp.partyA
+  assertMsg "Should have 1 CDS workflow" (length workflows == 1)
+  case workflows of
+    [(_, wf)] ->
+      assertMsg "swapType CDS" (wf.swapType == "CDS")
+    _ -> assertFail "Expected exactly one workflow"
+
+-- | Propose + accept, then Trigger lifecycle using the seeded
+--   CDS/TSLA/DefaultProb + Recovery observations. Assert at least
+--   one effect is produced.
+test_cds_trigger_lifecycle : Script ()
+test_cds_trigger_lifecycle = do
+  tp <- allocateTestParties
+  runInit tp
+
+  proposalCid <- submitMulti [tp.partyA, tp.operator] [] do
+    createCmd CdsProposal with
+      operator = tp.operator
+      proposer = tp.partyA
+      counterparty = tp.partyB
+      notional = 5_000_000.0
+      fixRate = 0.015
+      referenceName = "TSLA"
+      ownerReceivesFix = True
+      startDate = date 2026 Apr 16
+      maturityDate = date 2027 Apr 16
+      dayCountConvention = Act360
+
+  workflowCid <- submit tp.partyB do
+    exerciseCmd proposalCid CdsAccept with
+      operator = tp.operator
+      regulators = [tp.regulator]
+  -- Resolve the CDS observables seeded by initForParties.
+  observations <- query @Observation.Observation tp.operator
+  let cdsObsIfaceCids =
+        [ toInterfaceContractId @NumericObservable.NumericObservable cid
+        | (cid, obs) <- observations
+        , let (Id rid) = obs.id
+        , rid == "CDS/TSLA/DefaultProb" || rid == "CDS/TSLA/Recovery"
+        ]
+
+  assertMsg "CDS observables seeded" (length cdsObsIfaceCids == 2)
+
+  -- Resolve the operator-only lifecycle rule seeded by initForParties.
+  -- Phase 6 Stage C1 added a second scheduler-authorized rule; filter by
+  -- lifecycler so the manual path keeps resolving the operator rule.
+  rules <- query @LifecycleRule.Rule tp.operator
+  let operatorRules = filter (\(_, r) -> r.lifecycler == tp.operator) rules
+  [(lifecycleRuleImplCid, _)] <- pure operatorRules
+  let lifecycleRuleCid =
+        toInterfaceContractId @Lifecycle.Lifecycle lifecycleRuleImplCid
+
+  -- Fire a clock event at the first scheduled fixing (2026-07-16).
+  eventImplCid <- submit tp.operator do
+    createCmd DateClockUpdate.DateClockUpdateEvent with
+      providers   = Set.singleton tp.operator
+      date        = date 2026 Jul 16
+      eventTime   = time (date 2026 Jul 16) 0 0 0
+      id          = Id "cds-clock-1"
+      description = "CDS lifecycle clock"
+      observers   = Set.singleton tp.operator
+  let eventCid = toInterfaceContractId @Event.Event eventImplCid
+
+  (_, effectCids) <- submit tp.operator do
+    exerciseCmd workflowCid TriggerLifecycle with
+      lifecycleRuleCid
+      eventCid
+      observableCids = cdsObsIfaceCids
+
+  assertMsg "CDS lifecycle produced at least one effect"
+    (not (null effectCids))

@@ -1,0 +1,22 @@
+module Oracle.DemoStubProvider where
+
+import Oracle.Interface
+import Oracle.Types
+
+template DemoStubOracleProvider
+  with
+    operator   : Party
+    subscribers: [Party]
+    regulators  : [Party]
+    supportedRateIds : [Text]
+  where
+    signatory operator
+    observer subscribers, regulators
+
+    interface instance Provider for DemoStubOracleProvider where
+      view = OracleView with
+        id = "demo-stub"
+        publisher = operator
+        subscribers = subscribers
+        regulators = regulators
+        supportedRateIds = supportedRateIds

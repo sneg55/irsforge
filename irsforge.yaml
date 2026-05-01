@@ -1,0 +1,344 @@
+profile: demo
+topology: sandbox
+routing: path
+parties:
+  scheduler:
+    partyHint: Scheduler
+# Phase 6 Stage B: scheduler service + manual-button gating.
+# Demo profile keeps `manualOverridesEnabled: true` so a human can drive
+# the demo end-to-end. Flip both `enabled` and `manualOverridesEnabled`
+# for a production-ish profile (scheduler runs, manual buttons hidden).
+scheduler:
+  enabled: true
+  manualOverridesEnabled: true
+  cron:
+    trigger: "*/5 * * * * *"
+    settleNet: "*/5 * * * * *"
+    mature: "*/30 * * * * *"
+platform:
+  authPublicUrl: http://localhost:3002
+  frontendUrl: http://localhost:3000
+  # Onchain activity surface — toast stack above status bar + clickable
+  # "Connected to Canton" pill + /org/<id>/ledger page. Gated per deployment.
+  # Omitting this block applies defaults identical to what you see here.
+  ledgerUi:
+    enabled: true
+    bufferSize: 500
+    templateFilter:
+      allow: []
+      deny:
+        - Daml.Finance.Holding
+        - Daml.Finance.Settlement.Instruction
+      # Templates the scheduler/oracle/mark-publisher rotate on every tick,
+      # plus the operator-signed bootstrap contracts that exist once and
+      # never change. Hidden from toasts and from /ledger by default; flip
+      # "Show system" or land via /ledger?template=<X> to surface them.
+      systemPrefixes:
+        - Daml.Finance.Data.V4.Numeric.Observation
+        - Oracle.Curve
+        - Oracle.CurveSnapshot
+        - Csa.Csa           # mark publisher rotates on every tick
+        - Csa.Mark
+        - Csa.Shortfall
+        - Csa.Netting
+        # Bootstrap (one-shot at platform init).
+        - Setup.RoleSetup
+        - Setup.SchedulerRole
+        - Setup.EventFactory
+        - Setup.CashSetup
+        - Oracle.DemoStubProvider
+        - Oracle.NYFedProvider
+        - Daml.Finance.Data.V4.Reference.HolidayCalendar
+        - Daml.Finance.Claims.V3.Lifecycle.Rule
+        - Daml.Finance.Instrument.Swap.V0.InterestRate.Factory
+        - Daml.Finance.Instrument.Swap.V0.CreditDefault.Factory
+        - Daml.Finance.Instrument.Swap.V0.Currency.Factory
+        - Daml.Finance.Instrument.Swap.V0.ForeignExchange.Factory
+        - Daml.Finance.Instrument.Swap.V0.Asset.Factory
+        - Daml.Finance.Instrument.Swap.V0.Fpml.Factory
+    toasts:
+      enabled: true
+      maxVisible: 3
+      dismissAfterMs: 5000
+    rawPayload:
+      enabled: true
+  # Shared-deployment demo coordination. Disabled by default so local
+  # `make demo` shows no banner. Flip enabled=true on the demo VPS — the
+  # host cron in deploy/etc/cron.d/irsforge-reset wipes the in-memory
+  # ledger every `intervalMinutes`, and the SPA renders a top banner
+  # counting down to the next round-clock reset.
+  demoReset:
+    enabled: false
+    intervalMinutes: 60
+auth:
+  provider: demo
+  builtin:
+    issuer: "http://localhost:3002"
+    keyAlgorithm: RS256
+    tokenTtlSeconds: 900
+    refreshTtlSeconds: 86400
+  # Service accounts declare non-secret metadata (id + party authorizations)
+  # for machine identities. Secrets (bcrypt-hashed) live in
+  # auth/service-accounts.yaml. Required when auth.provider != "demo":
+  #   - mark-publisher: always required (oracle's mark loop)
+  #   - scheduler:      required when scheduler.enabled is true
+  # In demo profile this list is inert — the oracle uses HS256 mint instead.
+  serviceAccounts:
+    - id: scheduler
+      actAs: [Scheduler]
+      readAs: [PartyA, PartyB, Operator, Regulator]
+    - id: mark-publisher
+      actAs: [Operator]
+      readAs: [PartyA, PartyB, Regulator]
+oracle:
+  url: http://localhost:3001
+currencies:
+  - code: USD
+    label: US Dollar
+    calendarId: USD
+    isDefault: true
+  - code: EUR
+    label: Euro
+    calendarId: EUR
+cds:
+  referenceNames:
+    - TSLA
+# Per-product enablement. Disabled products are hidden from the workspace
+# selector and the oracle skips provider registration for them. ASSET ships
+# disabled because no asset price-feed provider exists yet (see Phase 1).
+observables:
+  IRS:   { enabled: true }
+  OIS:   { enabled: true }      # Stage C
+  BASIS: { enabled: true }      # Stage D
+  XCCY:  { enabled: true }      # Stage E
+  CDS:   { enabled: true }
+  # Stage F: CCY (fixed-fixed) + FX (notional exchange) + FpML (generic
+  # multi-stream) demoted from the workspace selector. Templates stay wired
+  # in the codebase — BASIS + XCCY still create through the Fpml factory,
+  # and historical CCY/FX workflows keep rendering on the blotter. Creating
+  # new CCY/FX/FpML trades is no longer a user-exposed workflow; FpML is
+  # reachable via blotter Import / per-workflow Export.
+  CCY:   { enabled: false }
+  FX:    { enabled: false }
+  ASSET: { enabled: false }
+  FpML:  { enabled: false }
+
+# Per-product schedule knobs consumed by each proposal's Accept choice.
+# frequencyMonths and dayCountConvention are the only fields that vary
+# across products today; rollConvention is overridden per-trade to match
+# startDate's DOM, and businessDayAdjustment is uniform in InitImpl.
+scheduleDefaults:
+  IRS:   { frequencyMonths: 3,  dayCountConvention: Act360 }
+  OIS:   { frequencyMonths: 12, dayCountConvention: Act360 }
+  BASIS: { frequencyMonths: 3,  dayCountConvention: Act360 }
+  XCCY:  { frequencyMonths: 6,  dayCountConvention: Act360 }
+  CDS:   { frequencyMonths: 3,  dayCountConvention: Act360 }
+  CCY:   { frequencyMonths: 3,  dayCountConvention: Act360 }
+  ASSET: { frequencyMonths: 3,  dayCountConvention: Act360 }
+  FPML:  { frequencyMonths: 3,  dayCountConvention: Act360 }
+curves:
+  interpolation: LinearZero
+  currencies:
+    # USD uses demo-stub in this config so a fresh sandbox boots with a
+    # complete curve set offline. Swap to `provider: nyfed` in production
+    # profiles — the NYFed fetcher lives in oracle/src/providers/nyfed
+    # and publishes the same Oracle.Curve contract shape.
+    USD:
+      dayCount: Act360
+      discount:
+        provider: demo-stub
+      projection:
+        indexId: USD-SOFR
+        provider: demo-stub
+    EUR:
+      dayCount: Act360
+      discount:
+        provider: demo-stub
+      projection:
+        indexId: EUR-ESTR
+        provider: demo-stub
+
+# Rate-family registry: single source of truth for every published rate-index
+# id, the cumulative compounded index (curveIndexId) vs the overnight rate
+# (overnightIndexId), and the full tenor grid with day counts. Consumed by
+# both the oracle (providers + publisher) and the Daml contracts via codegen.
+# Add ESTR / SONIA by appending another family here — nothing in source code
+# needs to change.
+rateFamilies:
+  SOFR:
+    curveIndexId: SOFR/INDEX
+    overnightIndexId: SOFR/ON
+    tenors:
+      - { id: SOFR/ON,  days: 1    }
+      - { id: SOFR/1M,  days: 30   }
+      - { id: SOFR/3M,  days: 91   }
+      - { id: SOFR/6M,  days: 182  }
+      - { id: SOFR/1Y,  days: 365  }
+      - { id: SOFR/2Y,  days: 730  }
+      - { id: SOFR/3Y,  days: 1095 }
+      - { id: SOFR/5Y,  days: 1826 }
+      - { id: SOFR/10Y, days: 3652 }
+
+floatingRateIndices:
+  USD-SOFR:
+    currency: USD
+    family: SOFR
+    compounding: CompoundedInArrears
+    lookback: 2
+    floor: 0.0
+  # USD-EFFR powers the BasisSwap demo leg (SOFR-vs-EFFR basis). The
+  # oracle's demo-stub publisher projects daily Observations off the
+  # same USD projection curve; a real EFFR feed is deferred to Phase 9
+  # alongside the rest of the live-provider work.
+  USD-EFFR:
+    currency: USD
+    family: SOFR
+    compounding: OvernightAverage
+    lookback: 0
+    floor: null
+  EUR-ESTR:
+    currency: EUR
+    family: ESTR
+    compounding: CompoundedInArrears
+    lookback: 0
+    floor: null
+
+# Credit Support Annex parameters. One CSA per counterparty pair governs VM
+# exchange. threshold (per-direction tolerance for being uncollateralised),
+# mta (minimum transfer amount), rounding (call increment), valuationCcy
+# (single reporting ccy), and the eligibleCollateral whitelist (currency +
+# haircut). Phase 5 ships haircut == 1.0 always; the schema admits (0, 1].
+csa:
+  threshold:
+    DirA: 0
+    DirB: 0
+  mta: 100000
+  rounding: 10000
+  valuationCcy: USD
+  eligibleCollateral:
+    - currency: USD
+      haircut: 1.0
+    - currency: EUR
+      haircut: 1.0
+
+# ISDA Master Agreements (registered per counterparty pair). Real banks sign
+# one MA per pair (per jurisdiction) and reference it across every CSA, swap,
+# and trade beneath it. When a trader proposes a CSA against a counterparty
+# listed here, the proposal modal pins the reference + governing law from
+# this registry instead of asking for free-text. Pairs not listed fall back
+# to free-text entry. Match on unordered party pair (PartyA/PartyB ==
+# PartyB/PartyA).
+masterAgreements:
+  - parties: [PartyA, PartyB]
+    reference: ISDA-2002-Goldman-JPMorgan-2014-03-12
+    governingLaw: NewYork
+
+# Demo-only values. Must be absent when profile: production.
+demo:
+  cdsStub:
+    defaultProb: 0.02
+    recovery: 0.40
+  # Initial pool funding per ccy applied symmetrically to both sides of every
+  # seeded CSA at InitImpl time. Empty / absent ⇒ CSAs are seeded with zero
+  # postings (still useful for deterministic tests).
+  csa:
+    initialFunding:
+      USD: 5000000
+  # fxSpots seed on-chain FxSpot observable contracts. Stage E reads these
+  # for cross-currency reporting-ccy NPV translation. Add one entry per
+  # currency pair traded across; live FX feeds are a Phase 9 item.
+  fxSpots:
+    EURUSD: 1.08
+  # Re-publish the seeded stubCurves with a small random perturbation so
+  # the blotter's Trend column accumulates history. Without this, Canton's
+  # PublishDiscountCurve archives the previous Curve contract on every
+  # publish — the ACS holds exactly one curve per key and useCurveStream
+  # never sees more than a single point.
+  curveTicker:
+    enabled: true
+    cron: "*/30 * * * * *"
+    bpsRange: 0.25
+  stubCurves:
+    USD:
+      discount:
+        pillars:
+          - { tenorDays: 1, zeroRate: 0.0530 }
+          - { tenorDays: 30, zeroRate: 0.0525 }
+          - { tenorDays: 91, zeroRate: 0.0510 }
+          - { tenorDays: 182, zeroRate: 0.0490 }
+          - { tenorDays: 365, zeroRate: 0.0460 }
+          - { tenorDays: 730, zeroRate: 0.0430 }
+          - { tenorDays: 1826, zeroRate: 0.0405 }
+          - { tenorDays: 3652, zeroRate: 0.0390 }
+      projections:
+        USD-SOFR:
+          pillars:
+            - { tenorDays: 1, zeroRate: 0.0530 }
+            - { tenorDays: 30, zeroRate: 0.0525 }
+            - { tenorDays: 91, zeroRate: 0.0510 }
+            - { tenorDays: 182, zeroRate: 0.0490 }
+            - { tenorDays: 365, zeroRate: 0.0460 }
+            - { tenorDays: 730, zeroRate: 0.0430 }
+            - { tenorDays: 1826, zeroRate: 0.0405 }
+            - { tenorDays: 3652, zeroRate: 0.0390 }
+        USD-EFFR:
+          pillars:
+            - { tenorDays: 1, zeroRate: 0.0535 }    # +5bp front-end basis
+            - { tenorDays: 30, zeroRate: 0.0528 }   # +3bp
+            - { tenorDays: 91, zeroRate: 0.0512 }   # +2bp
+            - { tenorDays: 182, zeroRate: 0.0491 }  # +1bp
+            - { tenorDays: 365, zeroRate: 0.0460 }  # flat
+            - { tenorDays: 730, zeroRate: 0.0430 }
+            - { tenorDays: 1826, zeroRate: 0.0405 }
+            - { tenorDays: 3652, zeroRate: 0.0390 }
+    EUR:
+      discount:
+        pillars:
+          - { tenorDays: 1, zeroRate: 0.0375 }
+          - { tenorDays: 30, zeroRate: 0.0370 }
+          - { tenorDays: 91, zeroRate: 0.0360 }
+          - { tenorDays: 182, zeroRate: 0.0345 }
+          - { tenorDays: 365, zeroRate: 0.0320 }
+          - { tenorDays: 730, zeroRate: 0.0300 }
+          - { tenorDays: 1826, zeroRate: 0.0280 }
+          - { tenorDays: 3652, zeroRate: 0.0265 }
+      projections:
+        EUR-ESTR:
+          pillars:
+            - { tenorDays: 1, zeroRate: 0.0375 }
+            - { tenorDays: 30, zeroRate: 0.0370 }
+            - { tenorDays: 91, zeroRate: 0.0360 }
+            - { tenorDays: 182, zeroRate: 0.0345 }
+            - { tenorDays: 365, zeroRate: 0.0320 }
+            - { tenorDays: 730, zeroRate: 0.0300 }
+            - { tenorDays: 1826, zeroRate: 0.0280 }
+            - { tenorDays: 3652, zeroRate: 0.0265 }
+orgs:
+  - id: goldman
+    party: PartyA
+    displayName: Goldman Sachs
+    hint: PartyA
+    role: trader
+    ledgerUrl: http://localhost:7575
+    subdomain: goldman
+  - id: jpmorgan
+    party: PartyB
+    displayName: JPMorgan
+    hint: PartyB
+    role: trader
+    ledgerUrl: http://localhost:7575
+    subdomain: jpmorgan
+  - id: operator
+    party: Operator
+    displayName: Operator
+    hint: Operator
+    role: operator
+    ledgerUrl: http://localhost:7575
+    subdomain: operator
+  - id: regulator
+    party: Regulator
+    displayName: Regulator
+    hint: Regulator
+    role: regulator
+    ledgerUrl: http://localhost:7575
+    subdomain: regulator

@@ -1,0 +1,16 @@
+# IRSForge documentation site — Cloudflare Pages config.
+#
+# First-time setup (one time):
+#   1. wrangler login
+#   2. wrangler pages project create irsforge-docs --production-branch=main
+#   3. (optional) Set custom domain docs.irsforge.com in the Cloudflare Pages dashboard
+#   4. (optional) Configure DNS: docs.irsforge.com CNAME irsforge-docs.pages.dev
+#
+# After that:  make docs-deploy
+
+name = "irsforge-docs"
+compatibility_date = "2026-04-25"
+pages_build_output_dir = "./build"
+
+[vars]
+NODE_VERSION = "20"

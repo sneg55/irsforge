@@ -1,0 +1,28 @@
+users:
+  - username: admin
+    passwordHash: "$2b$10$9zSUM8DH2tgUSfbxcfeMcOsfTX2xjs6pIqTeyPG.om3.PizAcnNoW"
+    orgId: goldman
+    actAs:
+      - PartyA
+    readAs: []
+
+  - username: admin
+    passwordHash: "$2b$10$rDnyx8GPMVU0q1WuEbA9segkSVeXsrCWZpkHgjPi9Vkyjbp4vplBm"
+    orgId: jpmorgan
+    actAs:
+      - PartyB
+    readAs: []
+
+  - username: admin
+    passwordHash: "$2b$10$pEjtsaAj6FmnnBPEkxjsIO4hfm2bnOB7gqGZAc8pWo7oMb4xE40qu"
+    orgId: operator
+    actAs:
+      - Operator
+    readAs: []
+
+  - username: admin
+    passwordHash: "$2b$10$opOlvJcosLJWTStGN5sAVe3HbeCFMNWIOyQGZ2s4J2lpTwoFrCMD2"
+    orgId: regulator
+    actAs:
+      - Regulator
+    readAs: []

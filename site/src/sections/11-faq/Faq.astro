@@ -1,0 +1,23 @@
+---
+import FaqItem from '../../components/FaqItem.astro'
+import Section from '../../components/Section.astro'
+import { faq } from '../../data/faq.ts'
+---
+<Section
+  id="faq"
+  label="Questions"
+  headline="Common questions."
+  variant="default"
+>
+  <div class="list">
+    {faq.map(item => (
+      <FaqItem question={item.q}>
+        <p>{item.a}</p>
+      </FaqItem>
+    ))}
+  </div>
+</Section>
+
+<style>
+  .list { max-width: 720px; margin: 0 auto; }
+</style>

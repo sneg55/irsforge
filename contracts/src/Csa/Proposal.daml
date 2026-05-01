@@ -1,0 +1,72 @@
+-- TODO: CsaTemplate-based proposals — see docs/superpowers/specs/2026-04-23-operator-view-design.md §Out.
+module Csa.Proposal where
+
+import DA.Map qualified as Map
+import qualified Csa.Csa as CsaT
+import qualified Csa.Types as T
+
+-- CsaProposal mirrors the Swap.CdsProposal pattern: proposer + operator
+-- co-sign so the Accept choice inherits full authority to create a Csa
+-- (which requires all three signatories: operator, partyA, partyB).
+-- Proposal creation: `submitMulti [proposer, operator] []`.
+template CsaProposal
+  with
+    operator     : Party
+    regulators    : [Party]
+    proposer     : Party
+    counterparty : Party
+    thresholdDirA : Decimal
+    thresholdDirB : Decimal
+    mta          : Decimal
+    rounding     : Decimal
+    eligible     : [T.EligibleCollateral]
+    valuationCcy : Text
+    isdaMasterAgreementRef : Text
+    governingLaw           : T.GoverningLaw
+    imAmount               : Decimal
+  where
+    signatory proposer, operator
+    observer  counterparty, regulators
+
+    ensure
+      mta >= 0.0
+      && rounding >= 0.0
+      && imAmount >= 0.0
+      && thresholdDirA >= 0.0
+      && thresholdDirB >= 0.0
+
+    choice CsaProposalAccept : ContractId CsaT.Csa
+      with
+        scheduler : Party
+      controller counterparty
+      do
+        let thresholdMap = Map.fromList
+              [ (T.DirA, thresholdDirA)
+              , (T.DirB, thresholdDirB)
+              ]
+        create CsaT.Csa with
+          operator
+          partyA       = proposer
+          partyB       = counterparty
+          regulators
+          scheduler
+          threshold    = thresholdMap
+          mta
+          rounding
+          eligible
+          valuationCcy
+          csb          = Map.empty
+          state        = T.Active
+          lastMarkCid  = None
+          isdaMasterAgreementRef
+          governingLaw
+          imAmount
+          activeDispute = None
+
+    choice CsaProposalReject : ()
+      controller counterparty
+      do pure ()
+
+    choice CsaProposalWithdraw : ()
+      controller proposer
+      do pure ()
