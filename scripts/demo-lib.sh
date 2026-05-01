@@ -169,15 +169,36 @@ check_port_free() {
   return 0
 }
 
+# Resolve the long-lived listener pid for a service by port, replacing the
+# transient bash-wrapper pid that launch_service initially records. The
+# `nohup bash -c "$cmd"` wrapper exits as soon as it execs npm/next/node,
+# so the recorded $! pid is dead within milliseconds — stop_service then
+# falls through to the brittle svc_pattern pkill fallback. Looking the pid
+# up by the port it eventually binds is the only reliable signal.
+#
+# Canton is exempt: `daml start` runs under a daml-helper wrapper whose
+# pid stays alive for the lifetime of the JVM and which forwards SIGTERM
+# correctly, so the wrapper pid is the right thing to track there.
+resolve_listener_pid_by_port() {
+  local name="$1" port="$2" timeout="${3:-60}"
+  if ! wait_tcp localhost "$port" "$timeout"; then
+    return 1
+  fi
+  local pid
+  pid="$(lsof -nP -t -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | head -1)"
+  [ -n "$pid" ] && echo "$pid"
+}
+
 # launch_service <name> <working-dir> <command>
 # Backgrounds the command under nohup, writes stdout+stderr to the service
 # log, records the PID. Idempotent: if a live PID file already exists for
 # the service we consider it already running and return 0.
 launch_service() {
   local name="$1" wd="$2" cmd="$3"
-  local pidf logf
+  local pidf logf port
   pidf="$(pid_file "$name")"
   logf="$(log_file "$name")"
+  port="$(svc_port "$name")"
   if [ -f "$pidf" ] && is_alive "$(cat "$pidf" 2>/dev/null || echo "")"; then
     echo "$name already running (pid $(cat "$pidf"))"
     return 0
@@ -188,7 +209,22 @@ launch_service() {
     nohup bash -c "$cmd" > "$logf" 2>&1 &
     echo $!
   ) > "$pidf"
-  echo "  $name pid $(cat "$pidf"), log $logf"
+  local wrapper_pid
+  wrapper_pid="$(cat "$pidf")"
+  echo "  $name pid $wrapper_pid, log $logf"
+
+  # Replace the wrapper pid with the actual port-listener pid so that
+  # subsequent stop_service calls kill the right process. Skip for canton
+  # (daml-helper wrapper is the right pid) and for services with no port
+  # mapping (none today, defensive).
+  if [ "$name" != canton ] && [ -n "$port" ]; then
+    local listener_pid
+    listener_pid="$(resolve_listener_pid_by_port "$name" "$port" 60 || echo "")"
+    if [ -n "$listener_pid" ] && [ "$listener_pid" != "$wrapper_pid" ]; then
+      echo "$listener_pid" > "$pidf"
+      echo "  $name listener pid $listener_pid (replaced wrapper $wrapper_pid)"
+    fi
+  fi
 }
 
 # Wait for `daml start`'s init-script (Setup.Init:init in daml.yaml) to

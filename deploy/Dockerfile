@@ -31,7 +31,7 @@ ARG DAML_FINANCE_BUNDLE_VERSION=2.10.0
 # Daml SDK below resolves we're already on amd64 anyway.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      curl ca-certificates git gnupg jq make procps tini \
+      curl ca-certificates git gnupg jq make procps lsof tini \
  && curl -fsSL "https://deb.nodesource.com/setup_${NODE_VERSION}.x" | bash - \
  && apt-get install -y --no-install-recommends nodejs \
  && rm -rf /var/lib/apt/lists/*
