@@ -142,14 +142,21 @@ export function Blotter() {
     terminatedQuery.isPending
 
   // Decide whether to show the "Ledger unreachable" empty state instead of
-  // an empty SwapTable. Triggers only when health is genuinely `down` AND
-  // none of the workflows/matured/terminated queries ever produced data
-  // for the current session — otherwise we keep showing the last
+  // an empty SwapTable. Triggers when health is `down` OR `reconnecting`
+  // AND none of the workflows/matured/terminated queries ever produced
+  // data for the current session — otherwise we keep showing the last
   // successful snapshot (placeholderData: keepPreviousData) with the
   // status-bar dot communicating the degraded state.
+  //
+  // Including 'reconnecting' here closes the post-restart gap where
+  // Canton has just come back, polls are returning HTTP 200 with empty
+  // bodies (legitimate, but indistinguishable from "you have no swaps"),
+  // and pages would otherwise drop the banner and show an empty table.
   const noCachedRows =
     workflows.length === 0 && maturedContracts.length === 0 && terminatedContracts.length === 0
-  const showLedgerUnreachable = ledgerHealth === 'down' && noCachedRows
+  const showLedgerUnreachable =
+    (ledgerHealth === 'down' || ledgerHealth === 'reconnecting') && noCachedRows
+  const reconnecting = ledgerHealth === 'reconnecting'
 
   // activeParty from AuthState is already the party hint (PartyA/PartyB) used for on-chain matching
   const { currentRows, exposureHeaderData, tabCounts } = deriveBlotterViewModel({
@@ -204,7 +211,13 @@ export function Blotter() {
         <ExposureHeader data={exposureHeaderData} csaHref={csaBase} />
       )}
       {showLedgerUnreachable ? (
-        <LedgerUnreachable message="Your swap blotter is unavailable right now." />
+        <LedgerUnreachable
+          message={
+            reconnecting
+              ? 'Reconnecting your swap blotter after a demo restart.'
+              : 'Your swap blotter is unavailable right now.'
+          }
+        />
       ) : (
         <SwapTable
           rows={currentRows as SwapRow[]}

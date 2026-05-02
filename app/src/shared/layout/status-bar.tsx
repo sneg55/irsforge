@@ -102,9 +102,15 @@ function WorkspaceSlotFragment({ slot }: { slot: FooterSlotData }) {
 // Map the bus-derived ledger health into the LivenessDot vocabulary.
 // Treat "no client yet" as 'idle' rather than 'disconnected' — disconnected
 // implies we tried and failed, but pre-auth there is no client to try with.
-function ledgerLivenessState(health: 'idle' | 'live' | 'down', hasClient: boolean): LivenessState {
+// 'reconnecting' renders as 'stale' (amber pulse) — Canton is reachable
+// again but data caches haven't refilled yet.
+function ledgerLivenessState(
+  health: 'idle' | 'live' | 'reconnecting' | 'down',
+  hasClient: boolean,
+): LivenessState {
   if (!hasClient) return 'idle'
   if (health === 'down') return 'disconnected'
+  if (health === 'reconnecting') return 'stale'
   if (health === 'live') return 'live'
   return 'idle'
 }
@@ -119,7 +125,9 @@ export function StatusBar() {
       ? 'Connected to Canton'
       : livenessState === 'disconnected'
         ? 'Canton unreachable'
-        : 'Connecting to Canton'
+        : livenessState === 'stale'
+          ? 'Reconnecting to Canton'
+          : 'Connecting to Canton'
   const params = useParams()
   const orgId =
     typeof params?.orgId === 'string'

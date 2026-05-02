@@ -98,42 +98,77 @@ describe('useStreamedContracts', () => {
     expect(onCreated).toHaveBeenCalledWith({ x: 1 }, 'c1')
   })
 
-  test('reconnects up to 5 times on abrupt close', () => {
+  test('keeps reconnecting through transient closes within the 90s budget', () => {
+    // Demo restarts last ~30-60s; the hook's retry budget is 90s of
+    // wall-clock time (not an attempt count). Each forced close inside
+    // the budget should produce a fresh socket.
     const onCreated = vi.fn()
     renderHook(() => useStreamedContracts({ templateId: 'Foo:Bar', onCreated, enabled: true }))
     expect(MockWebSocket.last).not.toBeNull()
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 8; i++) {
+      const before = MockWebSocket.last
       act(() => {
-        MockWebSocket.last!.forceClose(1006)
+        before!.forceClose(1006)
       })
       act(() => {
-        vi.advanceTimersByTime(5000)
+        // Backoff is capped at MAX_BACKOFF_MS=10_000, so 11s drains any
+        // scheduled retry timer regardless of which attempt we're on.
+        vi.advanceTimersByTime(11_000)
       })
+      expect(MockWebSocket.last).not.toBe(before)
     }
-    const afterFifth = MockWebSocket.last!
-    act(() => {
-      afterFifth.forceClose(1006)
-    })
-    act(() => {
-      vi.advanceTimersByTime(10_000)
-    })
-    expect(MockWebSocket.last).toBe(afterFifth)
   })
 
-  test('calls onClose after giving up', () => {
+  test('falls back once the retry budget is exhausted', () => {
     const onClose = vi.fn()
     renderHook(() =>
       useStreamedContracts({ templateId: 'Foo:Bar', onCreated: vi.fn(), onClose, enabled: true }),
     )
-    for (let i = 0; i < 6; i++) {
+    // 10 cycles * 11s = 110s > 90s budget — guaranteed exhaustion.
+    for (let i = 0; i < 10; i++) {
       act(() => {
         MockWebSocket.last!.forceClose(1006)
       })
       act(() => {
-        vi.advanceTimersByTime(5000)
+        vi.advanceTimersByTime(11_000)
       })
     }
     expect(onClose).toHaveBeenCalled()
+  })
+
+  test('successful onopen resets the retry budget for the next outage', () => {
+    // First disconnection burns ~60s of budget, then onopen succeeds.
+    // A subsequent disconnection must get a full fresh budget — not the
+    // remaining ~30s — so we never pin a long-lived tab on accumulated
+    // age across independent outages.
+    renderHook(() =>
+      useStreamedContracts({ templateId: 'Foo:Bar', onCreated: vi.fn(), enabled: true }),
+    )
+    for (let i = 0; i < 6; i++) {
+      const before = MockWebSocket.last
+      act(() => {
+        before!.forceClose(1006)
+      })
+      act(() => {
+        vi.advanceTimersByTime(11_000)
+      })
+      expect(MockWebSocket.last).not.toBe(before)
+    }
+    // Cycle re-opens, resetting the budget.
+    act(() => {
+      MockWebSocket.last!.acceptOpen()
+    })
+    // Now another full ~80s of disconnection should still keep retrying.
+    for (let i = 0; i < 7; i++) {
+      const before = MockWebSocket.last
+      act(() => {
+        before!.forceClose(1006)
+      })
+      act(() => {
+        vi.advanceTimersByTime(11_000)
+      })
+      expect(MockWebSocket.last).not.toBe(before)
+    }
   })
 
   test('does not open when enabled=false', () => {

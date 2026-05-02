@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { renderHook, waitFor } from '@testing-library/react'
+import { act, renderHook, waitFor } from '@testing-library/react'
 import type React from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { useLastTick } from '../use-last-tick'
@@ -82,5 +82,40 @@ describe('useLastTick', () => {
     await waitFor(() => {
       expect(result.current).toBeNull()
     })
+  })
+
+  it('preserves the prior tick when a subsequent poll returns empty (post-restart window)', async () => {
+    // First poll resolves with a real tick; the second poll succeeds
+    // but with empty arrays for all three sources — the situation that
+    // arose post-demo-reset, when Canton was reachable but oracle had
+    // not yet republished. Without preservation, the empty result
+    // overwrote the prior good tick and the SchedulerStatusPill flipped
+    // back to "Starting up".
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const wrapWithClient = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    )
+    queryMock
+      .mockResolvedValueOnce([{ contractId: 'm1', payload: { asOf: '2026-04-18T10:00:00Z' } }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+    const { result } = renderHook(() => useLastTick(), { wrapper: wrapWithClient })
+    await waitFor(() => {
+      expect(result.current?.toISOString()).toBe('2026-04-18T10:00:00.000Z')
+    })
+
+    // Second poll: simulate the post-restart window where every source
+    // is empty. Resetting + re-mocking gives us deterministic ordering
+    // for the next Promise.all.
+    queryMock.mockReset()
+    queryMock.mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce([])
+    await act(async () => {
+      await qc.invalidateQueries({ queryKey: ['scheduler-last-tick'] })
+    })
+    await waitFor(() => {
+      // queryMock has been consumed three times — one Promise.all() ran.
+      expect(queryMock).toHaveBeenCalledTimes(3)
+    })
+    expect(result.current?.toISOString()).toBe('2026-04-18T10:00:00.000Z')
   })
 })

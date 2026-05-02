@@ -74,6 +74,9 @@ export function CsaPage() {
   if (ledgerHealth === 'down' && noCachedData) {
     return <LedgerUnreachable message="Your CSA portfolio is unavailable right now." />
   }
+  if (ledgerHealth === 'reconnecting' && noCachedData) {
+    return <LedgerUnreachable message="Reconnecting your CSA portfolio after a demo restart." />
+  }
   if (error && noCachedData) {
     return <ErrorState error={error} onRetry={refetch} />
   }

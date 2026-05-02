@@ -1,5 +1,5 @@
 import { act, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { ledgerHealthBus } from '@/shared/ledger/health-bus'
 import { useLedgerHealth } from '../use-ledger-health'
 
@@ -8,8 +8,14 @@ function Probe() {
   return <div data-testid="health">{state}</div>
 }
 
+beforeEach(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: false })
+  vi.setSystemTime(new Date('2026-05-02T00:00:00Z'))
+})
+
 afterEach(() => {
   ledgerHealthBus.resetForTesting()
+  vi.useRealTimers()
 })
 
 describe('useLedgerHealth', () => {
@@ -36,18 +42,60 @@ describe('useLedgerHealth', () => {
     expect(screen.getByTestId('health').textContent).toBe('down')
   })
 
-  test('one success after a down state immediately recovers to live', () => {
+  test('a single transient blip never trips reconnecting on recovery', () => {
     render(<Probe />)
     act(() => {
-      ledgerHealthBus.recordFailure(1000)
-      ledgerHealthBus.recordFailure(2000)
-      ledgerHealthBus.recordFailure(3000)
+      ledgerHealthBus.recordFailure()
+      ledgerHealthBus.recordSuccess()
+    })
+    // One failure never crossed the down threshold — the recovering UI
+    // didn't degrade so we stay on 'live' rather than flashing
+    // 'reconnecting' for unrelated network noise.
+    expect(screen.getByTestId('health').textContent).toBe('live')
+  })
+
+  test('success after a sustained down enters reconnecting, then transitions to live', () => {
+    render(<Probe />)
+    act(() => {
+      ledgerHealthBus.recordFailure()
+      ledgerHealthBus.recordFailure()
+      ledgerHealthBus.recordFailure()
     })
     expect(screen.getByTestId('health').textContent).toBe('down')
 
     act(() => {
-      ledgerHealthBus.recordSuccess(4000)
+      ledgerHealthBus.recordSuccess()
     })
+    // Down→live edge enters the reconnecting grace window so pages can
+    // refill their data caches before the user thinks the demo lost
+    // everything.
+    expect(screen.getByTestId('health').textContent).toBe('reconnecting')
+
+    act(() => {
+      // Window is 10s; advance past it and the bus's scheduled timer
+      // should re-notify with reconnectingUntil cleared.
+      vi.advanceTimersByTime(11_000)
+    })
+    expect(screen.getByTestId('health').textContent).toBe('live')
+  })
+
+  test('a fresh failure during the reconnecting window cancels it', () => {
+    render(<Probe />)
+    act(() => {
+      ledgerHealthBus.recordFailure()
+      ledgerHealthBus.recordFailure()
+      ledgerHealthBus.recordFailure()
+      ledgerHealthBus.recordSuccess()
+    })
+    expect(screen.getByTestId('health').textContent).toBe('reconnecting')
+
+    act(() => {
+      ledgerHealthBus.recordFailure()
+    })
+    // Failure clears reconnectingUntil. consecutiveFailures has only
+    // gone from 0 (after the prior success) to 1, so we're not 'down'
+    // either — we're back to 'live' until the next two failures push
+    // us across the threshold.
     expect(screen.getByTestId('health').textContent).toBe('live')
   })
 

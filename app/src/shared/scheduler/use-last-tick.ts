@@ -1,6 +1,7 @@
 'use client'
 
 import { useQuery } from '@tanstack/react-query'
+import { useRef } from 'react'
 import { useLedgerClient } from '@/shared/hooks/use-ledger-client'
 import { pollIntervalWithBackoff } from '@/shared/ledger/poll-interval'
 import {
@@ -36,6 +37,17 @@ interface CurvePayload {
 // fresh-sandbox follow-up flagged in `reference_scheduler_authority`.
 export function useLastTick(): Date | null {
   const { client } = useLedgerClient()
+  // Holds the most-recent non-empty tick observed by this consumer.
+  //
+  // Why: in the post-restart window, Canton is reachable but oracle has
+  // not yet republished any Curve/Mark/Batch. The query function then
+  // returns null (legitimate empty result) which OVERWRITES the prior
+  // good tick in React Query's cache — flipping the SchedulerStatusPill
+  // back to "Starting up" even though we observed real activity moments
+  // ago. Preserving the last-good value here keeps the UI stable across
+  // those gaps; null is reserved for "never observed since mount" so the
+  // pill's fresh-sandbox copy still works on a brand-new tab.
+  const previousTickRef = useRef<number | null>(null)
 
   const { data } = useQuery({
     queryKey: ['scheduler-last-tick', client?.authToken],
@@ -66,6 +78,10 @@ export function useLastTick(): Date | null {
     refetchOnWindowFocus: false,
   })
 
-  if (data === undefined || data === null) return null
-  return new Date(data)
+  if (typeof data === 'number') {
+    previousTickRef.current = data
+    return new Date(data)
+  }
+  if (previousTickRef.current === null) return null
+  return new Date(previousTickRef.current)
 }

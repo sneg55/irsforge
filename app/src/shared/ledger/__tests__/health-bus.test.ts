@@ -11,6 +11,7 @@ describe('deriveHealth', () => {
       lastSuccessAt: null,
       lastFailureAt: null,
       consecutiveFailures: 0,
+      reconnectingUntil: null,
     }
     expect(deriveHealth(snapshot)).toBe('idle')
   })
@@ -20,6 +21,7 @@ describe('deriveHealth', () => {
       lastSuccessAt: 1000,
       lastFailureAt: null,
       consecutiveFailures: 0,
+      reconnectingUntil: null,
     }
     expect(deriveHealth(snapshot)).toBe('live')
   })
@@ -29,6 +31,7 @@ describe('deriveHealth', () => {
       lastSuccessAt: 2000,
       lastFailureAt: 1000,
       consecutiveFailures: 0,
+      reconnectingUntil: null,
     }
     expect(deriveHealth(snapshot)).toBe('live')
   })
@@ -38,6 +41,7 @@ describe('deriveHealth', () => {
       lastSuccessAt: 1000,
       lastFailureAt: 2000,
       consecutiveFailures: 2,
+      reconnectingUntil: null,
     }
     expect(deriveHealth(snapshot)).toBe('live')
   })
@@ -47,6 +51,7 @@ describe('deriveHealth', () => {
       lastSuccessAt: 1000,
       lastFailureAt: 2000,
       consecutiveFailures: 3,
+      reconnectingUntil: null,
     }
     expect(deriveHealth(snapshot)).toBe('down')
   })
@@ -56,8 +61,29 @@ describe('deriveHealth', () => {
       lastSuccessAt: 100,
       lastFailureAt: 5000,
       consecutiveFailures: 7,
+      reconnectingUntil: null,
     }
     expect(deriveHealth(snapshot)).toBe('down')
+  })
+
+  test('reconnecting while still inside the window', () => {
+    const snapshot: LedgerHealthSnapshot = {
+      lastSuccessAt: 4000,
+      lastFailureAt: 3000,
+      consecutiveFailures: 0,
+      reconnectingUntil: 14_000,
+    }
+    expect(deriveHealth(snapshot, 10_000)).toBe('reconnecting')
+  })
+
+  test('drops back to live once the reconnecting window has elapsed', () => {
+    const snapshot: LedgerHealthSnapshot = {
+      lastSuccessAt: 4000,
+      lastFailureAt: 3000,
+      consecutiveFailures: 0,
+      reconnectingUntil: 14_000,
+    }
+    expect(deriveHealth(snapshot, 14_001)).toBe('live')
   })
 })
 

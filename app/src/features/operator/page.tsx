@@ -29,6 +29,13 @@ export default function OperatorPage() {
       </div>
     )
   }
+  if (ledgerHealth === 'reconnecting' && totalOk === 0) {
+    return (
+      <div className="space-y-6">
+        <LedgerUnreachable message="Reconnecting the operator console after a demo restart." />
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">

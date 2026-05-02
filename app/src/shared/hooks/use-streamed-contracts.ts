@@ -14,13 +14,25 @@ export interface StreamOptions<T> {
 
 type Status = 'idle' | 'connecting' | 'open' | 'closed' | 'fallback'
 
-const MAX_RETRIES = 5
+// Retry policy: time-budgeted, not attempt-counted.
+//
+// The previous count-based ceiling (MAX_RETRIES=5, BASE_BACKOFF_MS=100)
+// burned through retries in ~3s — far short of the ~30-60s demo-restart
+// window, so any tab open during an hourly reset went to 'fallback' and
+// stayed there until the user pressed F5 (the polling fallback survives
+// but the WS push path is gone).
+//
+// Budget covers ~90s of disconnection (longer than the worst observed
+// reset cycle) and resets on every successful onopen, so subsequent
+// disconnects get a fresh window.
+const RETRY_BUDGET_MS = 90_000
 const BASE_BACKOFF_MS = 100
+const MAX_BACKOFF_MS = 10_000
 
 function backoffDelay(attempt: number): number {
   const base = BASE_BACKOFF_MS * 2 ** (attempt - 1)
   const jitter = 1 + (Math.random() - 0.5) * 0.5
-  return Math.max(50, Math.round(base * jitter))
+  return Math.min(MAX_BACKOFF_MS, Math.max(50, Math.round(base * jitter)))
 }
 
 export function useStreamedContracts<T>(opts: StreamOptions<T>): {
@@ -32,6 +44,10 @@ export function useStreamedContracts<T>(opts: StreamOptions<T>): {
   const [lastError, setLastError] = useState<Error | null>(null)
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const retryCount = useRef(0)
+  // First-failure timestamp in the current disconnection cycle. Cleared
+  // on every successful onopen so a long-lived tab gets a fresh budget
+  // for each independent outage rather than a single global one.
+  const retryStartedAt = useRef<number | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
 
   // Stable primitives derived from objects to avoid spurious re-mounts when
@@ -69,6 +85,7 @@ export function useStreamedContracts<T>(opts: StreamOptions<T>): {
         if (cancelled) return
         setStatus('open')
         retryCount.current = 0
+        retryStartedAt.current = null
         ws.send(JSON.stringify([{ templateIds: [opts.templateId] }]))
       }
 
@@ -102,7 +119,11 @@ export function useStreamedContracts<T>(opts: StreamOptions<T>): {
           setStatus('closed')
           return
         }
-        if (retryCount.current >= MAX_RETRIES) {
+        if (retryStartedAt.current === null) {
+          retryStartedAt.current = Date.now()
+        }
+        const elapsed = Date.now() - retryStartedAt.current
+        if (elapsed >= RETRY_BUDGET_MS) {
           setStatus('fallback')
           opts.onClose?.(ev)
           return
