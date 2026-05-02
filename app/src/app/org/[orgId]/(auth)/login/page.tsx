@@ -55,7 +55,7 @@ export default function LoginPage() {
 
   if (loading || !config) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-950">
+      <div className="flex min-h-0 flex-1 items-center justify-center bg-zinc-950">
         <p className="text-zinc-400 text-sm">Loading...</p>
       </div>
     )
@@ -64,7 +64,7 @@ export default function LoginPage() {
   const org = config.orgs.find((o) => o.id === orgId)
   if (!org) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-950">
+      <div className="flex min-h-0 flex-1 items-center justify-center bg-zinc-950">
         <p className="text-red-400 text-sm">Unknown organization: {orgId}</p>
       </div>
     )
@@ -105,7 +105,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-zinc-950 px-4">
+    <div className="flex min-h-0 flex-1 flex-col items-center justify-center bg-zinc-950 px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center text-center">
           <img src="/favicon.svg" alt="" width={48} height={48} className="rounded-[6px]" />

@@ -164,7 +164,7 @@ export default function ShellLayout({ children }: { children: ReactNode }) {
 
   if (!isInitialized) {
     return (
-      <div data-testid="shell-init-loading" className="flex h-screen flex-col bg-zinc-950">
+      <div data-testid="shell-init-loading" className="flex min-h-0 flex-1 flex-col bg-zinc-950">
         <div className="flex h-14 items-center gap-3 border-b border-zinc-800 px-6">
           <Skeleton className="h-5 w-28" />
           <Skeleton className="ml-auto h-5 w-32" />
@@ -205,7 +205,7 @@ export default function ShellLayout({ children }: { children: ReactNode }) {
           templateFilter={ledgerUi.templateFilter}
           persistKey={`irsforge.ledger-activity.${orgId}`}
         >
-          <div className="flex h-screen flex-col">
+          <div className="flex min-h-0 flex-1 flex-col">
             <ShellInner orgId={orgId}>{children}</ShellInner>
             {ledgerUi.enabled && ledgerUi.toasts.enabled ? (
               <LedgerActivityToasts

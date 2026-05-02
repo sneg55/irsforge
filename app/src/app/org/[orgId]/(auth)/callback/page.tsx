@@ -77,7 +77,7 @@ export default function CallbackPage() {
   }, [handoff, error, orgId, router, loginFromCallback, config])
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-950">
+    <div className="flex min-h-0 flex-1 items-center justify-center bg-zinc-950">
       <p className="text-zinc-400 text-sm">
         {errorText ? `Sign-in failed: ${errorText}` : 'Completing sign-in...'}
       </p>

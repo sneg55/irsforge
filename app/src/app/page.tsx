@@ -11,7 +11,7 @@ export default function Home() {
   }, [router])
 
   return (
-    <div className="flex min-h-screen items-center justify-center">
+    <div className="flex min-h-0 flex-1 items-center justify-center">
       <p className="text-zinc-400">Loading...</p>
     </div>
   )

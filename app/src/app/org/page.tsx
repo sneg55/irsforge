@@ -11,7 +11,7 @@ export default function OrgSelectorPage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-950">
+      <div className="flex min-h-0 flex-1 items-center justify-center bg-zinc-950">
         <p className="text-zinc-400 text-sm">Loading...</p>
       </div>
     )
@@ -21,7 +21,7 @@ export default function OrgSelectorPage() {
   const isDemo = config?.auth.provider === 'demo'
 
   return (
-    <div className="flex min-h-screen flex-col bg-zinc-950">
+    <div className="flex min-h-0 flex-1 flex-col bg-zinc-950">
       <header className="sticky top-0 z-10 border-b border-zinc-800/60 bg-zinc-950/80 backdrop-blur">
         <nav
           aria-label="Primary"

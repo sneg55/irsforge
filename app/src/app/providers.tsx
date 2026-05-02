@@ -18,14 +18,26 @@ function PartyDirectoryBridge({ children }: { children: ReactNode }) {
       hint: o.hint,
     })) ?? []
 
+  // Wrap the entire app in a flex column that owns the 100 dvh viewport
+  // budget so the sticky DemoResetBanner can take its natural ~29 px out of
+  // that budget instead of stacking on top of the shell layout's `h-screen`.
+  // Without this, banner (sticky, in flow) + shell (h-screen = 100 vh) sums
+  // to viewport + ~29 px — the StatusBar at the bottom of the shell ends up
+  // ~29 px below the fold and users have to scroll to see it.
+  //
+  // The inner div keeps flex-col so child layouts (auth pages, party
+  // selector, shell) can use `flex-1` / `h-full` to inherit the available
+  // height instead of asserting `h-screen` themselves.
   return (
     <PartyDirectoryProvider
       entries={entries}
       proxyUrl="/api/ledger"
       token={getToken() ?? undefined}
     >
-      <DemoResetBanner />
-      {children}
+      <div className="flex h-screen flex-col">
+        <DemoResetBanner />
+        <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+      </div>
     </PartyDirectoryProvider>
   )
 }
