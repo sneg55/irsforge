@@ -2,6 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { useLedgerClient } from '@/shared/hooks/use-ledger-client'
+import { pollIntervalWithBackoff } from '@/shared/ledger/poll-interval'
 import { CSA_DISPUTE_RECORD_TEMPLATE_ID } from '@/shared/ledger/template-ids'
 import type { ContractResult, DisputeRecordPayload } from '@/shared/ledger/types'
 
@@ -51,7 +52,7 @@ export function useDisputeRecord(disputeCid: string | null): {
       }
     },
     enabled: !!client && !!disputeCid,
-    refetchInterval: REFETCH_MS,
+    refetchInterval: pollIntervalWithBackoff(REFETCH_MS),
   })
   return {
     data: query.data ?? null,

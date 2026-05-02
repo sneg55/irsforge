@@ -12,6 +12,7 @@ import { useLedgerHealth } from '@/shared/hooks/use-ledger-health'
 import { useOracleCurve } from '@/shared/hooks/use-oracle-curve'
 import type { SwapFamily } from '@/shared/hooks/use-swap-instruments'
 import { useSwapInstruments } from '@/shared/hooks/use-swap-instruments'
+import { pollIntervalWithBackoff } from '@/shared/ledger/poll-interval'
 import type {
   ContractResult,
   MaturedSwap,
@@ -38,17 +39,12 @@ import { workflowToRow } from './workflow-to-row'
 export { workflowToRow }
 
 const POLL_HEALTHY_MS = 3_000
-const POLL_BACKOFF_MS = 30_000
 
-// Back off the 3 s blotter polls to 30 s once the ledger errors. Without
-// this, a Canton-down window (sandbox JVM OOM, see d1aa898) leaves three
-// queries firing 3-attempt retry chains every 3 s and the table re-renders
-// every ~1 s while no new data is possible. React Query passes a `query`
-// object whose `state.error` is non-null while the query is in error
-// state; first success after recovery flips us back to fast polling.
-function pollIntervalWithBackoff(query: { state: { error: unknown } }): number {
-  return query.state.error ? POLL_BACKOFF_MS : POLL_HEALTHY_MS
-}
+// Back off the 3 s blotter polls to the shared default (30 s) once the
+// ledger errors — see `@/shared/ledger/poll-interval` for the rationale
+// and call shape. The historical local copy lived here briefly before
+// being lifted to a shared helper used by every refetching query.
+const blotterPollInterval = pollIntervalWithBackoff(POLL_HEALTHY_MS)
 
 export function Blotter() {
   const { client, activeParty } = useLedgerClient()
@@ -76,7 +72,7 @@ export function Blotter() {
       return await client.query<ContractResult<SwapWorkflow>>('Swap.Workflow:SwapWorkflow')
     },
     enabled: !!client,
-    refetchInterval: pollIntervalWithBackoff,
+    refetchInterval: blotterPollInterval,
   })
   const workflows = workflowsQuery.data ?? []
 
@@ -87,7 +83,7 @@ export function Blotter() {
       return await client.query<ContractResult<MaturedSwap>>('Swap.Workflow:MaturedSwap')
     },
     enabled: !!client,
-    refetchInterval: pollIntervalWithBackoff,
+    refetchInterval: blotterPollInterval,
   })
   const maturedContracts = maturedQuery.data ?? []
 
@@ -98,7 +94,7 @@ export function Blotter() {
       return await client.query<ContractResult<TerminatedSwap>>('Swap.Terminate:TerminatedSwap')
     },
     enabled: !!client,
-    refetchInterval: pollIntervalWithBackoff,
+    refetchInterval: blotterPollInterval,
   })
   const terminatedContracts = terminatedQuery.data ?? []
 

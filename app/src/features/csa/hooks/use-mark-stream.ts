@@ -5,6 +5,7 @@ import { useCallback, useRef, useState } from 'react'
 import { useLedgerClient } from '@/shared/hooks/use-ledger-client'
 import { type StreamPhase, streamPhase } from '@/shared/hooks/use-stream-phase'
 import { useStreamedContracts } from '@/shared/hooks/use-streamed-contracts'
+import { pollIntervalWithBackoff } from '@/shared/ledger/poll-interval'
 import { MARK_TEMPLATE_ID } from '@/shared/ledger/template-ids'
 import type { ContractResult, MarkToMarketPayload } from '@/shared/ledger/types'
 import { decodeMark, type MarkViewModel } from '../decode'
@@ -80,7 +81,7 @@ export function useMarkStream(
       return null
     },
     enabled: enabled && fallback,
-    refetchInterval: POLL_INTERVAL_MS,
+    refetchInterval: pollIntervalWithBackoff(POLL_INTERVAL_MS),
     refetchOnWindowFocus: false,
   })
 

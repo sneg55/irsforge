@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { ROUTES } from '@/shared/constants/routes'
 import { useLedger } from '@/shared/contexts/ledger-context'
 import { type SwapFamily, useSwapInstruments } from '@/shared/hooks/use-swap-instruments'
+import { pollIntervalWithBackoff } from '@/shared/ledger/poll-interval'
 import type { SwapInstrumentPayload } from '@/shared/ledger/swap-instrument-types'
 import { SWAP_WORKFLOW_TEMPLATE_ID } from '@/shared/ledger/template-ids'
 import type { ContractResult, SwapWorkflow } from '@/shared/ledger/types'
@@ -114,7 +115,7 @@ export function LifecycleEventsCard() {
       return client.query<ContractResult<SwapWorkflow>>(SWAP_WORKFLOW_TEMPLATE_ID)
     },
     enabled: !!client,
-    refetchInterval: 30_000,
+    refetchInterval: pollIntervalWithBackoff(30_000),
     staleTime: 25_000,
   })
 

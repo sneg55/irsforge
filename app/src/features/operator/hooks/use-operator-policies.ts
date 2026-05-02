@@ -3,6 +3,7 @@
 import { useQuery } from '@tanstack/react-query'
 import type { OperatorPolicyMode, SwapFamily } from '@/shared/config/client'
 import { useLedgerClient } from '@/shared/hooks/use-ledger-client'
+import { pollIntervalWithBackoff } from '@/shared/ledger/poll-interval'
 import { OPERATOR_POLICY_TEMPLATE_ID } from '@/shared/ledger/template-ids'
 
 interface OperatorPolicyDamlPayload {
@@ -69,7 +70,7 @@ export function useOperatorPolicies(): UseOperatorPoliciesResult {
       return rows
     },
     enabled: !!client,
-    refetchInterval: 5_000,
+    refetchInterval: pollIntervalWithBackoff(5_000),
   })
 
   return {

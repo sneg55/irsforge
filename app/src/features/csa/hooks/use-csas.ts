@@ -2,6 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { useLedgerClient } from '@/shared/hooks/use-ledger-client'
+import { pollIntervalWithBackoff } from '@/shared/ledger/poll-interval'
 import { CSA_TEMPLATE_ID } from '@/shared/ledger/template-ids'
 import type { ContractResult, CsaPayload } from '@/shared/ledger/types'
 import { type CsaViewModel, decodeCsa } from '../decode'
@@ -26,7 +27,7 @@ export function useCsas(): UseCsasResult {
       return raw.map((r) => decodeCsa(r.contractId, r.payload))
     },
     enabled: !!client,
-    refetchInterval: CSA_REFETCH_INTERVAL_MS,
+    refetchInterval: pollIntervalWithBackoff(CSA_REFETCH_INTERVAL_MS),
   })
   return {
     data: query.data ?? [],

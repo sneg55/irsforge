@@ -4,6 +4,7 @@ import { useQueries } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { PROPOSAL_TEMPLATES } from '@/features/workspace/hooks/build-proposal-payload'
 import { useLedgerClient } from '@/shared/hooks/use-ledger-client'
+import { pollIntervalWithBackoff } from '@/shared/ledger/poll-interval'
 import type { ContractResult } from '@/shared/ledger/types'
 
 export type SwapFamily = 'IRS' | 'OIS' | 'BASIS' | 'XCCY' | 'CDS' | 'CCY' | 'FX' | 'ASSET' | 'FpML'
@@ -40,7 +41,7 @@ export function useAllProposalsCrossOrg(): UseAllProposalsCrossOrgResult {
         return await client.query<ContractResult<unknown>>(templateId)
       },
       enabled: !!client,
-      refetchInterval: 3_000,
+      refetchInterval: pollIntervalWithBackoff(3_000),
     })),
   })
 

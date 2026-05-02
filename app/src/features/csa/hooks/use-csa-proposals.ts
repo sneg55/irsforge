@@ -3,6 +3,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useLedgerClient } from '@/shared/hooks/use-ledger-client'
 import type { EligibleCollateralPayload } from '@/shared/ledger/csa-types'
+import { pollIntervalWithBackoff } from '@/shared/ledger/poll-interval'
 import { CSA_PROPOSAL_TEMPLATE_ID } from '@/shared/ledger/template-ids'
 
 export interface CsaProposalPayload {
@@ -83,7 +84,7 @@ export function useCsaProposals(): UseCsaProposalsResult {
       })
     },
     enabled: !!client,
-    refetchInterval: 5_000,
+    refetchInterval: pollIntervalWithBackoff(5_000),
   })
 
   return {

@@ -3,10 +3,12 @@
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useState } from 'react'
 import { ErrorState } from '@/components/ui/error-state'
+import { LedgerUnreachable } from '@/components/ui/ledger-unreachable'
 import { LivenessDot } from '@/components/ui/liveness-dot'
 import { NewCsaProposalDialog } from '@/features/operator/components/new-csa-proposal-dialog'
 import { useIsOperator, useIsRegulator } from '@/shared/hooks/use-is-operator'
 import { useLedgerClient } from '@/shared/hooks/use-ledger-client'
+import { useLedgerHealth } from '@/shared/hooks/use-ledger-health'
 import { computeCallSignal } from './call-amount'
 import { CsaDrawer } from './components/csa-drawer'
 import { CsaPageSkeleton } from './components/csa-page-skeleton'
@@ -38,6 +40,7 @@ export function CsaPage() {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
+  const ledgerHealth = useLedgerHealth()
   const { data: csas, isLoading, isFetching, error, refetch } = useCsas()
   const { proposals } = useCsaProposals()
   const [openPair, setOpenPair] = useState<string | null>(null)
@@ -63,6 +66,14 @@ export function CsaPage() {
     return <ErrorState error={error} onRetry={refetch} />
   }
 
+  // Surface a "Cannot reach the Canton ledger" panel only when health is
+  // genuinely down AND no cached rows are visible — placeholderData keeps
+  // the prior snapshot through transient blips so we don't blow the
+  // table away every time a single poll fails. The status-bar pill
+  // already says "Canton unreachable" for the soft case.
+  const showLedgerUnreachable =
+    ledgerHealth === 'down' && csas.length === 0 && proposals.length === 0
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
@@ -84,6 +95,9 @@ export function CsaPage() {
           </button>
         )}
       </div>
+      {showLedgerUnreachable ? (
+        <LedgerUnreachable message="Your CSA portfolio is unavailable right now." />
+      ) : null}
       <div className="rounded-lg border border-zinc-800 overflow-hidden">
         <div className="flex items-center border-b border-zinc-800 bg-zinc-900">
           <CsaTabButton

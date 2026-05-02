@@ -2,6 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { useLedgerClient } from '@/shared/hooks/use-ledger-client'
+import { pollIntervalWithBackoff } from '@/shared/ledger/poll-interval'
 import type {
   ContractResult,
   MaturedSwap,
@@ -34,7 +35,7 @@ export function useAllSwapWorkflows(): UseAllSwapWorkflowsResult {
       return await client.query<ContractResult<SwapWorkflow>>('Swap.Workflow:SwapWorkflow')
     },
     enabled: !!client,
-    refetchInterval: REFETCH_MS,
+    refetchInterval: pollIntervalWithBackoff(REFETCH_MS),
   })
 
   const matQ = useQuery<ContractResult<MaturedSwap>[]>({
@@ -44,7 +45,7 @@ export function useAllSwapWorkflows(): UseAllSwapWorkflowsResult {
       return await client.query<ContractResult<MaturedSwap>>('Swap.Workflow:MaturedSwap')
     },
     enabled: !!client,
-    refetchInterval: REFETCH_MS,
+    refetchInterval: pollIntervalWithBackoff(REFETCH_MS),
   })
 
   const termQ = useQuery<ContractResult<TerminatedSwap>[]>({
@@ -54,7 +55,7 @@ export function useAllSwapWorkflows(): UseAllSwapWorkflowsResult {
       return await client.query<ContractResult<TerminatedSwap>>('Swap.Terminate:TerminatedSwap')
     },
     enabled: !!client,
-    refetchInterval: REFETCH_MS,
+    refetchInterval: pollIntervalWithBackoff(REFETCH_MS),
   })
 
   return {

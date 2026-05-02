@@ -3,6 +3,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useLedgerClient } from '@/shared/hooks/use-ledger-client'
+import { pollIntervalWithBackoff } from '@/shared/ledger/poll-interval'
 import { NETTED_BATCH_TEMPLATE_ID } from '@/shared/ledger/template-ids'
 import type { ContractResult, NettedBatchPayload } from '@/shared/ledger/types'
 
@@ -36,7 +37,7 @@ export function NettedBatchHistory({ csaCid }: Props) {
         .sort((a, b) => (a.payload.paymentTimestamp < b.payload.paymentTimestamp ? 1 : -1))
     },
     enabled: !!client,
-    refetchInterval: POLL_INTERVAL_MS,
+    refetchInterval: pollIntervalWithBackoff(POLL_INTERVAL_MS),
     refetchOnWindowFocus: false,
   })
 

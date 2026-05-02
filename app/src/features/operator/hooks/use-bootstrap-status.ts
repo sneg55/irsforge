@@ -3,6 +3,7 @@
 import { useQueries } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { useLedger } from '@/shared/contexts/ledger-context'
+import { pollIntervalWithBackoff } from '@/shared/ledger/poll-interval'
 import { buildBootstrapResult } from './bootstrap-status-builders'
 import {
   BOOTSTRAP_QUERY_KEYS,
@@ -32,7 +33,7 @@ export function useBootstrapStatus(): UseBootstrapStatusResult {
       queryFn: () =>
         client!.query<{ contractId: string; payload: unknown }>(BOOTSTRAP_TEMPLATE_BY_KEY[key]),
       enabled: !!client,
-      refetchInterval: 30_000,
+      refetchInterval: pollIntervalWithBackoff(30_000),
       staleTime: 25_000,
     })),
   })

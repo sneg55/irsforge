@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { useLedgerClient } from '@/shared/hooks/use-ledger-client'
+import { pollIntervalWithBackoff } from '@/shared/ledger/poll-interval'
 import type { ContractResult } from '@/shared/ledger/types'
 
 export interface TerminateProposalEntry {
@@ -36,7 +37,7 @@ export function useTerminateProposals(): Map<string, TerminateProposalEntry> {
       )
     },
     enabled: !!client,
-    refetchInterval: 3000,
+    refetchInterval: pollIntervalWithBackoff(3_000),
   })
 
   return useMemo(() => {

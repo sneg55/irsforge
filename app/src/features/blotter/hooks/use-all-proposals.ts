@@ -3,6 +3,7 @@
 import { useQueries } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { useLedgerClient } from '@/shared/hooks/use-ledger-client'
+import { pollIntervalWithBackoff } from '@/shared/ledger/poll-interval'
 import type { ContractResult } from '@/shared/ledger/types'
 import type { SwapRow, SwapType } from '../types'
 import {
@@ -55,7 +56,7 @@ export function useAllProposals() {
         return await client.query<ContractResult<AnyProposal>>(templateId)
       },
       enabled: !!client,
-      refetchInterval: 3000,
+      refetchInterval: pollIntervalWithBackoff(3_000),
     })),
   })
 

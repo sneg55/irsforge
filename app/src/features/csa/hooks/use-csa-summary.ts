@@ -5,6 +5,7 @@ import { useLedgerClient } from '@/shared/hooks/use-ledger-client'
 import { type StreamPhase, streamPhase } from '@/shared/hooks/use-stream-phase'
 import type { GoverningLaw } from '@/shared/ledger/csa-types'
 import { hintFromParty, partyMatchesHint } from '@/shared/ledger/party-match'
+import { pollIntervalWithBackoff } from '@/shared/ledger/poll-interval'
 import { MARK_TEMPLATE_ID } from '@/shared/ledger/template-ids'
 import type { ContractResult, CsaState, MarkToMarketPayload } from '@/shared/ledger/types'
 import { decodeMark } from '../decode'
@@ -177,7 +178,7 @@ function useLatestMarkByPair(): LatestMarkByPairQuery {
       return map
     },
     enabled: !!client,
-    refetchInterval: POLL_INTERVAL_MS,
+    refetchInterval: pollIntervalWithBackoff(POLL_INTERVAL_MS),
     refetchOnWindowFocus: false,
   })
   return {
