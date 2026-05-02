@@ -27,9 +27,7 @@ export function ReferenceCsaTile({ cpty, summary }: Props) {
         data-testid="no-csa-tile"
         className="flex-1 bg-[#0a0c12] px-3 py-2.5 opacity-50 cursor-default"
       >
-        <div className="text-[9px] font-semibold uppercase tracking-wider text-[#555b6e]">
-          No CSA
-        </div>
+        <div className="text-3xs font-semibold uppercase tracking-wider text-[#555b6e]">No CSA</div>
         <div className="text-3xs text-[#555b6e] mt-1 font-mono">unconfigured</div>
       </div>
     )
@@ -46,7 +44,7 @@ export function ReferenceCsaTile({ cpty, summary }: Props) {
       className="flex-1 bg-[#0a0c12] px-3 py-2.5 cursor-pointer hover:bg-[#10131e]"
     >
       <div className="flex justify-between items-center mb-1">
-        <span className="text-[9px] font-semibold uppercase tracking-wider text-[#555b6e]">
+        <span className="text-3xs font-semibold uppercase tracking-wider text-[#555b6e]">
           CSA
           {cpty ? (
             <>
@@ -61,7 +59,7 @@ export function ReferenceCsaTile({ cpty, summary }: Props) {
       </div>
       <div
         data-testid="csa-tile-isda-row"
-        className="flex justify-between text-[9px] font-mono text-[#7a8093] mb-1"
+        className="flex justify-between text-3xs font-mono text-[#7a8093] mb-1"
       >
         <span title={summary.isdaMasterAgreementRef || undefined}>
           ISDA: {summary.isdaMasterAgreementRef || '—'}
@@ -70,7 +68,7 @@ export function ReferenceCsaTile({ cpty, summary }: Props) {
       </div>
       <div className="flex justify-between text-3xs font-mono">
         <span className="text-[#c9c9d4]">Coverage</span>
-        <span className={`px-1.5 rounded text-[9px] ${colors.pill}`}>{colors.label}</span>
+        <span className={`px-1.5 rounded text-3xs ${colors.pill}`}>{colors.label}</span>
       </div>
       <div className="h-[6px] bg-[#1a1d2e] rounded my-1.5 overflow-hidden">
         <div

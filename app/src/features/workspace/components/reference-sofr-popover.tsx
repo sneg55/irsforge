@@ -36,7 +36,7 @@ export function ReferenceSofrPopover({ curve, history }: Props) {
         <span className="text-3xs font-semibold uppercase tracking-wider text-[#3b82f6]">
           {curve.currency} {curve.curveType}
         </span>
-        <span className="text-[9px] font-mono text-[#555b6e]">{relativeTime(curve.asOf)}</span>
+        <span className="text-3xs font-mono text-[#555b6e]">{relativeTime(curve.asOf)}</span>
       </div>
       <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 font-mono text-3xs">
         {curve.pillars.map((p, i) => (
@@ -46,9 +46,7 @@ export function ReferenceSofrPopover({ curve, history }: Props) {
           </div>
         ))}
       </div>
-      <div className="text-[9px] text-[#555b6e] mt-2 font-mono">
-        {history.length} ticks buffered
-      </div>
+      <div className="text-3xs text-[#555b6e] mt-2 font-mono">{history.length} ticks buffered</div>
     </div>
   )
 }

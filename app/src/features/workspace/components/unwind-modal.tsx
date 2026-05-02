@@ -62,7 +62,7 @@ export function UnwindModal({ isOpen, onClose, currentNpv, onSubmit }: UnwindMod
           onChange={(e) => setPvText(e.target.value)}
           className="w-full bg-transparent border border-[#1e2235] px-2 py-1 text-sm font-mono mb-1"
         />
-        <p className="text-[9px] text-[#555b6e] mb-3">
+        <p className="text-3xs text-[#555b6e] mb-3">
           Positive: you pay counterparty. Negative: counterparty pays you.
         </p>
         <label className="block text-2xs text-[#555b6e] mb-1" htmlFor="unwind-reason">

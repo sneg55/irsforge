@@ -14,7 +14,7 @@ export function WhatIfBanner({ originalNPV, scenarioNPV }: WhatIfBannerProps) {
       style={{ background: '#f59e0b10' }}
     >
       <div className="flex items-center justify-between">
-        <span className="text-[#f59e0b] font-semibold tracking-wider text-[9px]">
+        <span className="text-[#f59e0b] font-semibold tracking-wider text-3xs">
           SCENARIO — changes do not affect on-chain contract
         </span>
         {delta != null && (

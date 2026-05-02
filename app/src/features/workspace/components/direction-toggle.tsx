@@ -10,7 +10,7 @@ export function DirectionToggle({ onToggle, disabled }: DirectionToggleProps) {
     <button
       onClick={onToggle}
       disabled={disabled}
-      className="text-[#555b6e] text-[9px] hover:text-[#8b8fa3] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+      className="text-[#555b6e] text-3xs hover:text-[#8b8fa3] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
     >
       ⇄ Flip pay/receive
     </button>

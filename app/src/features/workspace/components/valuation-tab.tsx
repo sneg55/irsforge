@@ -10,13 +10,13 @@ interface ValuationTabProps {
 export function ValuationTab({ valuation }: ValuationTabProps) {
   return (
     <div className="p-3.5">
-      <div className="flex items-center gap-1 text-[9px] font-semibold tracking-wider text-[#3b82f6] mb-2">
+      <div className="flex items-center gap-1 text-3xs font-semibold tracking-wider text-[#3b82f6] mb-2">
         <div className="w-[3px] h-2.5 rounded-sm bg-[#3b82f6]" />
         NET VALUATION
       </div>
       <div className="text-center mb-2">
         <div
-          className="text-[#555b6e] text-[9px]"
+          className="text-[#555b6e] text-3xs"
           data-tooltip-key="npv"
           title="Present value of all future cashflows discounted on the current curve."
         >
@@ -59,7 +59,7 @@ export function ValuationTab({ valuation }: ValuationTabProps) {
         ].map((m) => (
           <div key={m.label} className="rounded p-1.5" style={{ background: '#111320' }}>
             <div
-              className="text-[#555b6e] text-[8px]"
+              className="text-[#555b6e] text-3xs"
               data-tooltip-key={m.tooltipKey}
               title={m.tooltip}
             >

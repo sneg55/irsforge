@@ -42,7 +42,7 @@ const HORIZON_KEYS: readonly HorizonKey[] = ['nextFixing', 'nextPayment', 'd1', 
 function SectionHeader({ label, color = '#3b82f6' }: { label: string; color?: string }) {
   return (
     <div
-      className="flex items-center gap-1 text-[9px] font-semibold tracking-wider mb-2"
+      className="flex items-center gap-1 text-3xs font-semibold tracking-wider mb-2"
       style={{ color }}
     >
       <div className="w-[3px] h-2.5 rounded-sm" style={{ background: color }} />
@@ -79,7 +79,7 @@ function Row({
       >
         {label}
         {horizonLabel && (
-          <span className="ml-1 text-[#555b6e] text-[9px]" data-testid={horizonTestId}>
+          <span className="ml-1 text-[#555b6e] text-3xs" data-testid={horizonTestId}>
             {horizonLabel}
           </span>
         )}
@@ -151,7 +151,7 @@ export function RiskTab({ swapConfig, pricingCtx }: RiskTabProps) {
       <section>
         <div className="flex items-start justify-between">
           <SectionHeader label="KEY-RATE DV01" />
-          <label className="text-[9px] text-[#555b6e] flex items-center gap-1 cursor-pointer">
+          <label className="text-3xs text-[#555b6e] flex items-center gap-1 cursor-pointer">
             <input
               type="checkbox"
               checked={showAllPillars}
@@ -208,7 +208,7 @@ export function RiskTab({ swapConfig, pricingCtx }: RiskTabProps) {
             <button
               key={key}
               onClick={() => setHorizonKey(key)}
-              className={`px-1.5 py-0.5 text-[9px] font-mono rounded border ${
+              className={`px-1.5 py-0.5 text-3xs font-mono rounded border ${
                 key === horizonKey
                   ? 'bg-[#22c55e]/20 border-[#22c55e] text-[#22c55e]'
                   : 'bg-[#111320] border-[#1e2235] text-[#8b8fa3] hover:text-white'

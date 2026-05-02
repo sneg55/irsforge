@@ -97,7 +97,7 @@ export function OnChainPanel({
 
   return (
     <div className="p-3.5 border-b border-[#1e2235]">
-      <div className="flex items-center gap-1 text-[9px] font-semibold tracking-wider text-[#8b5cf6] mb-2">
+      <div className="flex items-center gap-1 text-3xs font-semibold tracking-wider text-[#8b5cf6] mb-2">
         <div className="w-[3px] h-2.5 rounded-sm bg-[#8b5cf6]" />
         ON-CHAIN
       </div>
@@ -132,7 +132,7 @@ export function OnChainPanel({
             <LedgerCidLink
               cid={contractId}
               truncate={12}
-              className="text-[9px] text-[#555b6e] hover:text-[#8a9dc5]"
+              className="text-3xs text-[#555b6e] hover:text-[#8a9dc5]"
             />
           )}
         </span>

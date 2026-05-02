@@ -51,7 +51,7 @@ export function UnderlyingsEditor({ underlyings, editable, onChange }: Underlyin
   return (
     <div className="mt-1">
       <div className="flex items-center justify-between mb-1.5">
-        <span className="text-[9px] text-[#555b6e] uppercase tracking-wider">Underlyings</span>
+        <span className="text-3xs text-[#555b6e] uppercase tracking-wider">Underlyings</span>
       </div>
       <table className="w-full text-3xs border-collapse">
         <thead>
@@ -76,14 +76,14 @@ export function UnderlyingsEditor({ underlyings, editable, onChange }: Underlyin
         </tbody>
       </table>
       {weightWarning && (
-        <p className="text-[9px] text-amber-500 mt-1">
+        <p className="text-3xs text-amber-500 mt-1">
           Weights sum to {(totalWeight * 100).toFixed(0)}%
         </p>
       )}
       {editable && (
         <button
           onClick={add}
-          className="mt-1.5 w-full text-[9px] text-[#555b6e] bg-[#1e2235] border border-dashed border-[#333] rounded py-0.5 hover:border-[#555b6e] hover:text-zinc-400 transition-colors"
+          className="mt-1.5 w-full text-3xs text-[#555b6e] bg-[#1e2235] border border-dashed border-[#333] rounded py-0.5 hover:border-[#555b6e] hover:text-zinc-400 transition-colors"
         >
           + Add Underlying
         </button>

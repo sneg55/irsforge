@@ -116,7 +116,7 @@ export function RightPanel({
       {mode === 'draft' ? (
         isOperator || isRegulator ? (
           <div data-testid="propose-blocked-operator" className="p-3.5 border-b border-[#1e2235]">
-            <div className="flex items-center gap-1 text-[9px] font-semibold tracking-wider text-[#555b6e] mb-2">
+            <div className="flex items-center gap-1 text-3xs font-semibold tracking-wider text-[#555b6e] mb-2">
               <div className="w-[3px] h-2.5 rounded-sm bg-[#555b6e]" />
               PROPOSE SWAP
             </div>
@@ -128,7 +128,7 @@ export function RightPanel({
           </div>
         ) : (
           <div className="p-3.5 border-b border-[#1e2235]">
-            <div className="flex items-center gap-1 text-[9px] font-semibold tracking-wider text-[#8b5cf6] mb-2">
+            <div className="flex items-center gap-1 text-3xs font-semibold tracking-wider text-[#8b5cf6] mb-2">
               <div className="w-[3px] h-2.5 rounded-sm bg-[#8b5cf6]" />
               PROPOSE SWAP
             </div>

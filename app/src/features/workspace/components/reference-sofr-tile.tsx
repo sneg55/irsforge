@@ -109,7 +109,7 @@ export function ReferenceSofrTile({ curve, history }: Props) {
         className="flex-1 bg-[#0a0c12] px-3 py-2.5 cursor-pointer hover:bg-[#10131e]"
       >
         <div className="flex justify-between items-center mb-1">
-          <span className="text-[9px] font-semibold uppercase tracking-wider text-[#555b6e]">
+          <span className="text-3xs font-semibold uppercase tracking-wider text-[#555b6e]">
             {curveTitle(curve)}
           </span>
           <span className="text-[#555b6e] text-3xs">↗</span>

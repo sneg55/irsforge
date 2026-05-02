@@ -74,7 +74,7 @@ export function LegColumn({
             ? 'Notionals linked — click to unlink'
             : 'Notionals unlinked — click to link'
         }
-        className="text-[8px] leading-none opacity-60 hover:opacity-100 transition-opacity cursor-pointer"
+        className="text-3xs leading-none opacity-60 hover:opacity-100 transition-opacity cursor-pointer"
         onClick={(e) => {
           e.stopPropagation()
           onToggleNotionalLink()

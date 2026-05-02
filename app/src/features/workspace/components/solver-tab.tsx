@@ -171,7 +171,7 @@ export function SolverTab({ swapType, swapConfig, pricingCtx, onApplyLegPatch }:
 
   return (
     <div className="p-3.5 space-y-3">
-      <div className="flex items-center gap-1 text-[9px] font-semibold tracking-wider text-[#8b5cf6]">
+      <div className="flex items-center gap-1 text-3xs font-semibold tracking-wider text-[#8b5cf6]">
         <div className="w-[3px] h-2.5 rounded-sm bg-[#8b5cf6]" />
         SOLVE
       </div>
@@ -229,15 +229,15 @@ export function SolverTab({ swapType, swapConfig, pricingCtx, onApplyLegPatch }:
       </div>
 
       <div className="rounded p-2 border border-[#1e2235]" style={{ background: '#111320' }}>
-        <div className="text-[#555b6e] text-[9px] mb-1">Result</div>
+        <div className="text-[#555b6e] text-3xs mb-1">Result</div>
         <div className="text-white text-sm font-mono font-bold tracking-tight">
           {formatResult()}
         </div>
         {result?.kind === 'error' && (
-          <div className="text-[9px] text-[#ef4444] mt-1 font-mono break-all">{result.message}</div>
+          <div className="text-3xs text-[#ef4444] mt-1 font-mono break-all">{result.message}</div>
         )}
         {result && result.kind === 'hedgeNotional' && (
-          <div className="text-[9px] text-[#8b8fa3] mt-1 font-mono">
+          <div className="text-3xs text-[#8b8fa3] mt-1 font-mono">
             DV01-neutral hedge notional ({formatNotional(result.value)})
           </div>
         )}

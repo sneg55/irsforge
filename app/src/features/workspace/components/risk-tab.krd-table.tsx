@@ -40,7 +40,7 @@ export function KrdTable({ krds, fullKrds, parallel }: KrdTableProps) {
         </span>
       </div>
       {!identityOk && (
-        <div className="text-[#f59e0b] text-[9px] mt-1">
+        <div className="text-[#f59e0b] text-3xs mt-1">
           KRD Σ ≠ parallel DV01 (Δ={formatAmount(totalKrd - parallel)})
         </div>
       )}

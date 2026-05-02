@@ -16,7 +16,7 @@ export function RegulatorVisibilityPill({ regulators }: Props) {
   return (
     <span
       data-testid="regulator-visibility-pill"
-      className="rounded border border-blue-700/50 bg-blue-900/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-blue-300"
+      className="rounded border border-blue-700/50 bg-blue-900/20 px-1.5 py-0.5 text-3xs font-semibold uppercase tracking-wider text-blue-300"
       title={`This swap is observable by ${regulators.length} regulator${regulators.length === 1 ? '' : 's'}.`}
     >
       {label}

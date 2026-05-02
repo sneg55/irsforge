@@ -184,7 +184,7 @@ export function LegComposer({
                 {editable && (
                   <>
                     <select
-                      className="bg-transparent text-[9px] text-[#555b6e] border-none outline-hidden cursor-pointer"
+                      className="bg-transparent text-3xs text-[#555b6e] border-none outline-hidden cursor-pointer"
                       value={leg.legType}
                       onChange={(e) => onUpdateLeg(i, 'legType', e.target.value)}
                     >
@@ -220,7 +220,7 @@ export function LegComposer({
 
               {/* Leg PV */}
               <div className="mt-2.5 pt-2 border-t border-[#1e2235]">
-                <div className="text-[#555b6e] text-[8px]">PV</div>
+                <div className="text-[#555b6e] text-3xs">PV</div>
                 <div
                   className={`font-mono text-sm font-semibold ${legPV >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}
                 >
@@ -231,7 +231,7 @@ export function LegComposer({
               {/* Cashflows */}
               {legCashflows.length > 0 && (
                 <div className="mt-2 pt-2 border-t border-[#1e2235]">
-                  <div className="text-[#555b6e] text-[9px] tracking-wider mb-1">CASHFLOWS</div>
+                  <div className="text-[#555b6e] text-3xs tracking-wider mb-1">CASHFLOWS</div>
                   <CashflowTable
                     cashflows={legCashflows}
                     legType={

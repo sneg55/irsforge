@@ -60,7 +60,7 @@ export function CashflowTable({
     <div className="font-mono text-3xs">
       {/* Header */}
       <div
-        className={`grid gap-0.5 pb-1 border-b border-[#1e2235] text-[#555b6e] text-[9px] ${
+        className={`grid gap-0.5 pb-1 border-b border-[#1e2235] text-[#555b6e] text-3xs ${
           legType === 'float' ? 'grid-cols-3' : 'grid-cols-3'
         }`}
       >
@@ -107,7 +107,7 @@ export function CashflowTable({
                 <span className={`text-right ${valueColorClass(reported)}`}>
                   <span>{formatAmount(reported)}</span>
                   {needsFx && (
-                    <span className="block text-[8px] text-[#555b6e]">
+                    <span className="block text-3xs text-[#555b6e]">
                       {legCurrency}{' '}
                       {Math.abs(signedNative).toLocaleString(undefined, {
                         maximumFractionDigits: 0,
@@ -122,7 +122,7 @@ export function CashflowTable({
                 <span className={`text-right ${valueColorClass(reported)}`}>
                   <span>{formatAmount(reported)}</span>
                   {needsFx && (
-                    <span className="block text-[8px] text-[#555b6e]">
+                    <span className="block text-3xs text-[#555b6e]">
                       {legCurrency}{' '}
                       {Math.abs(signedNative).toLocaleString(undefined, {
                         maximumFractionDigits: 0,
@@ -143,7 +143,7 @@ export function CashflowTable({
       {/* Expand/collapse */}
       {remaining > 0 && !expanded && (
         <button
-          className="text-[#555b6e] text-[9px] pt-1 hover:text-[#8b8fa3] transition-colors"
+          className="text-[#555b6e] text-3xs pt-1 hover:text-[#8b8fa3] transition-colors"
           onClick={() => setExpanded(true)}
         >
           ... {remaining} more
@@ -151,7 +151,7 @@ export function CashflowTable({
       )}
       {expanded && remaining > 0 && (
         <button
-          className="text-[#555b6e] text-[9px] pt-1 hover:text-[#8b8fa3] transition-colors"
+          className="text-[#555b6e] text-3xs pt-1 hover:text-[#8b8fa3] transition-colors"
           onClick={() => setExpanded(false)}
         >
           Show less

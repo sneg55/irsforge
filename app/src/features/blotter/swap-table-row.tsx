@@ -62,7 +62,7 @@ function StatusCell({ row, activeTab }: { row: SwapRow; activeTab: BlotterTab })
       {showMatSoon && (
         <span
           title="Maturing within 7 days"
-          className="ml-1 inline-block font-mono text-[9px] font-semibold text-amber-400"
+          className="ml-1 inline-block font-mono text-3xs font-semibold text-amber-400"
         >
           MAT SOON
         </span>

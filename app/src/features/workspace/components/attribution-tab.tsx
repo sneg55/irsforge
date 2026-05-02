@@ -74,7 +74,7 @@ function StatusBadge({ status }: { status: AttributionTabProps['streamStatus'] }
   const color = status === 'open' ? '#22c55e' : status === 'fallback' ? '#f59e0b' : '#555b6e'
   const label = status === 'open' ? 'Live' : status === 'fallback' ? 'Polling' : status
   return (
-    <div className="flex items-center gap-1 text-[9px] font-mono">
+    <div className="flex items-center gap-1 text-3xs font-mono">
       <div className="w-2 h-2 rounded-full" style={{ background: color }} />
       <span style={{ color }}>{label}</span>
     </div>
@@ -157,7 +157,7 @@ export function AttributionTab({
   return (
     <div className="p-3.5 space-y-3">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1 text-[9px] font-semibold tracking-wider text-[#3b82f6]">
+        <div className="flex items-center gap-1 text-3xs font-semibold tracking-wider text-[#3b82f6]">
           <div className="w-[3px] h-2.5 rounded-sm bg-[#3b82f6]" />
           P&amp;L ATTRIBUTION
         </div>
@@ -169,7 +169,7 @@ export function AttributionTab({
           <button
             key={m}
             onClick={() => setT0Mode(m)}
-            className={`px-1.5 py-0.5 text-[9px] font-mono rounded border ${
+            className={`px-1.5 py-0.5 text-3xs font-mono rounded border ${
               m === t0Mode
                 ? 'bg-[#3b82f6]/20 border-[#3b82f6] text-[#3b82f6]'
                 : 'bg-[#111320] border-[#1e2235] text-[#8b8fa3] hover:text-white'
