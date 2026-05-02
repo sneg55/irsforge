@@ -62,17 +62,21 @@ export function CsaPage() {
   if (isLoading) {
     return <CsaPageSkeleton />
   }
-  if (error) {
+  // Distinguish "ledger is down" from generic query errors. With the
+  // placeholderData: keepPreviousData default, csas/proposals retain
+  // their last successful snapshot through transient outages — keep
+  // showing that table (status-bar pill already conveys "Canton
+  // unreachable"). Only when there is genuinely nothing to fall back on
+  // do we replace the table with the friendly LedgerUnreachable panel.
+  // A non-ledger error (auth, schema mismatch, etc.) still surfaces via
+  // the existing ErrorState with a retry button.
+  const noCachedData = csas.length === 0 && proposals.length === 0
+  if (ledgerHealth === 'down' && noCachedData) {
+    return <LedgerUnreachable message="Your CSA portfolio is unavailable right now." />
+  }
+  if (error && noCachedData) {
     return <ErrorState error={error} onRetry={refetch} />
   }
-
-  // Surface a "Cannot reach the Canton ledger" panel only when health is
-  // genuinely down AND no cached rows are visible — placeholderData keeps
-  // the prior snapshot through transient blips so we don't blow the
-  // table away every time a single poll fails. The status-bar pill
-  // already says "Canton unreachable" for the soft case.
-  const showLedgerUnreachable =
-    ledgerHealth === 'down' && csas.length === 0 && proposals.length === 0
 
   return (
     <div className="flex flex-col gap-6">
@@ -95,9 +99,6 @@ export function CsaPage() {
           </button>
         )}
       </div>
-      {showLedgerUnreachable ? (
-        <LedgerUnreachable message="Your CSA portfolio is unavailable right now." />
-      ) : null}
       <div className="rounded-lg border border-zinc-800 overflow-hidden">
         <div className="flex items-center border-b border-zinc-800 bg-zinc-900">
           <CsaTabButton
