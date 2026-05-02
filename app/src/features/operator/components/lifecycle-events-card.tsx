@@ -237,7 +237,7 @@ export function LifecycleEventsCard() {
                 <span className="flex items-center gap-1.5 font-mono text-xs text-zinc-500">
                   <span>{formatNotional(e.notional)}</span>
                   {e.notionalCurrency && (
-                    <span className="rounded bg-zinc-800 px-1 py-0.5 text-[10px] uppercase tracking-wide text-zinc-300">
+                    <span className="rounded bg-zinc-800 px-1 py-0.5 text-3xs uppercase tracking-wide text-zinc-300">
                       {e.notionalCurrency}
                     </span>
                   )}

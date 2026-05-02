@@ -53,7 +53,7 @@ export function UnderlyingsEditor({ underlyings, editable, onChange }: Underlyin
       <div className="flex items-center justify-between mb-1.5">
         <span className="text-[9px] text-[#555b6e] uppercase tracking-wider">Underlyings</span>
       </div>
-      <table className="w-full text-[10px] border-collapse">
+      <table className="w-full text-3xs border-collapse">
         <thead>
           <tr className="text-[#555b6e] text-left">
             <th className="py-1 px-1 font-normal">Asset ID</th>
@@ -125,7 +125,7 @@ function UnderlyingRow({
         <td className={`py-0.5 px-1 ${align === 'right' ? 'text-right' : ''}`}>
           <input
             autoFocus
-            className="w-full bg-[#1e2235] border border-[#f59e0b]/50 rounded px-1 py-px font-mono text-[10px] text-white outline-hidden"
+            className="w-full bg-[#1e2235] border border-[#f59e0b]/50 rounded px-1 py-px font-mono text-3xs text-white outline-hidden"
             style={{ textAlign: align }}
             defaultValue={rawValue}
             onBlur={(e) => {

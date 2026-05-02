@@ -151,13 +151,13 @@ export function LegColumn({
           </div>
           <div className="grid grid-cols-2 gap-1.5">
             <div className="rounded p-1.5" style={{ background: '#111320' }}>
-              <div className="text-[#555b6e] text-[10px] uppercase tracking-wide">PV</div>
+              <div className="text-[#555b6e] text-3xs uppercase tracking-wide">PV</div>
               <div className={`font-mono text-[13px] font-semibold ${valueColorClass(legPV)}`}>
                 {formatAmount(legPV)}
               </div>
             </div>
             <div className="rounded p-1.5" style={{ background: '#111320' }}>
-              <div className="text-[#555b6e] text-[10px] uppercase tracking-wide">
+              <div className="text-[#555b6e] text-3xs uppercase tracking-wide">
                 {leg.legType === 'float' ? 'Next Fixing' : 'Accrued'}
               </div>
               <div className="font-mono text-[13px] text-white">

@@ -170,7 +170,7 @@ export function StatusBar() {
         >
           <LivenessDot state={livenessState} title={livenessLabel} placement="top" />
           <span>{livenessLabel}</span>
-          <span className="text-[10px] text-blue-400">↗ Audit trail</span>
+          <span className="text-3xs text-blue-400">↗ Audit trail</span>
         </Link>
       ) : (
         <span className="flex items-center gap-1.5" title={client ? connectedTitle : undefined}>

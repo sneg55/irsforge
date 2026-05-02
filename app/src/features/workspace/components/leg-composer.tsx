@@ -176,7 +176,7 @@ export function LegComposer({
             >
               <div className="flex items-center gap-1.5">
                 <div className="w-[3px] h-3.5 rounded-sm" style={{ background: color }} />
-                <span className="text-[10px] font-semibold tracking-wider" style={{ color }}>
+                <span className="text-3xs font-semibold tracking-wider" style={{ color }}>
                   STREAM {i + 1} — {leg.legType.toUpperCase()}
                 </span>
               </div>

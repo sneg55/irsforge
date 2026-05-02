@@ -99,7 +99,7 @@ export function CsaFundingActions({
           Dispute
         </button>
       </div>
-      {error && <div className="text-[10px] text-rose-400">{error}</div>}
+      {error && <div className="text-3xs text-rose-400">{error}</div>}
       <CsaAmountModal
         isOpen={amountMode !== null}
         mode={amountMode ?? 'post'}

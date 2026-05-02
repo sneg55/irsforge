@@ -53,11 +53,11 @@ export function CashflowTable({
   const amountHeader = needsFx ? `Amount (${reportingCcy})` : 'Amount'
 
   if (cashflows.length === 0) {
-    return <div className="text-[#555b6e] text-[10px] py-2">No cashflows</div>
+    return <div className="text-[#555b6e] text-3xs py-2">No cashflows</div>
   }
 
   return (
-    <div className="font-mono text-[10px]">
+    <div className="font-mono text-3xs">
       {/* Header */}
       <div
         className={`grid gap-0.5 pb-1 border-b border-[#1e2235] text-[#555b6e] text-[9px] ${

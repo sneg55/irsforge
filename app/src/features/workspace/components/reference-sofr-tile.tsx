@@ -112,12 +112,12 @@ export function ReferenceSofrTile({ curve, history }: Props) {
           <span className="text-[9px] font-semibold uppercase tracking-wider text-[#555b6e]">
             {curveTitle(curve)}
           </span>
-          <span className="text-[#555b6e] text-[10px]">↗</span>
+          <span className="text-[#555b6e] text-3xs">↗</span>
         </div>
         <svg viewBox="0 0 120 26" className="w-full h-[26px]" preserveAspectRatio="none">
           {sparkPath && <path d={sparkPath} fill="none" stroke="#3b82f6" strokeWidth="1.4" />}
         </svg>
-        <div className="flex justify-between text-[10px] font-mono mt-1">
+        <div className="flex justify-between text-3xs font-mono mt-1">
           <span className="text-[#c9c9d4]">{twoY ? tenorLabel(twoY.tenorDays) : '—'}</span>
           <span className="text-[#3b82f6]">{twoY ? formatFloatRate(twoY.zeroRate) : '—'}</span>
         </div>

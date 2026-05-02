@@ -133,7 +133,7 @@ export function SolverTab({ swapType, swapConfig, pricingCtx, onApplyLegPatch }:
 
   if (!swapConfig || !pricingCtx) {
     return (
-      <div className="p-3.5 text-[10px] text-[#555b6e] font-mono">
+      <div className="p-3.5 text-3xs text-[#555b6e] font-mono">
         Solver unavailable — oracle curve not loaded.
       </div>
     )
@@ -176,7 +176,7 @@ export function SolverTab({ swapType, swapConfig, pricingCtx, onApplyLegPatch }:
         SOLVE
       </div>
 
-      <div className="space-y-2 text-[10px] font-mono">
+      <div className="space-y-2 text-3xs font-mono">
         <div>
           <label className="text-[#555b6e] block mb-1">Variable</label>
           <select
@@ -247,7 +247,7 @@ export function SolverTab({ swapType, swapConfig, pricingCtx, onApplyLegPatch }:
         {result?.kind === 'parRate' && (
           <button
             onClick={applyParRate}
-            className="flex-1 py-1.5 bg-[#8b5cf6] text-white rounded text-[10px] font-semibold hover:bg-[#7c3aed]"
+            className="flex-1 py-1.5 bg-[#8b5cf6] text-white rounded text-3xs font-semibold hover:bg-[#7c3aed]"
           >
             Apply to workspace
           </button>
@@ -255,7 +255,7 @@ export function SolverTab({ swapType, swapConfig, pricingCtx, onApplyLegPatch }:
         {result?.kind === 'spread' && (
           <button
             onClick={applySpread}
-            className="flex-1 py-1.5 bg-[#8b5cf6] text-white rounded text-[10px] font-semibold hover:bg-[#7c3aed]"
+            className="flex-1 py-1.5 bg-[#8b5cf6] text-white rounded text-3xs font-semibold hover:bg-[#7c3aed]"
           >
             Apply to workspace
           </button>
@@ -263,7 +263,7 @@ export function SolverTab({ swapType, swapConfig, pricingCtx, onApplyLegPatch }:
         {result && (result.kind === 'hedgeNotional' || result.kind === 'unwindPv') && (
           <button
             onClick={copyValue}
-            className="flex-1 py-1.5 bg-[#1e2235] text-white rounded text-[10px] font-semibold hover:bg-[#2a3050]"
+            className="flex-1 py-1.5 bg-[#1e2235] text-white rounded text-3xs font-semibold hover:bg-[#2a3050]"
           >
             Copy value
           </button>

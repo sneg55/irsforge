@@ -20,7 +20,7 @@ export function LedgerEventDrawer({ cid, events, rawPayloadEnabled, onClose }: P
     <aside className="fixed right-0 top-0 z-30 flex h-screen w-[480px] flex-col border-l border-zinc-800 bg-zinc-950 shadow-2xl">
       <header className="flex items-center justify-between border-b border-zinc-800 p-4">
         <div>
-          <div className="text-[10px] uppercase tracking-wider text-zinc-500">Contract</div>
+          <div className="text-3xs uppercase tracking-wider text-zinc-500">Contract</div>
           <div className="break-all font-mono text-xs text-blue-400">{cid}</div>
         </div>
         <button
@@ -40,7 +40,7 @@ export function LedgerEventDrawer({ cid, events, rawPayloadEnabled, onClose }: P
           </p>
         ) : (
           <div className="space-y-4">
-            <div className="text-[10px] uppercase tracking-wider text-zinc-500">
+            <div className="text-3xs uppercase tracking-wider text-zinc-500">
               Related events ({related.length})
             </div>
             {related.map((e, i) => (
@@ -48,7 +48,7 @@ export function LedgerEventDrawer({ cid, events, rawPayloadEnabled, onClose }: P
                 key={`${e.ts}-${e.kind}-${i}`}
                 className="overflow-hidden rounded border border-zinc-800 bg-zinc-900 p-3 text-xs"
               >
-                <div className="mb-1 flex items-start gap-2 font-mono text-[10px]">
+                <div className="mb-1 flex items-start gap-2 font-mono text-3xs">
                   <span className={`shrink-0 font-semibold uppercase ${kindColorClass(e.kind)}`}>
                     {e.kind}
                   </span>
@@ -65,10 +65,10 @@ export function LedgerEventDrawer({ cid, events, rawPayloadEnabled, onClose }: P
                 </div>
                 {rawPayloadEnabled && e.payload !== undefined ? (
                   <details className="mt-2">
-                    <summary className="cursor-pointer text-[10px] uppercase tracking-wider text-zinc-500">
+                    <summary className="cursor-pointer text-3xs uppercase tracking-wider text-zinc-500">
                       Payload
                     </summary>
-                    <pre className="mt-2 max-h-64 overflow-auto rounded bg-zinc-950 p-2 text-[10px] text-zinc-300">
+                    <pre className="mt-2 max-h-64 overflow-auto rounded bg-zinc-950 p-2 text-3xs text-zinc-300">
                       {JSON.stringify(e.payload, null, 2)}
                     </pre>
                   </details>

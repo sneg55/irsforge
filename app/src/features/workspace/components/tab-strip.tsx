@@ -32,7 +32,7 @@ export function TabStrip({ tabs, active, onChange, children }: TabStripProps) {
               role="tab"
               aria-selected={isActive}
               onClick={() => onChange(t.key)}
-              className={`px-3 py-2 text-[10px] font-semibold tracking-wider uppercase transition-colors whitespace-nowrap border-b-2 ${
+              className={`px-3 py-2 text-3xs font-semibold tracking-wider uppercase transition-colors whitespace-nowrap border-b-2 ${
                 isActive
                   ? 'text-white border-[#3b82f6]'
                   : 'text-[#555b6e] border-transparent hover:text-[#8b8fa3]'

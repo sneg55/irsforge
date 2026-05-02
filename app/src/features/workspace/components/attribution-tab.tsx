@@ -131,7 +131,7 @@ export function AttributionTab({
 
   if (!swapConfig || !pricingCtx) {
     return (
-      <div className="p-3.5 text-[10px] text-[#555b6e] font-mono">
+      <div className="p-3.5 text-3xs text-[#555b6e] font-mono">
         Attribution unavailable — oracle curve not loaded.
       </div>
     )
@@ -189,17 +189,17 @@ export function AttributionTab({
             max={30}
             value={lastN}
             onChange={(e) => setLastN(Math.max(1, Math.min(30, parseInt(e.target.value, 10) || 1)))}
-            className="w-12 bg-[#111320] text-white text-[10px] rounded px-1 py-0.5 border border-[#1e2235] outline-hidden font-mono"
+            className="w-12 bg-[#111320] text-white text-3xs rounded px-1 py-0.5 border border-[#1e2235] outline-hidden font-mono"
           />
         )}
       </div>
 
       {!latest && (
-        <div className="text-[10px] font-mono text-[#555b6e]">Waiting for curve stream tick…</div>
+        <div className="text-3xs font-mono text-[#555b6e]">Waiting for curve stream tick…</div>
       )}
 
       {latest && curveStatic && (
-        <div className="text-[10px] font-mono text-[#555b6e]">
+        <div className="text-3xs font-mono text-[#555b6e]">
           Curve static since t0 — no P&amp;L to attribute yet.
         </div>
       )}
@@ -211,7 +211,7 @@ export function AttributionTab({
             return (
               <div
                 key={k}
-                className="grid grid-cols-[60px_1fr_80px] items-center gap-2 text-[10px] font-mono"
+                className="grid grid-cols-[60px_1fr_80px] items-center gap-2 text-3xs font-mono"
               >
                 <span className="text-[#8b8fa3] capitalize">{k}</span>
                 <Sparkline
@@ -226,7 +226,7 @@ export function AttributionTab({
               </div>
             )
           })}
-          <div className="grid grid-cols-[60px_1fr_80px] items-center gap-2 text-[10px] font-mono pt-1 border-t border-[#1e2235]">
+          <div className="grid grid-cols-[60px_1fr_80px] items-center gap-2 text-3xs font-mono pt-1 border-t border-[#1e2235]">
             <span className="text-[#555b6e]">Unexp.</span>
             <Sparkline
               values={history.map((h) => h.unexplained)}
@@ -249,20 +249,20 @@ export function AttributionTab({
       <div className="flex gap-1.5">
         <button
           onClick={() => setPaused((p) => !p)}
-          className="flex-1 py-1 bg-[#1e2235] text-white rounded text-[10px] font-semibold hover:bg-[#2a3050]"
+          className="flex-1 py-1 bg-[#1e2235] text-white rounded text-3xs font-semibold hover:bg-[#2a3050]"
         >
           {paused ? 'Resume' : 'Pause'}
         </button>
         <button
           onClick={rebase}
-          className="flex-1 py-1 bg-[#1e2235] text-white rounded text-[10px] font-semibold hover:bg-[#2a3050]"
+          className="flex-1 py-1 bg-[#1e2235] text-white rounded text-3xs font-semibold hover:bg-[#2a3050]"
         >
           Rebase
         </button>
         <button
           onClick={() => exportCsv(history)}
           disabled={history.length === 0}
-          className="flex-1 py-1 bg-[#1e2235] text-white rounded text-[10px] font-semibold hover:bg-[#2a3050] disabled:opacity-40"
+          className="flex-1 py-1 bg-[#1e2235] text-white rounded text-3xs font-semibold hover:bg-[#2a3050] disabled:opacity-40"
         >
           Export CSV
         </button>

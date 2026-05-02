@@ -138,7 +138,7 @@ export function OnChainPanel({
         </span>
       </div>
       {/* Details */}
-      <div className="grid gap-1 text-[10px] mb-2">
+      <div className="grid gap-1 text-3xs mb-2">
         <div className="flex justify-between">
           <span className="text-[#555b6e]">Counterparty</span>
           <span className="text-white font-mono">

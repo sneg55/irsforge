@@ -17,7 +17,7 @@ export function RiskZone({ npv, dv01, asOf }: RiskZoneProps) {
         </span>
         <span
           data-testid="risk-asof"
-          className="text-[10px] font-mono text-zinc-600"
+          className="text-3xs font-mono text-zinc-600"
           title={asOf ?? undefined}
         >
           {formatAsOf(asOf)}

@@ -35,14 +35,14 @@ export function CsaDrawer({ csa, activeParty }: Props) {
   return (
     <div className="px-4 py-3 bg-zinc-900/70 border-b border-zinc-800">
       <div className="flex items-center justify-between">
-        <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">
+        <div className="text-3xs uppercase tracking-wider text-zinc-500 mb-1">
           Mark stream ({status})
         </div>
         {!isOperator && !isRegulator && (
           <a
             href={blotterHref}
             data-testid="csa-view-trades-link"
-            className="text-[10px] text-blue-400 hover:text-blue-300 hover:underline"
+            className="text-3xs text-blue-400 hover:text-blue-300 hover:underline"
           >
             View trades →
           </a>
@@ -50,7 +50,7 @@ export function CsaDrawer({ csa, activeParty }: Props) {
       </div>
       <div>
         <MarkSparkline history={history} />
-        <div className="text-[10px] text-zinc-500 mt-1 font-mono">
+        <div className="text-3xs text-zinc-500 mt-1 font-mono">
           Latest:{' '}
           {latest ? (
             <>
@@ -75,9 +75,7 @@ export function CsaDrawer({ csa, activeParty }: Props) {
         </div>
       </div>
       <div className="mt-3">
-        <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">
-          Netted batches
-        </div>
+        <div className="text-3xs uppercase tracking-wider text-zinc-500 mb-1">Netted batches</div>
         <NettedBatchHistory csaCid={csa.contractId} />
       </div>
       {!isRegulator && (

@@ -63,13 +63,13 @@ export function ImportFpmlModal({ workspaceBase, onClose }: ImportFpmlModalProps
           <button
             type="button"
             onClick={onClose}
-            className="text-[10px] text-[#8b8fa3] hover:text-white"
+            className="text-3xs text-[#8b8fa3] hover:text-white"
           >
             Close
           </button>
         </div>
 
-        <label className="mb-1 block text-[10px] uppercase tracking-wide text-[#8b8fa3]">
+        <label className="mb-1 block text-3xs uppercase tracking-wide text-[#8b8fa3]">
           Paste FpML XML
         </label>
         <textarea
@@ -83,7 +83,7 @@ export function ImportFpmlModal({ workspaceBase, onClose }: ImportFpmlModalProps
         />
 
         <div className="mb-3 flex items-center gap-3">
-          <label className="cursor-pointer rounded border border-[#1e2235] bg-[#1e2235] px-3 py-1 text-[10px] text-[#8b8fa3] hover:text-white">
+          <label className="cursor-pointer rounded border border-[#1e2235] bg-[#1e2235] px-3 py-1 text-3xs text-[#8b8fa3] hover:text-white">
             <input
               type="file"
               accept=".xml,application/xml,text/xml"
@@ -92,7 +92,7 @@ export function ImportFpmlModal({ workspaceBase, onClose }: ImportFpmlModalProps
             />
             Upload file
           </label>
-          {filename && <span className="text-[10px] text-[#8b8fa3]">{filename}</span>}
+          {filename && <span className="text-3xs text-[#8b8fa3]">{filename}</span>}
         </div>
 
         {err && (

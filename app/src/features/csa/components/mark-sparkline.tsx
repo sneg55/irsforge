@@ -10,7 +10,7 @@ interface Props {
 
 export function MarkSparkline({ history, width = 160, height = 36 }: Props) {
   if (history.length < 2) {
-    return <div className="text-[10px] text-zinc-600 italic">no marks yet</div>
+    return <div className="text-3xs text-zinc-600 italic">no marks yet</div>
   }
   const exposures = history.map((m) => m.exposure)
   const min = Math.min(...exposures)

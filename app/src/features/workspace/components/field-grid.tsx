@@ -126,7 +126,7 @@ function FieldRow({ field }: { field: FieldDef }) {
             onKeyDown={handleKeyDown}
             autoFocus
           />
-          {field.unit && <span className="text-[#555b6e] text-[10px] shrink-0">{field.unit}</span>}
+          {field.unit && <span className="text-[#555b6e] text-3xs shrink-0">{field.unit}</span>}
           {field.step != null && (
             <div className="flex flex-col -my-0.5">
               <button

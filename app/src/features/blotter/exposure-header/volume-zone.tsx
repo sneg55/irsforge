@@ -29,7 +29,7 @@ export function VolumeZone({ notional, activeSwaps, swapCountByType, asOf }: Vol
         </span>
         <span
           data-testid="volume-asof"
-          className="text-[10px] font-mono text-zinc-600"
+          className="text-3xs font-mono text-zinc-600"
           title={asOf ?? undefined}
         >
           {formatAsOf(asOf)}

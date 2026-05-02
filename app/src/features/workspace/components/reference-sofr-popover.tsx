@@ -28,17 +28,17 @@ function relativeTime(iso: string): string {
 
 export function ReferenceSofrPopover({ curve, history }: Props) {
   if (!curve) {
-    return <div className="p-3 text-[10px] text-[#555b6e]">Curve unavailable.</div>
+    return <div className="p-3 text-3xs text-[#555b6e]">Curve unavailable.</div>
   }
   return (
     <div className="bg-[#111320] border border-[#1e2235] rounded shadow-xl p-3 w-full">
       <div className="flex justify-between items-center mb-2">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-[#3b82f6]">
+        <span className="text-3xs font-semibold uppercase tracking-wider text-[#3b82f6]">
           {curve.currency} {curve.curveType}
         </span>
         <span className="text-[9px] font-mono text-[#555b6e]">{relativeTime(curve.asOf)}</span>
       </div>
-      <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 font-mono text-[10px]">
+      <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 font-mono text-3xs">
         {curve.pillars.map((p, i) => (
           <div key={`${p.tenorDays}-${i}`} className="flex justify-between">
             <span className="text-[#8b8fa3]">{tenorLabel(p.tenorDays)}</span>

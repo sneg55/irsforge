@@ -120,7 +120,7 @@ export function RightPanel({
               <div className="w-[3px] h-2.5 rounded-sm bg-[#555b6e]" />
               PROPOSE SWAP
             </div>
-            <p className="text-[#8b8fa3] text-[10px] leading-relaxed">
+            <p className="text-[#8b8fa3] text-3xs leading-relaxed">
               {isRegulator
                 ? 'Regulators observe swaps — they don’t propose. Switch to a trader account to create a proposal.'
                 : 'Operators don’t propose swaps — they co-sign on behalf of the platform. Switch to a trader account to create a proposal.'}
@@ -133,7 +133,7 @@ export function RightPanel({
               PROPOSE SWAP
             </div>
             <div className="mb-3">
-              <label className="text-[#555b6e] text-[10px] block mb-1">Counterparty</label>
+              <label className="text-[#555b6e] text-3xs block mb-1">Counterparty</label>
               <select
                 className="w-full bg-[#111320] text-white text-[11px] rounded px-2 py-1.5 border border-[#1e2235] outline-hidden appearance-none cursor-pointer hover:border-[#555b6e]/50 focus:border-[#8b5cf6]/50 font-mono"
                 style={{

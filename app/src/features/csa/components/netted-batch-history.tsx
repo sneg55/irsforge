@@ -61,7 +61,7 @@ export function NettedBatchHistory({ csaCid }: Props) {
     return (
       <div className="text-sm">
         <div className="text-zinc-500">No net flows have settled yet for this pair.</div>
-        <div className="text-[10px] text-zinc-600 mt-0.5">
+        <div className="text-3xs text-zinc-600 mt-0.5">
           The scheduler batches matched flows automatically — entries land here once any do.
         </div>
       </div>

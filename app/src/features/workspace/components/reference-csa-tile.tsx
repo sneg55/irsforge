@@ -30,7 +30,7 @@ export function ReferenceCsaTile({ cpty, summary }: Props) {
         <div className="text-[9px] font-semibold uppercase tracking-wider text-[#555b6e]">
           No CSA
         </div>
-        <div className="text-[10px] text-[#555b6e] mt-1 font-mono">unconfigured</div>
+        <div className="text-3xs text-[#555b6e] mt-1 font-mono">unconfigured</div>
       </div>
     )
   }
@@ -57,7 +57,7 @@ export function ReferenceCsaTile({ cpty, summary }: Props) {
             ''
           )}
         </span>
-        <span className="text-[#555b6e] text-[10px]">↗</span>
+        <span className="text-[#555b6e] text-3xs">↗</span>
       </div>
       <div
         data-testid="csa-tile-isda-row"
@@ -68,7 +68,7 @@ export function ReferenceCsaTile({ cpty, summary }: Props) {
         </span>
         <span>{lawDisplay(summary.governingLaw)}</span>
       </div>
-      <div className="flex justify-between text-[10px] font-mono">
+      <div className="flex justify-between text-3xs font-mono">
         <span className="text-[#c9c9d4]">Coverage</span>
         <span className={`px-1.5 rounded text-[9px] ${colors.pill}`}>{colors.label}</span>
       </div>
@@ -81,13 +81,13 @@ export function ReferenceCsaTile({ cpty, summary }: Props) {
           }}
         />
       </div>
-      <div className="flex justify-between text-[10px] font-mono text-[#c9c9d4]">
+      <div className="flex justify-between text-3xs font-mono text-[#c9c9d4]">
         <span>{pctLabel}</span>
         <span>${Math.round(summary.ownPosted).toLocaleString()}</span>
       </div>
       <div
         data-testid="csa-tile-im-row"
-        className="flex justify-between text-[10px] font-mono text-[#7a8093] mt-1"
+        className="flex justify-between text-3xs font-mono text-[#7a8093] mt-1"
       >
         <span>Initial Margin</span>
         <span>

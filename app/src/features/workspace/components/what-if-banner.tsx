@@ -10,7 +10,7 @@ export function WhatIfBanner({ originalNPV, scenarioNPV }: WhatIfBannerProps) {
 
   return (
     <div
-      className="mx-3.5 mt-2 px-3 py-2 rounded border-2 border-dashed border-[#f59e0b]/50 text-[10px]"
+      className="mx-3.5 mt-2 px-3 py-2 rounded border-2 border-dashed border-[#f59e0b]/50 text-3xs"
       style={{ background: '#f59e0b10' }}
     >
       <div className="flex items-center justify-between">

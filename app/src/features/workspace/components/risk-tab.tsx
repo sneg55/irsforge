@@ -70,7 +70,7 @@ function Row({
 }) {
   return (
     <div
-      className={`flex items-center justify-between py-0.5 text-[10px] font-mono ${faint ? 'text-[#555b6e]' : ''}`}
+      className={`flex items-center justify-between py-0.5 text-3xs font-mono ${faint ? 'text-[#555b6e]' : ''}`}
     >
       <span
         className={faint ? 'text-[#555b6e]' : 'text-[#8b8fa3]'}
@@ -133,7 +133,7 @@ export function RiskTab({ swapConfig, pricingCtx }: RiskTabProps) {
 
   if (!swapConfig || !pricingCtx) {
     return (
-      <div className="p-3.5 text-[10px] text-[#555b6e] font-mono">
+      <div className="p-3.5 text-3xs text-[#555b6e] font-mono">
         Risk metrics unavailable — oracle curve not loaded.
       </div>
     )
@@ -167,7 +167,7 @@ export function RiskTab({ swapConfig, pricingCtx }: RiskTabProps) {
             parallel={parallelDv01}
           />
         ) : (
-          <div className="text-[10px] text-[#f59e0b]">Pricer error</div>
+          <div className="text-3xs text-[#f59e0b]">Pricer error</div>
         )}
       </section>
 
@@ -196,7 +196,7 @@ export function RiskTab({ swapConfig, pricingCtx }: RiskTabProps) {
           <Row key={p.pair} label={`FX Δ ${p.pair}`} value={formatAmount(p.delta)} />
         ))}
         {metrics && !hasBasisCtx && !isCds && metrics.fx.length === 0 && (
-          <div className="text-[10px] text-[#555b6e] font-mono">None applicable for this swap.</div>
+          <div className="text-3xs text-[#555b6e] font-mono">None applicable for this swap.</div>
         )}
       </section>
 
@@ -251,7 +251,7 @@ export function RiskTab({ swapConfig, pricingCtx }: RiskTabProps) {
             />
           </>
         ) : (
-          <div className="text-[10px] text-[#f59e0b]">Horizon out of range</div>
+          <div className="text-3xs text-[#f59e0b]">Horizon out of range</div>
         )}
       </section>
 
@@ -285,7 +285,7 @@ export function RiskTab({ swapConfig, pricingCtx }: RiskTabProps) {
             />
           </>
         ) : (
-          <div className="text-[10px] text-[#f59e0b]">Pricer error</div>
+          <div className="text-3xs text-[#f59e0b]">Pricer error</div>
         )}
       </section>
     </div>

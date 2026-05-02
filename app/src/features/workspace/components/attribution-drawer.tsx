@@ -30,7 +30,7 @@ export function AttributionDrawer({
         aria-disabled={disabled}
         disabled={disabled}
         onClick={() => !disabled && setOpen((o) => !o)}
-        className={`w-full flex justify-between items-center px-3.5 py-2.5 text-[10px] font-semibold uppercase tracking-wider ${
+        className={`w-full flex justify-between items-center px-3.5 py-2.5 text-3xs font-semibold uppercase tracking-wider ${
           disabled ? 'opacity-40 cursor-default' : 'hover:bg-[#10131e] text-[#8b8fa3]'
         }`}
       >

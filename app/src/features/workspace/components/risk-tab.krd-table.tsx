@@ -26,7 +26,7 @@ export function KrdTable({ krds, fullKrds, parallel }: KrdTableProps) {
   const totalKrd = sumSet.reduce((s, e) => s + e.dv01, 0)
   const identityOk = Math.abs(totalKrd - parallel) < 1e-6
   return (
-    <div className="text-[10px] font-mono">
+    <div className="text-3xs font-mono">
       <div className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5">
         {krds.map((e) => (
           <RowKrd

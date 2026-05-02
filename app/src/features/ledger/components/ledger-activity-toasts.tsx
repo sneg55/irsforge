@@ -92,7 +92,7 @@ export function LedgerActivityToasts({ maxVisible, dismissAfterMs, denyPrefixes,
           href={ROUTES.ORG_LEDGER_CID(orgId, t.event.contractId)}
           className={`pointer-events-auto block overflow-hidden rounded border border-l-4 p-2 text-[11px] shadow-lg hover:translate-x-[2px] ${kindColorClass(t.event.kind, 'border-l-bg')}`}
         >
-          <div className="flex min-w-0 items-center gap-2 font-mono text-[10px]">
+          <div className="flex min-w-0 items-center gap-2 font-mono text-3xs">
             <span className="shrink-0 font-semibold uppercase tracking-wider">{t.event.kind}</span>
             <span className="min-w-0 flex-1 truncate text-zinc-200">
               {shortTemplate(t.event.templateId)}
@@ -102,7 +102,7 @@ export function LedgerActivityToasts({ maxVisible, dismissAfterMs, denyPrefixes,
             ) : null}
             <span className="shrink-0 text-blue-400">{t.event.contractId.slice(0, 8)}…</span>
           </div>
-          <div className="mt-0.5 text-[10px] text-zinc-500">
+          <div className="mt-0.5 text-3xs text-zinc-500">
             {t.event.party ? (
               <>
                 by <PartyName identifier={t.event.party} /> ·{' '}

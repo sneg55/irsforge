@@ -58,7 +58,7 @@ function StatusCell({ row, activeTab }: { row: SwapRow; activeTab: BlotterTab })
   const showMatSoon = row.maturingSoon && row.status === 'Active'
   return (
     <td className="px-4 py-3">
-      <span className={`font-mono text-[10px] font-medium ${colorClass}`}>{code}</span>
+      <span className={`font-mono text-3xs font-medium ${colorClass}`}>{code}</span>
       {showMatSoon && (
         <span
           title="Maturing within 7 days"
@@ -113,9 +113,7 @@ function DirectionCell({ row }: { row: SwapRow }) {
         <span className={`font-medium ${isPay ? 'text-red-400' : 'text-green-400'}`}>
           {isPay ? 'Pay' : 'Receive'}
         </span>
-        {row.legDetail && (
-          <div className="font-mono text-[10px] text-zinc-500">{row.legDetail}</div>
-        )}
+        {row.legDetail && <div className="font-mono text-3xs text-zinc-500">{row.legDetail}</div>}
       </div>
     </td>
   )
@@ -141,7 +139,7 @@ export function SwapTableRow({
     >
       <AlertCell row={row} />
       <td className="px-4 py-3">
-        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${badgeClass}`}>
+        <span className={`text-3xs font-semibold px-1.5 py-0.5 rounded ${badgeClass}`}>
           {typeConfig?.shortLabel ?? row.type}
         </span>
       </td>

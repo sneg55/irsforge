@@ -75,7 +75,7 @@ export function HealthCard() {
                         <td className="py-0.5 pr-3">
                           <span
                             data-testid={`curve-status-${key}`}
-                            className={`inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wide ${
+                            className={`inline-flex items-center gap-1.5 font-mono text-3xs uppercase tracking-wide ${
                               entry.stale ? 'text-red-300' : 'text-emerald-400'
                             }`}
                           >

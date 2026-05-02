@@ -129,7 +129,7 @@ export function DisputeCounterpartyActions({
           Escalate
         </button>
       </div>
-      {error && <div className="text-[10px] text-rose-400">{error}</div>}
+      {error && <div className="text-3xs text-rose-400">{error}</div>}
       {agreeOpen && (
         <div
           role="dialog"

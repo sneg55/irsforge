@@ -113,7 +113,7 @@ export function EditableTenor({
                 e.preventDefault() // prevent blur on input
                 handleChipClick(p)
               }}
-              className={`px-1.5 py-0.5 text-[10px] font-mono rounded transition-colors ${
+              className={`px-1.5 py-0.5 text-3xs font-mono rounded transition-colors ${
                 formatTenor(value) === p
                   ? 'bg-[#f59e0b] text-black'
                   : 'bg-[#1e2235] text-[#8b8fa3] hover:text-white hover:bg-[#2a2f45]'
