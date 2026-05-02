@@ -15,7 +15,7 @@
      headings; mirror it here so the app chrome reads as the same brand.
      Body / mono inherit from Tailwind defaults (Inter via next/font + ui-monospace). */
   --font-display: 'Source Serif 4', Georgia, 'Times New Roman', serif;
-  /* Sub-text-xs scale — replaces raw text-[10px] / text-[11px] arbitrary
+  /* Sub-text-xs scale — replaces the raw 10px and 11px arbitrary text
      classes so pills and badges scale with the fluid root font-size.
      0.6875rem = 11px @ root=16; 13.5px @ root=19.6 (27" monitor).
      0.625rem  = 10px @ root=16; 12.3px @ root=19.6. */
