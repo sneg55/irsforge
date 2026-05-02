@@ -5,7 +5,7 @@ import { themes as prismThemes } from 'prism-react-renderer'
 const config: Config = {
   title: 'IRSForge',
   tagline: 'On-chain Interest Rate Swaps for Canton Network',
-  favicon: 'img/favicon.ico',
+  favicon: 'img/favicon.svg',
 
   future: {
     v4: true,
