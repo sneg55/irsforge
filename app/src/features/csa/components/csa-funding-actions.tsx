@@ -80,21 +80,21 @@ export function CsaFundingActions({
         <button
           disabled={busy || inDisputeWindow}
           onClick={() => setAmountMode('post')}
-          className="rounded bg-emerald-600 px-3 py-1.5 text-[11px] text-white disabled:opacity-40"
+          className="rounded bg-emerald-600 px-3 py-1.5 text-2xs text-white disabled:opacity-40"
         >
           Post
         </button>
         <button
           disabled={busy || postedByMe === 0 || inDisputeWindow}
           onClick={() => setAmountMode('withdraw')}
-          className="rounded bg-zinc-700 px-3 py-1.5 text-[11px] text-white disabled:opacity-40"
+          className="rounded bg-zinc-700 px-3 py-1.5 text-2xs text-white disabled:opacity-40"
         >
           Withdraw
         </button>
         <button
           disabled={busy || inDisputeWindow}
           onClick={() => setDisputeOpen(true)}
-          className="rounded bg-amber-700 px-3 py-1.5 text-[11px] text-white disabled:opacity-40"
+          className="rounded bg-amber-700 px-3 py-1.5 text-2xs text-white disabled:opacity-40"
         >
           Dispute
         </button>

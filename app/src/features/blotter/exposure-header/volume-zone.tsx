@@ -63,7 +63,7 @@ export function VolumeZone({ notional, activeSwaps, swapCountByType, asOf }: Vol
               <span
                 key={type}
                 data-testid="type-chip"
-                className="bg-zinc-800 text-zinc-400 text-[11px] px-1.5 py-0.5 rounded font-mono"
+                className="bg-zinc-800 text-zinc-400 text-2xs px-1.5 py-0.5 rounded font-mono"
               >
                 {type} · {count}
               </span>

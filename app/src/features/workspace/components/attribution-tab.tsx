@@ -236,7 +236,7 @@ export function AttributionTab({
             />
             <span className="text-right text-[#555b6e]">{formatAmount(latest.unexplained)}</span>
           </div>
-          <div className="grid grid-cols-[60px_1fr_80px] items-center gap-2 text-[11px] font-mono pt-1 font-bold">
+          <div className="grid grid-cols-[60px_1fr_80px] items-center gap-2 text-2xs font-mono pt-1 font-bold">
             <span className="text-white">Total</span>
             <span />
             <span className={`text-right ${valueColorClass(latest.total)}`}>

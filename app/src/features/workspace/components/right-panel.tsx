@@ -135,7 +135,7 @@ export function RightPanel({
             <div className="mb-3">
               <label className="text-[#555b6e] text-3xs block mb-1">Counterparty</label>
               <select
-                className="w-full bg-[#111320] text-white text-[11px] rounded px-2 py-1.5 border border-[#1e2235] outline-hidden appearance-none cursor-pointer hover:border-[#555b6e]/50 focus:border-[#8b5cf6]/50 font-mono"
+                className="w-full bg-[#111320] text-white text-2xs rounded px-2 py-1.5 border border-[#1e2235] outline-hidden appearance-none cursor-pointer hover:border-[#555b6e]/50 focus:border-[#8b5cf6]/50 font-mono"
                 style={{
                   colorScheme: 'dark',
                   WebkitAppearance: 'none',
@@ -157,7 +157,7 @@ export function RightPanel({
               </select>
             </div>
             <button
-              className="w-full py-2 bg-[#8b5cf6] text-white rounded font-semibold text-[11px] tracking-wider hover:bg-[#7c3aed] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="w-full py-2 bg-[#8b5cf6] text-white rounded font-semibold text-2xs tracking-wider hover:bg-[#7c3aed] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               onClick={onPropose}
               disabled={!counterparty}
             >

@@ -79,7 +79,7 @@ export default function LedgerPage() {
       <div className={`space-y-4 ${cidParam ? 'pr-[480px]' : ''}`}>
         <header className="flex items-baseline gap-3">
           <h1 className="text-3xl font-bold text-white tracking-tight">Ledger Activity</h1>
-          <span className="rounded bg-zinc-900 px-2 py-0.5 font-mono text-[11px] text-zinc-400">
+          <span className="rounded bg-zinc-900 px-2 py-0.5 font-mono text-2xs text-zinc-400">
             {filtered.length} events
           </span>
           {templateParam && (
@@ -87,14 +87,14 @@ export default function LedgerPage() {
               type="button"
               data-testid="ledger-template-filter-pill"
               onClick={clearTemplateFilter}
-              className="flex items-center gap-1 rounded bg-zinc-800 px-2 py-0.5 font-mono text-[11px] text-zinc-300 hover:bg-zinc-700"
+              className="flex items-center gap-1 rounded bg-zinc-800 px-2 py-0.5 font-mono text-2xs text-zinc-300 hover:bg-zinc-700"
               title="Clear template filter"
             >
               template:{templateParam}
               <span className="text-zinc-500">×</span>
             </button>
           )}
-          <span className="ml-auto flex items-center gap-2 text-[11px] uppercase tracking-wider text-zinc-500">
+          <span className="ml-auto flex items-center gap-2 text-2xs uppercase tracking-wider text-zinc-500">
             <LivenessDot state={phaseToLiveness(phase)} />
             live
           </span>

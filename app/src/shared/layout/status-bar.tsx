@@ -79,7 +79,7 @@ function WorkspaceSlotFragment({ slot }: { slot: FooterSlotData }) {
           {formatAmount(netPV)}
         </span>
       </span>
-      <span className="ml-auto flex items-center gap-3 text-[11px] text-zinc-500">
+      <span className="ml-auto flex items-center gap-3 text-2xs text-zinc-500">
         <span>
           Curve: <span className="text-zinc-300">{curveLabel(slot.swapConfig, slot.curve)}</span>
         </span>

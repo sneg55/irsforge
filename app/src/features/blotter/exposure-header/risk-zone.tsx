@@ -43,7 +43,7 @@ export function RiskZone({ npv, dv01, asOf }: RiskZoneProps) {
           >
             {compactCurrency(dv01)}
           </div>
-          <div className="text-[11px] font-mono text-zinc-500 mt-1.5">USD · parallel ·1bp</div>
+          <div className="text-2xs font-mono text-zinc-500 mt-1.5">USD · parallel ·1bp</div>
         </div>
       </div>
     </div>

@@ -76,7 +76,7 @@ export function ImportFpmlModal({ workspaceBase, onClose }: ImportFpmlModalProps
           value={xml}
           onChange={(e) => setXml(e.target.value)}
           rows={12}
-          className="mb-3 w-full rounded border border-[#1e2235] bg-[#0a0c17] p-2 font-mono text-[11px] text-white"
+          className="mb-3 w-full rounded border border-[#1e2235] bg-[#0a0c17] p-2 font-mono text-2xs text-white"
           placeholder={
             '<FpML>\n  <trade>\n    <swap>\n      <swapStream>...</swapStream>\n    </swap>\n  </trade>\n</FpML>'
           }
@@ -98,7 +98,7 @@ export function ImportFpmlModal({ workspaceBase, onClose }: ImportFpmlModalProps
         {err && (
           <div
             role="alert"
-            className="mb-3 rounded border border-red-600/50 bg-red-900/20 p-2 text-[11px] text-red-400"
+            className="mb-3 rounded border border-red-600/50 bg-red-900/20 p-2 text-2xs text-red-400"
           >
             {err}
           </div>
@@ -108,7 +108,7 @@ export function ImportFpmlModal({ workspaceBase, onClose }: ImportFpmlModalProps
           <button
             type="button"
             onClick={onClose}
-            className="rounded border border-[#1e2235] px-3 py-1 text-[11px] text-[#8b8fa3] hover:text-white"
+            className="rounded border border-[#1e2235] px-3 py-1 text-2xs text-[#8b8fa3] hover:text-white"
           >
             Cancel
           </button>
@@ -116,7 +116,7 @@ export function ImportFpmlModal({ workspaceBase, onClose }: ImportFpmlModalProps
             type="button"
             onClick={onSubmit}
             disabled={xml.trim().length === 0}
-            className="rounded bg-blue-600 px-3 py-1 text-[11px] font-medium text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded bg-blue-600 px-3 py-1 text-2xs font-medium text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Import
           </button>

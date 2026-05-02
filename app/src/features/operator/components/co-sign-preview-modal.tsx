@@ -52,7 +52,7 @@ export function CoSignPreviewModal({ item, isSigning, error, onConfirm, onClose 
           <div className="grid grid-cols-3 gap-2">
             <dt className="text-zinc-500">Proposal cid</dt>
             <dd
-              className="col-span-2 break-all font-mono text-[11px] text-zinc-400"
+              className="col-span-2 break-all font-mono text-2xs text-zinc-400"
               data-testid="co-sign-proposal-cid"
             >
               {item.proposalCid ?? '—'}
@@ -60,7 +60,7 @@ export function CoSignPreviewModal({ item, isSigning, error, onConfirm, onClose 
           </div>
           <div className="grid grid-cols-3 gap-2">
             <dt className="text-zinc-500">AcceptAck cid</dt>
-            <dd className="col-span-2 break-all font-mono text-[11px] text-zinc-400">
+            <dd className="col-span-2 break-all font-mono text-2xs text-zinc-400">
               {item.contractId ?? '—'}
             </dd>
           </div>

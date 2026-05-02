@@ -90,7 +90,7 @@ export function LedgerActivityToasts({ maxVisible, dismissAfterMs, denyPrefixes,
           key={t.id}
           role="status"
           href={ROUTES.ORG_LEDGER_CID(orgId, t.event.contractId)}
-          className={`pointer-events-auto block overflow-hidden rounded border border-l-4 p-2 text-[11px] shadow-lg hover:translate-x-[2px] ${kindColorClass(t.event.kind, 'border-l-bg')}`}
+          className={`pointer-events-auto block overflow-hidden rounded border border-l-4 p-2 text-2xs shadow-lg hover:translate-x-[2px] ${kindColorClass(t.event.kind, 'border-l-bg')}`}
         >
           <div className="flex min-w-0 items-center gap-2 font-mono text-3xs">
             <span className="shrink-0 font-semibold uppercase tracking-wider">{t.event.kind}</span>

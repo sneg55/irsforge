@@ -33,7 +33,7 @@ export function LedgerFilterBar({ value, onChange }: Props) {
             key={k}
             type="button"
             onClick={() => toggleKind(k)}
-            className={`rounded px-2 py-1 font-mono text-[11px] uppercase tracking-wider ${
+            className={`rounded px-2 py-1 font-mono text-2xs uppercase tracking-wider ${
               selected.has(k)
                 ? k === 'create'
                   ? 'bg-green-900/60 text-green-300'
@@ -52,9 +52,9 @@ export function LedgerFilterBar({ value, onChange }: Props) {
         placeholder="Filter by cid prefix…"
         value={value.cidPrefix ?? ''}
         onChange={handleCidChange}
-        className="flex-1 rounded border border-zinc-800 bg-zinc-900 px-3 py-1 font-mono text-[11px] text-zinc-200 placeholder:text-zinc-600"
+        className="flex-1 rounded border border-zinc-800 bg-zinc-900 px-3 py-1 font-mono text-2xs text-zinc-200 placeholder:text-zinc-600"
       />
-      <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-zinc-400">
+      <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-2xs font-medium uppercase tracking-wider text-zinc-400">
         <input
           type="checkbox"
           checked={value.includeSystem === true}

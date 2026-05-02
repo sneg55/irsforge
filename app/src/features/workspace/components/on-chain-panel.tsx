@@ -116,7 +116,7 @@ export function OnChainPanel({
           }}
         />
         <span
-          className={`text-[11px] font-semibold ${STATUS_COLORS[swapStatus ?? ''] ?? 'text-[#555b6e]'}`}
+          className={`text-2xs font-semibold ${STATUS_COLORS[swapStatus ?? ''] ?? 'text-[#555b6e]'}`}
           data-tooltip-key={swapStatus === 'Active' ? 'status-active' : undefined}
           title={
             swapStatus === 'Active'
@@ -172,7 +172,7 @@ export function OnChainPanel({
       </div>
       {/* Pending Unwind Summary */}
       {pendingUnwind && (
-        <div className="mb-3 p-2 border border-[#f59e0b]/40 bg-[#f59e0b]/5 text-[11px]">
+        <div className="mb-3 p-2 border border-[#f59e0b]/40 bg-[#f59e0b]/5 text-2xs">
           <div className="text-[#f59e0b] font-semibold mb-1">PENDING UNWIND</div>
           <div className="text-[#8b8fa3]">
             {pendingUnwind.proposer.split('::')[0]}: ${pendingUnwind.pvAmount.toLocaleString()} ·{' '}
@@ -235,7 +235,7 @@ export function OnChainPanel({
                     alert(err instanceof Error ? err.message : 'Action failed')
                   }
                 }}
-                className={`w-full py-2 rounded text-[11px] font-semibold tracking-wider transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                className={`w-full py-2 rounded text-2xs font-semibold tracking-wider transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
                   action.variant === 'primary'
                     ? 'bg-[#8b5cf6] text-white hover:bg-[#7c3aed]'
                     : action.variant === 'secondary'

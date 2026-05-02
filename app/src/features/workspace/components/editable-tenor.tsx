@@ -97,7 +97,7 @@ export function EditableTenor({
         <input
           ref={inputRef}
           type="text"
-          className={`bg-transparent font-mono text-[11px] border-b outline-hidden w-[50px] transition-colors ${
+          className={`bg-transparent font-mono text-2xs border-b outline-hidden w-[50px] transition-colors ${
             flash ? 'text-red-400 border-red-400' : 'text-white border-[#555b6e]'
           }`}
           value={text}

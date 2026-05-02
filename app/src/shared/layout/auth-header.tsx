@@ -49,9 +49,7 @@ export function AuthHeader({ orgId }: AuthHeaderProps) {
         >
           IRSForge
         </span>
-        <span className="text-[11px] uppercase tracking-wider text-zinc-500">
-          Canton IRS Protocol
-        </span>
+        <span className="text-2xs uppercase tracking-wider text-zinc-500">Canton IRS Protocol</span>
       </div>
 
       <div className="flex items-center gap-4">

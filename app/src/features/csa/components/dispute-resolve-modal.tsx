@@ -103,11 +103,11 @@ export function DisputeResolveModal({
         <h2 className="mb-1 text-sm font-semibold tracking-wider">
           {state === 'Escalated' ? 'RESOLVE ESCALATED DISPUTE' : 'RESOLVE DISPUTE'}
         </h2>
-        <p className="mb-4 text-[11px] text-zinc-500">
+        <p className="mb-4 text-2xs text-zinc-500">
           Publishes a new mark and flips state back to Active. The value below is the mark the
           operator is attesting to.
         </p>
-        <label htmlFor="ack-exposure" className="mb-1 block text-[11px] text-zinc-500">
+        <label htmlFor="ack-exposure" className="mb-1 block text-2xs text-zinc-500">
           New exposure ({ccy}){' '}
           {currentExposure !== null && (
             <span className="text-zinc-600">· latest stream {fmtCcy(currentExposure, ccy)}</span>
@@ -125,12 +125,12 @@ export function DisputeResolveModal({
           }}
           className="mb-3 w-full rounded border border-[#1e2235] bg-transparent px-2 py-1 font-mono text-sm focus:border-zinc-500 outline-hidden"
         />
-        {error && <p className="mb-3 text-[11px] text-red-400">{error}</p>}
+        {error && <p className="mb-3 text-2xs text-red-400">{error}</p>}
         <div className="flex justify-end gap-2">
           <button
             onClick={onClose}
             disabled={busy}
-            className="px-3 py-1.5 text-[11px] text-zinc-500 hover:text-zinc-300"
+            className="px-3 py-1.5 text-2xs text-zinc-500 hover:text-zinc-300"
           >
             Cancel
           </button>
@@ -138,7 +138,7 @@ export function DisputeResolveModal({
             data-testid="dispute-resolve-confirm"
             onClick={handleResolve}
             disabled={busy}
-            className="rounded bg-indigo-600 px-3 py-1.5 text-[11px] text-white hover:bg-indigo-500 disabled:opacity-40"
+            className="rounded bg-indigo-600 px-3 py-1.5 text-2xs text-white hover:bg-indigo-500 disabled:opacity-40"
           >
             {busy ? '…' : 'Resolve'}
           </button>

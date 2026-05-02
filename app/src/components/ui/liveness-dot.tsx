@@ -47,7 +47,7 @@ export function LivenessDot({
         role="tooltip"
         data-slot="liveness-tooltip"
         className={cn(
-          'pointer-events-none absolute left-1/2 z-30 w-64 -translate-x-1/2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-left text-[11px] font-sans font-normal normal-case tracking-normal shadow-lg opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100',
+          'pointer-events-none absolute left-1/2 z-30 w-64 -translate-x-1/2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-left text-2xs font-sans font-normal normal-case tracking-normal shadow-lg opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100',
           placementClass,
         )}
       >

@@ -194,7 +194,7 @@ export function LegComposer({
                     {legs.length > 1 && (
                       <button
                         onClick={() => onRemoveLeg(i)}
-                        className="text-[#555b6e] hover:text-[#ef4444] text-[11px] transition-colors"
+                        className="text-[#555b6e] hover:text-[#ef4444] text-2xs transition-colors"
                       >
                         ×
                       </button>
@@ -259,7 +259,7 @@ export function LegComposer({
         >
           <div className="text-center">
             <div className="text-2xl mb-1">+</div>
-            <div className="text-[11px]">Add Leg</div>
+            <div className="text-2xs">Add Leg</div>
           </div>
         </button>
       )}

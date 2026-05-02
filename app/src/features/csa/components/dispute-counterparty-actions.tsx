@@ -66,7 +66,7 @@ export function DisputeCounterpartyActions({
     return (
       <div
         data-testid="dispute-counterparty-escalated-pill"
-        className="rounded border border-rose-700/40 bg-rose-900/20 px-3 py-1.5 text-[11px] text-rose-200"
+        className="rounded border border-rose-700/40 bg-rose-900/20 px-3 py-1.5 text-2xs text-rose-200"
       >
         Escalated — awaiting operator
       </div>
@@ -116,7 +116,7 @@ export function DisputeCounterpartyActions({
           data-testid="dispute-counterparty-agree"
           disabled={busy}
           onClick={() => setAgreeOpen(true)}
-          className="rounded bg-emerald-700 px-3 py-1.5 text-[11px] text-white disabled:opacity-40"
+          className="rounded bg-emerald-700 px-3 py-1.5 text-2xs text-white disabled:opacity-40"
         >
           Agree
         </button>
@@ -124,7 +124,7 @@ export function DisputeCounterpartyActions({
           data-testid="dispute-counterparty-escalate"
           disabled={busy}
           onClick={handleEscalate}
-          className="rounded bg-rose-700 px-3 py-1.5 text-[11px] text-white disabled:opacity-40"
+          className="rounded bg-rose-700 px-3 py-1.5 text-2xs text-white disabled:opacity-40"
         >
           Escalate
         </button>
@@ -138,12 +138,12 @@ export function DisputeCounterpartyActions({
         >
           <div className="w-[420px] rounded border border-[#1e2235] bg-[#111320] p-5 text-white">
             <h2 className="mb-3 text-sm font-semibold tracking-wider">CONFIRM AGREE</h2>
-            <p className="mb-3 text-[11px] text-zinc-400">
+            <p className="mb-3 text-2xs text-zinc-400">
               Accept the counter mark of{' '}
               <span className="font-mono text-emerald-300">{fmtCcy(counterMark, ccy)}</span>{' '}
               proposed by the disputer? This stamps the new mark and flips the CSA back to Active.
             </p>
-            <div className="mb-3 rounded border border-[#1e2235] bg-[#0b0d18] px-2 py-1 text-[11px]">
+            <div className="mb-3 rounded border border-[#1e2235] bg-[#0b0d18] px-2 py-1 text-2xs">
               <div className="text-zinc-500">
                 Reason: <span className="text-zinc-300">{reason}</span>
               </div>
@@ -153,12 +153,12 @@ export function DisputeCounterpartyActions({
                 </div>
               )}
             </div>
-            {error && <p className="mb-3 text-[11px] text-red-400">{error}</p>}
+            {error && <p className="mb-3 text-2xs text-red-400">{error}</p>}
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setAgreeOpen(false)}
                 disabled={busy}
-                className="px-3 py-1.5 text-[11px] text-zinc-500 hover:text-zinc-300"
+                className="px-3 py-1.5 text-2xs text-zinc-500 hover:text-zinc-300"
               >
                 Cancel
               </button>
@@ -166,7 +166,7 @@ export function DisputeCounterpartyActions({
                 onClick={handleAgree}
                 disabled={busy}
                 data-testid="dispute-counterparty-agree-confirm"
-                className="rounded bg-emerald-600 px-3 py-1.5 text-[11px] text-white hover:bg-emerald-500 disabled:opacity-40"
+                className="rounded bg-emerald-600 px-3 py-1.5 text-2xs text-white hover:bg-emerald-500 disabled:opacity-40"
               >
                 {busy ? '…' : 'Confirm'}
               </button>

@@ -49,7 +49,7 @@ export function ExportFpmlButton({
     <button
       type="button"
       onClick={onExport}
-      className="w-full rounded border border-[#1e2235] bg-transparent py-2 text-[11px] font-semibold tracking-wider text-[#555b6e] transition-colors hover:text-[#8b8fa3]"
+      className="w-full rounded border border-[#1e2235] bg-transparent py-2 text-2xs font-semibold tracking-wider text-[#555b6e] transition-colors hover:text-[#8b8fa3]"
     >
       EXPORT FPML
     </button>

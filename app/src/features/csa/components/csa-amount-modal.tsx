@@ -82,7 +82,7 @@ export function CsaAmountModal({ isOpen, mode, ccy, max, onClose, onSubmit }: Pr
     >
       <div className="w-[420px] rounded border border-[#1e2235] bg-[#111320] p-5 text-white">
         <h2 className="mb-4 text-sm font-semibold tracking-wider">{cfg.title}</h2>
-        <label htmlFor="csa-amount" className="mb-1 block text-[11px] text-[#555b6e]">
+        <label htmlFor="csa-amount" className="mb-1 block text-2xs text-[#555b6e]">
           {cfg.label} ({ccy})
         </label>
         <input
@@ -99,32 +99,32 @@ export function CsaAmountModal({ isOpen, mode, ccy, max, onClose, onSubmit }: Pr
           className="mb-3 w-full rounded border border-[#1e2235] bg-transparent px-2 py-1 font-mono text-sm focus:border-zinc-500 outline-hidden"
         />
         {mode === 'withdraw' && max !== undefined && (
-          <div className="mb-3 flex items-center justify-between text-[11px]">
+          <div className="mb-3 flex items-center justify-between text-2xs">
             <span className="text-[#555b6e]">
               Posted balance: <span className="text-zinc-300">{fmt(max)}</span>
             </span>
             <button
               type="button"
               onClick={() => setAmountText(String(max))}
-              className="text-[11px] text-blue-400 hover:text-blue-300"
+              className="text-2xs text-blue-400 hover:text-blue-300"
             >
               Max
             </button>
           </div>
         )}
-        {error && <p className="mb-3 text-[11px] text-red-400">{error}</p>}
+        {error && <p className="mb-3 text-2xs text-red-400">{error}</p>}
         <div className="flex justify-end gap-2">
           <button
             onClick={onClose}
             disabled={busy}
-            className="px-3 py-1.5 text-[11px] text-[#555b6e] hover:text-[#8b8fa3]"
+            className="px-3 py-1.5 text-2xs text-[#555b6e] hover:text-[#8b8fa3]"
           >
             Cancel
           </button>
           <button
             onClick={handleSubmit}
             disabled={busy}
-            className={`rounded px-3 py-1.5 text-[11px] text-white disabled:opacity-40 ${cfg.submitClass}`}
+            className={`rounded px-3 py-1.5 text-2xs text-white disabled:opacity-40 ${cfg.submitClass}`}
           >
             {busy ? '…' : cfg.submit}
           </button>

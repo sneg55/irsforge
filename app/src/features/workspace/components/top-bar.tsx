@@ -65,7 +65,7 @@ export function TopBar({
               key={type}
               onClick={() => isEditable && onTypeChange(type)}
               disabled={!isEditable}
-              className={`px-2.5 py-1 text-[11px] font-semibold tracking-wide transition-colors ${
+              className={`px-2.5 py-1 text-2xs font-semibold tracking-wide transition-colors ${
                 type === swapType
                   ? 'bg-[#f59e0b] text-black'
                   : isEditable
@@ -82,7 +82,7 @@ export function TopBar({
         <div className="w-px h-5 bg-[#1e2235]" />
 
         {/* Deal dates */}
-        <div className="flex gap-4 text-[11px]">
+        <div className="flex gap-4 text-2xs">
           <EditableDate
             label="Trade"
             value={dates.tradeDate}
@@ -118,14 +118,14 @@ export function TopBar({
           <button
             data-testid="import-fpml-btn"
             onClick={() => setImportOpen(true)}
-            className="rounded border border-[#1e2235] bg-[#1e2235] px-2 py-1 text-[11px] font-semibold text-[#8b8fa3] transition-colors hover:text-white"
+            className="rounded border border-[#1e2235] bg-[#1e2235] px-2 py-1 text-2xs font-semibold text-[#8b8fa3] transition-colors hover:text-white"
           >
             Import FpML
           </button>
         )}
         {mode !== 'draft' && (
           <>
-            <span className="text-[#555b6e] text-[11px] uppercase tracking-wider">WHAT-IF</span>
+            <span className="text-[#555b6e] text-2xs uppercase tracking-wider">WHAT-IF</span>
             <button
               onClick={onToggleWhatIf}
               className={`w-8 h-4 rounded-full relative transition-colors cursor-pointer ${

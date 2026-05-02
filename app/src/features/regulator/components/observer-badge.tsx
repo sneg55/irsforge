@@ -12,7 +12,7 @@ export function ObserverBadge() {
   if (role !== 'regulator') return null
   return (
     <span
-      className="rounded border border-yellow-700/50 bg-yellow-900/20 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-yellow-300"
+      className="rounded border border-yellow-700/50 bg-yellow-900/20 px-2 py-0.5 text-2xs font-semibold uppercase tracking-wider text-yellow-300"
       title="Observer mode — this account has read-only access"
     >
       OBSERVER

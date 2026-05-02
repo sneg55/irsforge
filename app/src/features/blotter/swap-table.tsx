@@ -88,16 +88,16 @@ export function SwapTable({
           >
             {label}
             {isLoading && key !== 'drafts' ? (
-              <span className="ml-1.5 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-zinc-800 px-1.5 py-0.5 font-mono text-[11px] font-medium text-zinc-500">
+              <span className="ml-1.5 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-zinc-800 px-1.5 py-0.5 font-mono text-2xs font-medium text-zinc-500">
                 …
               </span>
             ) : key === 'proposals' && tabCounts[key] > 0 ? (
-              <span className="ml-1.5 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-blue-600 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-white">
+              <span className="ml-1.5 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-blue-600 px-1.5 py-0.5 font-mono text-2xs font-semibold text-white">
                 {tabCounts[key]}
               </span>
             ) : (
               <span
-                className={`ml-1.5 inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 font-mono text-[11px] font-medium ${
+                className={`ml-1.5 inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 font-mono text-2xs font-medium ${
                   activeTab === key ? 'bg-blue-500/15 text-blue-300' : 'bg-zinc-800 text-zinc-500'
                 }`}
               >

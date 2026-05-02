@@ -16,7 +16,7 @@ const LABEL: Record<CsaState, string> = {
 
 export function CsaStateBadge({ state }: { state: CsaState }) {
   return (
-    <span className={`inline-block px-2 py-0.5 text-[11px] font-mono rounded ${COLOR[state]}`}>
+    <span className={`inline-block px-2 py-0.5 text-2xs font-mono rounded ${COLOR[state]}`}>
       {LABEL[state]}
     </span>
   )

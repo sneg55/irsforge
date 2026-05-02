@@ -78,7 +78,7 @@ export default function OrgSelectorPage() {
                 role="note"
                 aria-label="Demo mode notice"
               >
-                <span className="mt-0.5 rounded-sm bg-amber-500/80 px-1.5 py-0.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-zinc-950">
+                <span className="mt-0.5 rounded-sm bg-amber-500/80 px-1.5 py-0.5 font-mono text-2xs font-semibold uppercase tracking-wider text-zinc-950">
                   Demo
                 </span>
                 <p className="text-xs text-amber-100/90">

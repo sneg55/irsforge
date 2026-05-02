@@ -38,7 +38,7 @@ export function CollateralZone({
         <div className="text-xs font-medium uppercase tracking-wider text-zinc-500 mb-2">
           Collateral (CSA)
         </div>
-        <div className="flex-1 flex items-center justify-center text-[11px] text-zinc-500">
+        <div className="flex-1 flex items-center justify-center text-2xs text-zinc-500">
           No CSA configured
         </div>
       </div>
@@ -86,7 +86,7 @@ export function CollateralZone({
               href={csaHref}
               data-testid="status-pill"
               title="Manage collateral"
-              className={`inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-0.5 rounded-full border transition-opacity hover:opacity-80 ${colors.pill}`}
+              className={`inline-flex items-center gap-1.5 text-2xs font-medium px-2 py-0.5 rounded-full border transition-opacity hover:opacity-80 ${colors.pill}`}
             >
               <span className={`h-1.5 w-1.5 rounded-full ${colors.dot}`} />
               {colors.label}
@@ -94,7 +94,7 @@ export function CollateralZone({
           ) : (
             <span
               data-testid="status-pill"
-              className={`inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-0.5 rounded-full border ${colors.pill}`}
+              className={`inline-flex items-center gap-1.5 text-2xs font-medium px-2 py-0.5 rounded-full border ${colors.pill}`}
             >
               <span className={`h-1.5 w-1.5 rounded-full ${colors.dot}`} />
               {colors.label}
@@ -112,7 +112,7 @@ export function CollateralZone({
             }}
           />
         </div>
-        <div className="flex items-center justify-between text-[11px] font-mono">
+        <div className="flex items-center justify-between text-2xs font-mono">
           <span data-testid="posted-amount" className="text-zinc-300">
             {compactCurrency(ownPosted)} mine
           </span>
@@ -122,9 +122,9 @@ export function CollateralZone({
         </div>
         <div
           data-testid="exposure-line"
-          className="flex items-baseline justify-between gap-2 text-[11px] font-mono"
+          className="flex items-baseline justify-between gap-2 text-2xs font-mono"
         >
-          <span className="text-zinc-500 uppercase tracking-wider text-[11px] font-medium shrink-0">
+          <span className="text-zinc-500 uppercase tracking-wider text-2xs font-medium shrink-0">
             Exposure
           </span>
           <span className="text-zinc-300 whitespace-nowrap truncate">
@@ -135,7 +135,7 @@ export function CollateralZone({
         {regulatorHints && regulatorHints.length > 0 && (
           <div
             data-testid="regulator-line"
-            className="group relative inline-flex w-fit items-center gap-1.5 text-[11px] font-mono text-zinc-500"
+            className="group relative inline-flex w-fit items-center gap-1.5 text-2xs font-mono text-zinc-500"
           >
             <span className="h-1.5 w-1.5 rounded-full bg-blue-500/60" />
             <span className="truncate text-zinc-400 cursor-help underline decoration-dotted decoration-zinc-700 underline-offset-2">
@@ -149,7 +149,7 @@ export function CollateralZone({
             <div
               role="tooltip"
               data-testid="regulator-tooltip"
-              className="pointer-events-none absolute bottom-full right-0 z-20 mb-2 w-72 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-[11px] font-sans shadow-lg opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
+              className="pointer-events-none absolute bottom-full right-0 z-20 mb-2 w-72 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-2xs font-sans shadow-lg opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
             >
               <p className="font-semibold text-zinc-200">Regulators observing</p>
               <p className="mt-1 text-zinc-400">

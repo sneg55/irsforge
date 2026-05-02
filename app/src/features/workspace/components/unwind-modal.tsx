@@ -51,7 +51,7 @@ export function UnwindModal({ isOpen, onClose, currentNpv, onSubmit }: UnwindMod
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
       <div className="w-[420px] bg-[#111320] border border-[#1e2235] rounded p-5 text-white">
         <h2 className="text-sm font-semibold tracking-wider mb-4">UNWIND SWAP</h2>
-        <label className="block text-[11px] text-[#555b6e] mb-1" htmlFor="unwind-pv">
+        <label className="block text-2xs text-[#555b6e] mb-1" htmlFor="unwind-pv">
           PV Amount (USD)
         </label>
         <input
@@ -65,7 +65,7 @@ export function UnwindModal({ isOpen, onClose, currentNpv, onSubmit }: UnwindMod
         <p className="text-[9px] text-[#555b6e] mb-3">
           Positive: you pay counterparty. Negative: counterparty pays you.
         </p>
-        <label className="block text-[11px] text-[#555b6e] mb-1" htmlFor="unwind-reason">
+        <label className="block text-2xs text-[#555b6e] mb-1" htmlFor="unwind-reason">
           Reason
         </label>
         <textarea
@@ -76,19 +76,19 @@ export function UnwindModal({ isOpen, onClose, currentNpv, onSubmit }: UnwindMod
           rows={3}
           className="w-full bg-transparent border border-[#1e2235] px-2 py-1 text-sm mb-3"
         />
-        {error && <p className="text-[11px] text-red-400 mb-3">{error}</p>}
+        {error && <p className="text-2xs text-red-400 mb-3">{error}</p>}
         <div className="flex gap-2 justify-end">
           <button
             onClick={onClose}
             disabled={inFlight}
-            className="px-3 py-1.5 text-[11px] text-[#555b6e] hover:text-[#8b8fa3]"
+            className="px-3 py-1.5 text-2xs text-[#555b6e] hover:text-[#8b8fa3]"
           >
             Cancel
           </button>
           <button
             onClick={handleSubmit}
             disabled={inFlight}
-            className="px-3 py-1.5 text-[11px] bg-[#8b5cf6] rounded disabled:opacity-50"
+            className="px-3 py-1.5 text-2xs bg-[#8b5cf6] rounded disabled:opacity-50"
           >
             {inFlight ? 'Submitting…' : 'Submit Unwind'}
           </button>

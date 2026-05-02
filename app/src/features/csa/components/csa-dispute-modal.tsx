@@ -89,7 +89,7 @@ export function CsaDisputeModal({
     >
       <div className="w-[420px] bg-[#111320] border border-[#1e2235] rounded p-5 text-white">
         <h2 className="text-sm font-semibold tracking-wider mb-4">DISPUTE MARK</h2>
-        <label htmlFor="dispute-counter-mark" className="block text-[11px] text-[#555b6e] mb-1">
+        <label htmlFor="dispute-counter-mark" className="block text-2xs text-[#555b6e] mb-1">
           Counter mark (valuation ccy)
         </label>
         <input
@@ -100,7 +100,7 @@ export function CsaDisputeModal({
           onChange={(e) => setCounterMark(e.target.value)}
           className="w-full bg-transparent border border-[#1e2235] px-2 py-1 text-sm font-mono mb-3"
         />
-        <label htmlFor="dispute-reason" className="block text-[11px] text-[#555b6e] mb-1">
+        <label htmlFor="dispute-reason" className="block text-2xs text-[#555b6e] mb-1">
           Reason
         </label>
         <select
@@ -116,7 +116,7 @@ export function CsaDisputeModal({
             </option>
           ))}
         </select>
-        <label htmlFor="dispute-notes" className="block text-[11px] text-[#555b6e] mb-1">
+        <label htmlFor="dispute-notes" className="block text-2xs text-[#555b6e] mb-1">
           Notes (optional)
         </label>
         <textarea
@@ -127,19 +127,19 @@ export function CsaDisputeModal({
           rows={3}
           className="w-full bg-transparent border border-[#1e2235] px-2 py-1 text-sm mb-3"
         />
-        {error && <p className="text-[11px] text-red-400 mb-3">{error}</p>}
+        {error && <p className="text-2xs text-red-400 mb-3">{error}</p>}
         <div className="flex gap-2 justify-end">
           <button
             onClick={onClose}
             disabled={busy}
-            className="px-3 py-1.5 text-[11px] text-[#555b6e] hover:text-[#8b8fa3]"
+            className="px-3 py-1.5 text-2xs text-[#555b6e] hover:text-[#8b8fa3]"
           >
             Cancel
           </button>
           <button
             onClick={handleSubmit}
             disabled={busy || !client}
-            className="px-3 py-1.5 text-[11px] rounded bg-amber-600 text-white disabled:opacity-40"
+            className="px-3 py-1.5 text-2xs rounded bg-amber-600 text-white disabled:opacity-40"
           >
             Dispute
           </button>

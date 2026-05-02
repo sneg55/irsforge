@@ -108,12 +108,12 @@ export function LegColumn({
       >
         <div className="flex items-center gap-1.5">
           <div className="w-[3px] h-3.5 rounded-sm" style={{ background: accent }} />
-          <span className="text-[11px] font-semibold tracking-wider" style={{ color: accent }}>
+          <span className="text-2xs font-semibold tracking-wider" style={{ color: accent }}>
             {legLabel}
           </span>
         </div>
         <button
-          className="text-[#555b6e] text-[11px] hover:text-[#8b8fa3] transition-colors"
+          className="text-[#555b6e] text-2xs hover:text-[#8b8fa3] transition-colors"
           onClick={onToggleDirection}
         >
           ⇄ Flip pay/receive
@@ -146,7 +146,7 @@ export function LegColumn({
       <div className="px-3.5 pb-3 flex-1 overflow-y-auto">
         {/* 3a. Leg Valuation */}
         <div className="pt-2.5 border-t border-[#1e2235]">
-          <div className="text-[#555b6e] text-[11px] font-semibold tracking-wider mb-1.5">
+          <div className="text-[#555b6e] text-2xs font-semibold tracking-wider mb-1.5">
             LEG VALUATION
           </div>
           <div className="grid grid-cols-2 gap-1.5">
@@ -177,7 +177,7 @@ export function LegColumn({
 
         {/* 3b. Cashflows */}
         <div className="mt-3 pt-2.5 border-t border-[#1e2235]">
-          <div className="text-[#555b6e] text-[11px] font-semibold tracking-wider mb-1">
+          <div className="text-[#555b6e] text-2xs font-semibold tracking-wider mb-1">
             {leg.legType === 'float'
               ? 'FLOAT CASHFLOWS'
               : leg.legType === 'fixed'

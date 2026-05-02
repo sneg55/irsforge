@@ -103,7 +103,7 @@ export function BootstrapStatusCard() {
                   key={section.name}
                   data-testid={`bootstrap-pill-${section.name.toLowerCase().replace(/\s+/g, '-')}`}
                   title={`${sectionOkCount}/${section.rows.length} contracts on-chain`}
-                  className={`flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wider ${
+                  className={`flex items-center gap-1 rounded border px-1.5 py-0.5 text-2xs font-medium uppercase tracking-wider ${
                     sectionOk
                       ? 'border-emerald-900/60 bg-emerald-950/40 text-emerald-300'
                       : 'border-amber-900/60 bg-amber-950/40 text-amber-300'
@@ -153,7 +153,7 @@ export function BootstrapStatusCard() {
       <div className="divide-y divide-zinc-800/50">
         {sections.map((section) => (
           <div key={section.name}>
-            <div className="px-6 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+            <div className="px-6 pt-3 pb-1 text-2xs font-semibold uppercase tracking-wider text-zinc-500">
               {section.name}
             </div>
             <ul>

@@ -32,7 +32,7 @@ export function CsaOperatorActions({
 
   if (state !== 'MarkDisputed' && state !== 'Escalated') {
     return (
-      <div className="flex flex-col items-end gap-1 text-[11px] text-zinc-500">
+      <div className="flex flex-col items-end gap-1 text-2xs text-zinc-500">
         <div className="rounded border border-zinc-800 bg-zinc-900 px-3 py-1.5">
           Operator · no pending action
         </div>
@@ -46,7 +46,7 @@ export function CsaOperatorActions({
     <div className="flex flex-col items-end gap-1">
       <button
         onClick={() => setOpen(true)}
-        className="rounded bg-indigo-600 px-3 py-1.5 text-[11px] text-white hover:bg-indigo-500"
+        className="rounded bg-indigo-600 px-3 py-1.5 text-2xs text-white hover:bg-indigo-500"
       >
         {label}
       </button>
