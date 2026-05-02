@@ -27,26 +27,22 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: site
     steps:
       - uses: actions/checkout@v4
 
-      # site/ has no committed package-lock.json — `npm install` instead
-      # of `npm ci`, no cache config (would require a lockfile).
+      # site/ is an npm workspace; the lockfile lives at repo root, so
+      # install runs from root and scopes to the site workspace +
+      # root-level devDeps (husky etc.).
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: npm
 
-      # --ignore-scripts skips the root prepare:husky hook that fires
-      # because site/ is an npm workspace (root walks up). Astro has
-      # no deps that need lifecycle scripts.
-      - name: Install
-        run: npm install --no-audit --no-fund --ignore-scripts
+      - name: Install (site workspace + root)
+        run: npm ci --workspace=site --include-workspace-root --no-audit --no-fund
 
       - name: Build
-        run: npm run build
+        run: npm run build --workspace=site
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
