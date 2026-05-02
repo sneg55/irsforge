@@ -1,0 +1,70 @@
+# Reference-deployment workflow for demo.irsforge.com (Hetzner CPX32, nbg1).
+#
+# Strategy: build-on-box. The runner SSHes into the Hetzner VPS, fast-forwards
+# the working tree to origin/main, and rebuilds the demo container in place.
+# We do NOT build a Docker image in CI and push to a registry — keeping the
+# build local to the box matches the manual workflow that's been in use since
+# demo.irsforge.com went live, and avoids registry credentials.
+#
+# Path filter: triggers on anything that affects the running demo. site/ and
+# docs-site/ are excluded — those have their own pipelines.
+#
+# The container's hourly reset loop (deploy/entrypoint.sh) already wipes
+# in-memory ledger state every round-clock interval, so a mid-window
+# deploy is no more disruptive than the regular reset.
+#
+# Integrator note: maintainer-only pipeline. See deploy-site.yml header.
+
+name: deploy-demo
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "auth/**"
+      - "contracts/**"
+      - "oracle/**"
+      - "shared-config/**"
+      - "shared-pricing/**"
+      - "scripts/**"
+      - "deploy/**"
+      - "irsforge.yaml"
+      - "Makefile"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/deploy-demo.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-demo
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: SSH deploy to Hetzner
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HETZNER_HOST }}
+          username: ${{ secrets.HETZNER_SSH_USER }}
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          port: 22
+          command_timeout: 25m
+          script: |
+            set -euo pipefail
+            cd /opt/irsforge
+            git fetch --all --prune
+            git reset --hard origin/main
+            git rev-parse --short HEAD
+            # Apply prod-only yaml deltas (demoReset.enabled + per-org
+            # streamUrl). Lives on the box, not in public main; see
+            # /opt/irsforge-overlay/postdeploy.sh.
+            bash /opt/irsforge-overlay/postdeploy.sh
+            docker compose -f deploy/docker-compose.yml up -d --build
+            docker compose -f deploy/docker-compose.yml ps

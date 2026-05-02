@@ -1,0 +1,51 @@
+# Reference-deployment workflow for docs.irsforge.com (Docusaurus).
+# Path-scoped: only fires when docs-site/ (or this workflow) changes.
+# Integrator note: maintainer-only pipeline. See deploy-site.yml header.
+
+name: deploy-docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs-site/**"
+      - ".github/workflows/deploy-docs.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-docs
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  deployments: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: docs-site
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: docs-site/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: docs-site
+          command: pages deploy build --project-name=irsforge-docs --branch=main --commit-dirty=true
