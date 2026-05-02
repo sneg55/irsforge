@@ -40,6 +40,8 @@ jobs:
           node-version: "20"
 
       - name: Install
+        env:
+          HUSKY: "0"
         run: npm install --no-audit --no-fund
 
       - name: Build
