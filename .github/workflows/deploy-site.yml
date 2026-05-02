@@ -42,10 +42,13 @@ jobs:
         run: npm ci --workspace=site --include-workspace-root --no-audit --no-fund
 
       # Workaround for npm/cli#4828: lockfile generated on darwin lacks
-      # the linux native rollup binary, so Astro's build crashes. Pull
-      # it in explicitly without persisting to the lockfile.
-      - name: Install rollup linux native
-        run: npm install --no-save --no-audit --no-fund @rollup/rollup-linux-x64-gnu
+      # linux native binaries (rollup, sharp), so Astro's build crashes.
+      # Pull them in explicitly without persisting to the lockfile.
+      - name: Install missing linux natives
+        run: |
+          npm install --no-save --no-audit --no-fund \
+            @rollup/rollup-linux-x64-gnu sharp
+        working-directory: site
 
       - name: Build
         run: npm run build --workspace=site
