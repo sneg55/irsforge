@@ -4,13 +4,14 @@ import { useQuery } from '@tanstack/react-query'
 import { PartyName } from 'canton-party-directory/ui'
 import { useRouter } from 'next/navigation'
 import { useMemo, useReducer, useState } from 'react'
+import { LedgerUnreachable } from '@/components/ui/ledger-unreachable'
 import { useCsaSummary } from '@/features/csa/hooks/use-csa-summary'
 import { useIsOperator, useIsRegulator } from '@/shared/hooks/use-is-operator'
 import { useLedgerClient } from '@/shared/hooks/use-ledger-client'
+import { useLedgerHealth } from '@/shared/hooks/use-ledger-health'
 import { useOracleCurve } from '@/shared/hooks/use-oracle-curve'
 import type { SwapFamily } from '@/shared/hooks/use-swap-instruments'
 import { useSwapInstruments } from '@/shared/hooks/use-swap-instruments'
-import { partyMatchesHint } from '@/shared/ledger/party-match'
 import type {
   ContractResult,
   MaturedSwap,
@@ -21,27 +22,40 @@ import { useCurveBook } from '@/shared/ledger/useCurveBook'
 import { useCurveStream } from '@/shared/ledger/useCurveStream'
 import { useFxSpots } from '@/shared/ledger/useFxSpots'
 import { useDrafts } from '../workspace/hooks/use-drafts'
-import { computeSummary, EMPTY_SUMMARY } from './compute-summary'
+import { deriveBlotterViewModel } from './derive-view-model'
 import { ExposureHeader, ExposureHeaderSkeleton } from './exposure-header'
 import { useAllProposals } from './hooks/use-all-proposals'
 import { useBlotterUrlState } from './hooks/use-blotter-url-state'
 import { useBlotterValuation } from './hooks/use-blotter-valuation'
 import { useTerminateProposals } from './hooks/use-terminate-proposals'
-import { maturedToRow, terminatedToRow } from './mappers'
 import { RowDetailsDrawer } from './row-details-drawer'
 import { SwapTable } from './swap-table'
 import { downloadRowsAsCsv } from './to-csv'
-import type { BlotterTab, SwapRow } from './types'
+import type { SwapRow } from './types'
 import { workflowToRow } from './workflow-to-row'
 
 // Re-export so existing test imports (`from '../page'`) keep working.
 export { workflowToRow }
+
+const POLL_HEALTHY_MS = 3_000
+const POLL_BACKOFF_MS = 30_000
+
+// Back off the 3 s blotter polls to 30 s once the ledger errors. Without
+// this, a Canton-down window (sandbox JVM OOM, see d1aa898) leaves three
+// queries firing 3-attempt retry chains every 3 s and the table re-renders
+// every ~1 s while no new data is possible. React Query passes a `query`
+// object whose `state.error` is non-null while the query is in error
+// state; first success after recovery flips us back to fast polling.
+function pollIntervalWithBackoff(query: { state: { error: unknown } }): number {
+  return query.state.error ? POLL_BACKOFF_MS : POLL_HEALTHY_MS
+}
 
 export function Blotter() {
   const { client, activeParty } = useLedgerClient()
   const router = useRouter()
   const isOperator = useIsOperator()
   const isRegulator = useIsRegulator()
+  const ledgerHealth = useLedgerHealth()
   const { listDrafts, deleteDraft, deleteAllDrafts } = useDrafts()
   const [, forceUpdate] = useReducer((x) => x + 1, 0)
   const [drawerRow, setDrawerRow] = useState<SwapRow | null>(null)
@@ -55,41 +69,38 @@ export function Blotter() {
     csaBase,
   } = useBlotterUrlState()
 
-  const { data: workflows = [], isLoading: workflowsLoading } = useQuery<
-    ContractResult<SwapWorkflow>[]
-  >({
+  const workflowsQuery = useQuery<ContractResult<SwapWorkflow>[]>({
     queryKey: ['workflows', activeParty],
     queryFn: async () => {
       if (!client) return []
       return await client.query<ContractResult<SwapWorkflow>>('Swap.Workflow:SwapWorkflow')
     },
     enabled: !!client,
-    refetchInterval: 3000,
+    refetchInterval: pollIntervalWithBackoff,
   })
+  const workflows = workflowsQuery.data ?? []
 
-  const { data: maturedContracts = [], isLoading: maturedLoading } = useQuery<
-    ContractResult<MaturedSwap>[]
-  >({
+  const maturedQuery = useQuery<ContractResult<MaturedSwap>[]>({
     queryKey: ['matured', activeParty],
     queryFn: async () => {
       if (!client) return []
       return await client.query<ContractResult<MaturedSwap>>('Swap.Workflow:MaturedSwap')
     },
     enabled: !!client,
-    refetchInterval: 3000,
+    refetchInterval: pollIntervalWithBackoff,
   })
+  const maturedContracts = maturedQuery.data ?? []
 
-  const { data: terminatedContracts = [], isLoading: terminatedLoading } = useQuery<
-    ContractResult<TerminatedSwap>[]
-  >({
+  const terminatedQuery = useQuery<ContractResult<TerminatedSwap>[]>({
     queryKey: ['terminated', activeParty],
     queryFn: async () => {
       if (!client) return []
       return await client.query<ContractResult<TerminatedSwap>>('Swap.Terminate:TerminatedSwap')
     },
     enabled: !!client,
-    refetchInterval: 3000,
+    refetchInterval: pollIntervalWithBackoff,
   })
+  const terminatedContracts = terminatedQuery.data ?? []
 
   // Derive the set of swap families currently on screen so we fetch only the
   // instrument templates we actually need.
@@ -120,103 +131,46 @@ export function Blotter() {
     curveHistory,
   )
 
-  const isLoading = workflowsLoading || proposalsLoading || maturedLoading || terminatedLoading
+  // `isPending` is true ONLY on the very first fetch, so refetches don't
+  // flip the page back to skeleton state. The previous OR-chain on
+  // `isLoading` (alias for `isPending` per query) was already initial-only,
+  // but combining four queries' independent `isPending` flags meant the
+  // table re-rendered each time any one resolved — visible as the table
+  // "jumping" while ledger is healthy. We still gate on every query so the
+  // exposure header doesn't render with partial data, but using `isPending`
+  // explicitly keeps the contract clear.
+  const isInitialLoading =
+    workflowsQuery.isPending ||
+    proposalsLoading ||
+    maturedQuery.isPending ||
+    terminatedQuery.isPending
+
+  // Decide whether to show the "Ledger unreachable" empty state instead of
+  // an empty SwapTable. Triggers only when health is genuinely `down` AND
+  // none of the workflows/matured/terminated queries ever produced data
+  // for the current session — otherwise we keep showing the last
+  // successful snapshot (placeholderData: keepPreviousData) with the
+  // status-bar dot communicating the degraded state.
+  const noCachedRows =
+    workflows.length === 0 && maturedContracts.length === 0 && terminatedContracts.length === 0
+  const showLedgerUnreachable = ledgerHealth === 'down' && noCachedRows
+
   // activeParty from AuthState is already the party hint (PartyA/PartyB) used for on-chain matching
-  const partyHint = activeParty ?? ''
-
-  const matchesCounterpartyFilter = (row: { counterparty: string }) =>
-    counterpartyHint === null || partyMatchesHint(row.counterparty, counterpartyHint)
-
-  const activeRows = workflows
-    .map((w) =>
-      workflowToRow(
-        w,
-        partyHint,
-        valuations.get(w.contractId),
-        byInstrumentId.get(w.payload.instrumentKey.id.unpack),
-        terminateProposals,
-      ),
-    )
-    .filter(matchesCounterpartyFilter)
-
-  const filteredProposalRows = proposalRows.filter(matchesCounterpartyFilter)
-
-  const drafts = listDrafts()
-  const draftRows: SwapRow[] = drafts.map((d) => ({
-    contractId: d.draftId,
-    type: d.type,
-    counterparty: '—',
-    notional: d.notional,
-    currency: 'USD',
-    tradeDate: '—',
-    maturity: '—',
-    npv: null,
-    dv01: null,
-    status: 'Draft' as const,
-    direction: 'pay' as const,
-  }))
-
-  const maturedRows: SwapRow[] = maturedContracts
-    .map((c) => maturedToRow(c, partyHint, byInstrumentId.get(c.payload.instrumentKey.id.unpack)))
-    .filter(matchesCounterpartyFilter)
-    .sort((a, b) => (b.terminalDate ?? '').localeCompare(a.terminalDate ?? ''))
-
-  const unwoundRows: SwapRow[] = terminatedContracts
-    .map((c) =>
-      terminatedToRow(c, partyHint, byInstrumentId.get(c.payload.instrumentKey.id.unpack)),
-    )
-    .filter(matchesCounterpartyFilter)
-    .sort((a, b) => (b.terminalDate ?? '').localeCompare(a.terminalDate ?? ''))
-
-  const summary =
-    activeRows.length > 0 || filteredProposalRows.length > 0
-      ? computeSummary(activeRows, filteredProposalRows, csaSummary)
-      : {
-          ...EMPTY_SUMMARY,
-          csaCount: csaSummary.count,
-          csaConfigured: csaSummary.configured,
-          csaOwnPosted: csaSummary.ownPosted,
-          csaCptyPosted: csaSummary.cptyPosted,
-          csaExposure: csaSummary.exposure,
-          csaState: csaSummary.state,
-          csaRegulatorHints: csaSummary.regulatorHints,
-        }
-
-  const exposureHeaderData = {
-    bookNpv: summary.bookNpv,
-    bookDv01: summary.bookDv01,
-    totalNotional: summary.totalNotional,
-    activeSwaps: summary.activeSwaps,
-    swapCountByType: summary.swapCountByType,
-    asOf: curve?.asOf ?? null,
-    csa: {
-      configured: summary.csaConfigured,
-      ownPosted: summary.csaOwnPosted,
-      cptyPosted: summary.csaCptyPosted,
-      exposure: summary.csaExposure,
-      state: summary.csaState,
-      regulatorHints: summary.csaRegulatorHints,
-    },
-  }
-
-  const tabCounts: Record<BlotterTab, number> = {
-    active: activeRows.length,
-    proposals: filteredProposalRows.length,
-    drafts: draftRows.length,
-    matured: maturedRows.length,
-    unwound: unwoundRows.length,
-  }
-
-  const currentRows =
-    activeTab === 'active'
-      ? activeRows
-      : activeTab === 'proposals'
-        ? filteredProposalRows
-        : activeTab === 'drafts'
-          ? draftRows
-          : activeTab === 'matured'
-            ? maturedRows
-            : /* unwound */ unwoundRows
+  const { currentRows, exposureHeaderData, tabCounts } = deriveBlotterViewModel({
+    workflows,
+    maturedContracts,
+    terminatedContracts,
+    proposalRows,
+    drafts: listDrafts(),
+    partyHint: activeParty ?? '',
+    counterpartyHint,
+    csaSummary,
+    valuations,
+    byInstrumentId,
+    terminateProposals,
+    curve: curve ?? null,
+    activeTab,
+  })
 
   return (
     <div className="flex flex-col gap-6">
@@ -248,30 +202,34 @@ export function Blotter() {
           )}
         </div>
       </div>
-      {isLoading ? (
+      {isInitialLoading ? (
         <ExposureHeaderSkeleton />
       ) : (
         <ExposureHeader data={exposureHeaderData} csaHref={csaBase} />
       )}
-      <SwapTable
-        rows={currentRows}
-        activeTab={activeTab}
-        onTabChange={handleTabChange}
-        tabCounts={tabCounts}
-        onDeleteDraft={(id) => {
-          deleteDraft(id)
-          forceUpdate()
-        }}
-        onDeleteAllDrafts={() => {
-          deleteAllDrafts()
-          forceUpdate()
-        }}
-        workspaceBase={workspaceBase}
-        isLoading={isLoading}
-        onOpenDetails={setDrawerRow}
-        onExportCsv={() => downloadRowsAsCsv(currentRows, activeTab)}
-        exportDisabled={currentRows.length === 0}
-      />
+      {showLedgerUnreachable ? (
+        <LedgerUnreachable message="Your swap blotter is unavailable right now." />
+      ) : (
+        <SwapTable
+          rows={currentRows as SwapRow[]}
+          activeTab={activeTab}
+          onTabChange={handleTabChange}
+          tabCounts={tabCounts}
+          onDeleteDraft={(id) => {
+            deleteDraft(id)
+            forceUpdate()
+          }}
+          onDeleteAllDrafts={() => {
+            deleteAllDrafts()
+            forceUpdate()
+          }}
+          workspaceBase={workspaceBase}
+          isLoading={isInitialLoading}
+          onOpenDetails={setDrawerRow}
+          onExportCsv={() => downloadRowsAsCsv(currentRows as SwapRow[], activeTab)}
+          exportDisabled={currentRows.length === 0}
+        />
+      )}
       <RowDetailsDrawer row={drawerRow} onClose={() => setDrawerRow(null)} />
     </div>
   )

@@ -4,12 +4,13 @@ import type { DiscountCurve, SwapConfig } from '@irsforge/shared-pricing'
 import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
-import { LivenessDot } from '@/components/ui/liveness-dot'
+import { LivenessDot, type LivenessState } from '@/components/ui/liveness-dot'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatAmount, valueColorClass } from '@/features/workspace/utils/format'
 import { ROUTES } from '../constants/routes'
 import { useConfig } from '../contexts/config-context'
 import { useLedgerClient } from '../hooks/use-ledger-client'
+import { useLedgerHealth } from '../hooks/use-ledger-health'
 import { SchedulerStatusPill } from '../scheduler/scheduler-status-pill'
 import { type FooterSlotData, useFooterSlot } from './footer-slot-context'
 
@@ -98,9 +99,27 @@ function WorkspaceSlotFragment({ slot }: { slot: FooterSlotData }) {
   )
 }
 
+// Map the bus-derived ledger health into the LivenessDot vocabulary.
+// Treat "no client yet" as 'idle' rather than 'disconnected' — disconnected
+// implies we tried and failed, but pre-auth there is no client to try with.
+function ledgerLivenessState(health: 'idle' | 'live' | 'down', hasClient: boolean): LivenessState {
+  if (!hasClient) return 'idle'
+  if (health === 'down') return 'disconnected'
+  if (health === 'live') return 'live'
+  return 'idle'
+}
+
 export function StatusBar() {
   const { client } = useLedgerClient()
   const { config } = useConfig()
+  const ledgerHealth = useLedgerHealth()
+  const livenessState = ledgerLivenessState(ledgerHealth, !!client)
+  const livenessLabel =
+    livenessState === 'live'
+      ? 'Connected to Canton'
+      : livenessState === 'disconnected'
+        ? 'Canton unreachable'
+        : 'Connecting to Canton'
   const params = useParams()
   const orgId =
     typeof params?.orgId === 'string'
@@ -141,18 +160,14 @@ export function StatusBar() {
           title={connectedTitle}
           className="flex items-center gap-1.5 rounded px-1.5 py-0.5 hover:bg-zinc-900 hover:text-zinc-200"
         >
-          <LivenessDot state="live" title="Connected" placement="top" />
-          <span>Connected to Canton</span>
+          <LivenessDot state={livenessState} title={livenessLabel} placement="top" />
+          <span>{livenessLabel}</span>
           <span className="text-[10px] text-blue-400">↗ Audit trail</span>
         </Link>
       ) : (
         <span className="flex items-center gap-1.5" title={client ? connectedTitle : undefined}>
-          <LivenessDot
-            state={client ? 'live' : 'disconnected'}
-            title={client ? 'Connected' : 'Disconnected'}
-            placement="top"
-          />
-          {client ? 'Connected to Canton' : 'Disconnected'}
+          <LivenessDot state={livenessState} title={livenessLabel} placement="top" />
+          {livenessLabel}
         </span>
       )}
       <span className="flex items-center gap-1.5 font-mono">

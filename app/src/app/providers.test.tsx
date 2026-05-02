@@ -80,7 +80,7 @@ function QueryClientProbe({ onReady }: { onReady: (c: QueryClient) => void }) {
 }
 
 describe('Providers — QueryClient defaults', () => {
-  it('sets queries.retry = 1, queries.retryDelay = 500, mutations.retry = 0', () => {
+  it('sets retry = 3 with exponential backoff, keepPreviousData placeholder, mutations.retry = 0', () => {
     mockToken = null
     let captured: QueryClient | null = null
     render(
@@ -95,9 +95,16 @@ describe('Providers — QueryClient defaults', () => {
     expect(screen.getByText('probe')).toBeTruthy()
     expect(captured).not.toBeNull()
     const defaults = captured!.getDefaultOptions()
-    expect(defaults.queries?.retry).toBe(1)
-    expect(defaults.queries?.retryDelay).toBe(500)
+    expect(defaults.queries?.retry).toBe(3)
+    // retryDelay is now a function (exponential backoff capped at 30s);
+    // verify the curve at attempt 0/3/6 instead of asserting the literal.
+    const retryDelayFn = defaults.queries?.retryDelay as (attempt: number) => number
+    expect(typeof retryDelayFn).toBe('function')
+    expect(retryDelayFn(0)).toBe(1_000)
+    expect(retryDelayFn(3)).toBe(8_000)
+    expect(retryDelayFn(6)).toBe(30_000)
     expect(defaults.queries?.staleTime).toBe(30_000)
+    expect(defaults.queries?.placeholderData).toBeDefined()
     expect(defaults.mutations?.retry).toBe(0)
   })
 })

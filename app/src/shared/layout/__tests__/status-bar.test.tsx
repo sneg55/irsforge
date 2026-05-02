@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, test, vi } from 'vitest'
+import { ledgerHealthBus } from '@/shared/ledger/health-bus'
 
 import { StatusBar } from '../status-bar'
 
@@ -48,11 +49,17 @@ function renderWithQuery(ui: React.ReactNode) {
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  ledgerHealthBus.resetForTesting()
 })
 
 beforeEach(() => {
   mockUseLedgerClient.mockReturnValue({ client: { token: 'stub' } })
   mockUseFooterSlot.mockReturnValue(null)
+  // Default: simulate a healthy ledger so the StatusBar's "Connected to
+  // Canton" label is visible. Tests that want to assert disconnected /
+  // connecting copy override this with explicit recordFailure / reset.
+  ledgerHealthBus.resetForTesting()
+  ledgerHealthBus.recordSuccess(Date.now())
   // Stub global fetch for the oracle-health query.
   ;(globalThis as { fetch?: unknown }).fetch = vi.fn(async () => ({
     ok: true,
@@ -68,10 +75,20 @@ describe('StatusBar', () => {
     expect(container.textContent).toContain('Connected to Canton')
   })
 
-  test('disconnected indicator when client is null', () => {
+  test('connecting indicator when client is null (no JWT yet)', () => {
     mockUseLedgerClient.mockReturnValue({ client: null })
+    ledgerHealthBus.resetForTesting()
     const { container } = renderWithQuery(<StatusBar />)
-    expect(container.textContent).toContain('Disconnected')
+    expect(container.textContent).toContain('Connecting to Canton')
+  })
+
+  test('Canton unreachable indicator when health bus reports down', () => {
+    ledgerHealthBus.resetForTesting()
+    ledgerHealthBus.recordFailure()
+    ledgerHealthBus.recordFailure()
+    ledgerHealthBus.recordFailure()
+    const { container } = renderWithQuery(<StatusBar />)
+    expect(container.textContent).toContain('Canton unreachable')
   })
 
   test('SOFR label renders "--" before fetch resolves', () => {

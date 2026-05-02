@@ -1,5 +1,6 @@
 import { ledgerActivityBus } from './activity-bus'
 import { IRSFORGE_PACKAGE_ID } from './generated/package-ids'
+import { ledgerHealthBus } from './health-bus'
 
 // Daml JWT payload shape (what auth/ mints and what Canton's JSON API expects).
 // `actAs` / `readAs` carry the full `Hint::fingerprint` party identifiers.
@@ -33,22 +34,37 @@ export class LedgerClient {
   }
 
   private async request<T>(path: string, body: unknown): Promise<T> {
-    // Route through Next.js API proxy to avoid CORS issues with Canton
-    const response = await fetch('/api/ledger', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${this.token}`,
-        ...(this.orgId ? { 'X-Irsforge-Org': this.orgId } : {}),
-      },
-      body: JSON.stringify({ path, body }),
-      signal: AbortSignal.timeout(currentTimeout),
-    })
+    // Route through Next.js API proxy to avoid CORS issues with Canton.
+    // Every outcome — success, !ok response, network/timeout reject —
+    // is reported to ledgerHealthBus so useLedgerHealth() can drive an
+    // honest StatusBar dot and per-page "ledger unreachable" empty
+    // states. Without this, a half-dead Canton (sandbox JVM OOM'd, JSON
+    // API process still alive) leaves the UI showing "Connected to
+    // Canton" while every query silently returns no rows.
+    let response: Response
+    try {
+      response = await fetch('/api/ledger', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.token}`,
+          ...(this.orgId ? { 'X-Irsforge-Org': this.orgId } : {}),
+        },
+        body: JSON.stringify({ path, body }),
+        signal: AbortSignal.timeout(currentTimeout),
+      })
+    } catch (err) {
+      ledgerHealthBus.recordFailure()
+      throw err
+    }
     if (!response.ok) {
       const text = await response.text()
+      ledgerHealthBus.recordFailure()
       throw new Error(`Ledger API error (${response.status}): ${text}`)
     }
-    return await (response.json() as Promise<T>)
+    const parsed = (await response.json()) as T
+    ledgerHealthBus.recordSuccess()
+    return parsed
   }
 
   resolvePartyId(hint: string): Promise<string> {
