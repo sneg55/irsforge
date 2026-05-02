@@ -230,7 +230,7 @@ export function SolverTab({ swapType, swapConfig, pricingCtx, onApplyLegPatch }:
 
       <div className="rounded p-2 border border-[#1e2235]" style={{ background: '#111320' }}>
         <div className="text-[#555b6e] text-[9px] mb-1">Result</div>
-        <div className="text-white text-[14px] font-mono font-bold tracking-tight">
+        <div className="text-white text-sm font-mono font-bold tracking-tight">
           {formatResult()}
         </div>
         {result?.kind === 'error' && (

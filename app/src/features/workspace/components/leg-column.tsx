@@ -152,7 +152,7 @@ export function LegColumn({
           <div className="grid grid-cols-2 gap-1.5">
             <div className="rounded p-1.5" style={{ background: '#111320' }}>
               <div className="text-[#555b6e] text-3xs uppercase tracking-wide">PV</div>
-              <div className={`font-mono text-[13px] font-semibold ${valueColorClass(legPV)}`}>
+              <div className={`font-mono text-sm font-semibold ${valueColorClass(legPV)}`}>
                 {formatAmount(legPV)}
               </div>
             </div>
@@ -160,7 +160,7 @@ export function LegColumn({
               <div className="text-[#555b6e] text-3xs uppercase tracking-wide">
                 {leg.legType === 'float' ? 'Next Fixing' : 'Accrued'}
               </div>
-              <div className="font-mono text-[13px] text-white">
+              <div className="font-mono text-sm text-white">
                 {leg.legType === 'float'
                   ? (() => {
                       // Skip initial-exchange rows (no projectedRate) to find the first real fixing.

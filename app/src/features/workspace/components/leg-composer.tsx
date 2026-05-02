@@ -222,7 +222,7 @@ export function LegComposer({
               <div className="mt-2.5 pt-2 border-t border-[#1e2235]">
                 <div className="text-[#555b6e] text-[8px]">PV</div>
                 <div
-                  className={`font-mono text-[13px] font-semibold ${legPV >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}
+                  className={`font-mono text-sm font-semibold ${legPV >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}
                 >
                   {formatPV(legPV)}
                 </div>

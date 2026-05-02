@@ -65,7 +65,7 @@ export function ValuationTab({ valuation }: ValuationTabProps) {
             >
               {m.label}
             </div>
-            <div className="text-white font-mono text-[12px]">{m.value}</div>
+            <div className="text-white font-mono text-xs">{m.value}</div>
           </div>
         ))}
       </div>

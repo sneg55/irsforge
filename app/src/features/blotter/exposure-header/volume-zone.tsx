@@ -42,7 +42,7 @@ export function VolumeZone({ notional, activeSwaps, swapCountByType, asOf }: Vol
           </span>
           <span
             data-testid="notional-value"
-            className="font-mono text-[13px] font-semibold text-zinc-200"
+            className="font-mono text-sm font-semibold text-zinc-200"
             title={fullCurrency(notional)}
           >
             {compactCurrency(notional)}
@@ -52,7 +52,7 @@ export function VolumeZone({ notional, activeSwaps, swapCountByType, asOf }: Vol
           <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">Trades</span>
           <span
             data-testid="trades-value"
-            className="font-mono text-[13px] font-semibold text-zinc-200"
+            className="font-mono text-sm font-semibold text-zinc-200"
           >
             {activeSwaps}
           </span>
