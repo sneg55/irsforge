@@ -27,6 +27,24 @@ services:
       IRSFORGE_DEPLOY_MODE: prod
       # MUST match platform.demoReset.intervalMinutes in ../irsforge.yaml.
       IRSFORGE_RESET_INTERVAL_MINUTES: "60"
+      # Size every JVM the SDK launches (Canton sandbox, Daml json-api,
+      # daml-script seed runner). Without this the JVM ergonomics pick a
+      # default ~25% of container RAM (~1.9 GB on a 7.6 GB CPX32), which
+      # is too tight for Daml-Finance (~30 packages) + daml-script-lts +
+      # protobuf decode buffers. Symptom: OOM in
+      # `com.daml.lf.archive.Reader.readArchive` 35–45 min into each
+      # reset cycle, after package-cache pressure forces archive
+      # re-reads — JVM dies, JSON API survives serving
+      # ParticipantServerError(UNAVAILABLE) until next reset.
+      # ExitOnOutOfMemoryError ensures the wrapper dies cleanly (orphan
+      # reaper picks up survivors); HeapDumpOnOutOfMemoryError leaves a
+      # post-mortem file if it ever recurs at this ceiling.
+      #
+      # Using `_JAVA_OPTIONS`, not `JAVA_OPTS`: the daml-helper binary
+      # invokes canton.jar via plain `java -jar` and does NOT propagate
+      # JAVA_OPTS. _JAVA_OPTIONS is honored by every JVM unconditionally
+      # (prints a one-line "Picked up" note to stderr per launch).
+      _JAVA_OPTIONS: "-Xms512m -Xmx4g -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/app/.demo/logs/heap-dump.hprof"
     # Healthcheck pings the Next.js prod server. Container is "healthy"
     # only after Canton boot + seed + warmup completes; first-start can
     # take ~90s, hence the generous start_period.
