@@ -39,10 +39,11 @@ jobs:
         with:
           node-version: "20"
 
+      # --ignore-scripts skips the root prepare:husky hook that fires
+      # because site/ is an npm workspace (root walks up). Astro has
+      # no deps that need lifecycle scripts.
       - name: Install
-        env:
-          HUSKY: "0"
-        run: npm install --no-audit --no-fund
+        run: npm install --no-audit --no-fund --ignore-scripts
 
       - name: Build
         run: npm run build
