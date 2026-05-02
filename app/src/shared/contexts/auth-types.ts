@@ -40,4 +40,13 @@ export interface AuthContextValue {
    * to avoid redirect-before-restore races on full-page loads.
    */
   isInitialized: boolean
+  /**
+   * Re-mint the access token after a sandbox-rotation event. Demo mode
+   * drops the in-memory party-id cache and re-runs `generatePartyToken`
+   * so the new JWT carries the freshly allocated qualified party IDs.
+   * OIDC mode falls through to /auth/refresh — the auth service is
+   * responsible for issuing a token compatible with the current
+   * participant. No-op when there is no current session.
+   */
+  remintForRotation: () => Promise<void>
 }

@@ -1,6 +1,8 @@
 import { ledgerActivityBus } from './activity-bus'
 import { IRSFORGE_PACKAGE_ID } from './generated/package-ids'
 import { ledgerHealthBus } from './health-bus'
+import { sandboxRotationBus } from './sandbox-rotation-bus'
+import { FLOATING_RATE_INDEX_TEMPLATE_ID } from './template-ids'
 
 // Daml JWT payload shape (what auth/ mints and what Canton's JSON API expects).
 // `actAs` / `readAs` carry the full `Hint::fingerprint` party identifiers.
@@ -140,7 +142,27 @@ export class LedgerClient {
     const result = await this.request<{ result: T[] }>('/v1/query', {
       templateIds: [qualifiedId],
     })
+    // Feed the rotation bus on every FloatingRateIndex query the app
+    // happens to make (workspace leg-composer fires one on mount). The
+    // organic signal is free — `pingCanary` covers the page set that
+    // never queries it (e.g., a tab parked on /blotter).
+    if (qualifiedId === FLOATING_RATE_INDEX_TEMPLATE_ID) {
+      sandboxRotationBus.recordCanaryCount(qualifiedId, result.result.length)
+    }
     return result.result
+  }
+
+  // Sandbox-rotation canary. Picks `FloatingRateIndex` because the
+  // demo seed always creates at least one (per `oracle/src/seed/index.ts`
+  // → `seedIndices`) and the application never archives those contracts,
+  // so the count is stable at ≥1 for as long as we're authed against the
+  // boot that ran the seed. After an in-memory sandbox restart the
+  // freshly allocated parties don't observe the prior boot's contracts,
+  // so the same query against the prior boot's JWT comes back empty —
+  // which the rotation bus reads as "we are stale, please remint".
+  async pingCanary(): Promise<number> {
+    const rows = await this.query<unknown>(FLOATING_RATE_INDEX_TEMPLATE_ID)
+    return rows.length
   }
 
   /**

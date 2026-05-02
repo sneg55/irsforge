@@ -13,6 +13,15 @@ interface PartiesResponse {
 // Cache resolved party identifiers
 let partyCache: Record<string, string> | null = null
 
+// Drop the in-memory party-id cache so the next `generatePartyToken` call
+// re-runs the /v1/parties bootstrap and picks up the freshly allocated
+// `Hint::1220<fingerprint>` IDs after a Canton sandbox rotation. Cheap
+// to call from sandbox-rotation recovery — at worst we pay one extra
+// /v1/parties round-trip on the next mint.
+export function clearPartyCacheForRotation(): void {
+  partyCache = null
+}
+
 async function resolvePartyIds(
   config: ClientConfig,
   hints: string[],

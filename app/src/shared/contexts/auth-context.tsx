@@ -11,6 +11,7 @@ import {
 } from 'react'
 import { resolveAuthUrl } from '../config/client'
 import { demoActAsReadAs, generatePartyToken } from '../ledger/parties'
+import { performRemintForRotation } from './auth-rotation'
 import { loadStoredAuthMeta, writeAuthMeta } from './auth-storage'
 import type { AuthContextValue, AuthState, LoginResponse } from './auth-types'
 import { useConfig } from './config-context'
@@ -27,6 +28,7 @@ const AuthContext = createContext<AuthContextValue>({
   getToken: () => null,
   isAuthenticated: false,
   isInitialized: false,
+  remintForRotation: noopAsync,
 })
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -241,6 +243,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return state?.accessToken ?? null
   }, [state])
 
+  // Sandbox-rotation recovery. See SandboxRotationHandler — fired when
+  // Canton's in-memory sandbox rotates parties out from under us. The
+  // demo branch drops the party-id cache; the OIDC branch hits
+  // /auth/refresh. Implementation lives in ./auth-rotation so this
+  // file stays under the 300-line guardrail.
+  const remintForRotation = useCallback(async (): Promise<void> => {
+    if (!state || !config) return
+    const outcome = await performRemintForRotation({
+      config,
+      current: state,
+      authUrl: config.auth.provider === 'demo' ? '' : getAuthUrl(),
+    })
+    if (!outcome) return
+    setState(outcome.state)
+    if (outcome.kind === 'refresh') scheduleRefresh(outcome.expiresIn)
+  }, [config, state, getAuthUrl, scheduleRefresh])
+
   useEffect(() => {
     return () => clearRefreshTimer()
   }, [clearRefreshTimer])
@@ -256,6 +275,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         getToken,
         isAuthenticated: state !== null,
         isInitialized,
+        remintForRotation,
       }}
     >
       {children}

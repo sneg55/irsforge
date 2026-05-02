@@ -13,6 +13,7 @@ import { LedgerProvider } from '@/shared/contexts/ledger-context'
 import { useActiveOrgRole } from '@/shared/hooks/use-active-org-role'
 import { AuthHeader } from '@/shared/layout/auth-header'
 import { FooterSlotProvider } from '@/shared/layout/footer-slot-context'
+import { SandboxRotationHandler } from '@/shared/layout/sandbox-rotation-handler'
 import { StatusBar } from '@/shared/layout/status-bar'
 
 const TRADER_NAV = (orgId: string) => [
@@ -207,6 +208,7 @@ export default function ShellLayout({ children }: { children: ReactNode }) {
         >
           <div className="flex min-h-0 flex-1 flex-col">
             <ShellInner orgId={orgId}>{children}</ShellInner>
+            <SandboxRotationHandler />
             {ledgerUi.enabled && ledgerUi.toasts.enabled ? (
               <LedgerActivityToasts
                 maxVisible={ledgerUi.toasts.maxVisible}

@@ -65,6 +65,9 @@ vi.mock('@/shared/layout/auth-header', () => ({
   AuthHeader: () => <div data-testid="auth-header" />,
 }))
 vi.mock('@/shared/layout/status-bar', () => ({ StatusBar: () => <div data-testid="status-bar" /> }))
+vi.mock('@/shared/layout/sandbox-rotation-handler', () => ({
+  SandboxRotationHandler: () => null,
+}))
 vi.mock('@/shared/layout/footer-slot-context', () => ({
   FooterSlotProvider: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }))
