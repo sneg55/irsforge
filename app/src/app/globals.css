@@ -15,6 +15,12 @@
      headings; mirror it here so the app chrome reads as the same brand.
      Body / mono inherit from Tailwind defaults (Inter via next/font + ui-monospace). */
   --font-display: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+  /* Sub-text-xs scale — replaces raw text-[10px] / text-[11px] arbitrary
+     classes so pills and badges scale with the fluid root font-size.
+     0.6875rem = 11px @ root=16; 13.5px @ root=19.6 (27" monitor).
+     0.625rem  = 10px @ root=16; 12.3px @ root=19.6. */
+  --text-2xs: 0.6875rem;
+  --text-3xs: 0.625rem;
 }
 
 @theme {
@@ -81,6 +87,18 @@
 @layer base {
   .font-mono {
     font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Fluid root font-size — every rem-based Tailwind class scales with
+   viewport width inside a sane band. At 320px floor → 16px (browser
+   default), at 1280px (13" laptop) → 17px, at 1920px → 18.3px, at
+   2560px (27" / 4K@150%) → 19.6px, at 3840px (4K@100%) ceil → 20px.
+   px (not rem) inside the clamp avoids the rem-cascading-on-html
+   footgun; root resolves against an absolute anchor. */
+@layer base {
+  html {
+    font-size: clamp(16px, calc(14.5px + 0.2vw), 20px);
   }
 }
 
