@@ -35,12 +35,19 @@ export class LedgerClient {
 
   private async request<T>(path: string, body: unknown): Promise<T> {
     // Route through Next.js API proxy to avoid CORS issues with Canton.
-    // Every outcome — success, !ok response, network/timeout reject —
-    // is reported to ledgerHealthBus so useLedgerHealth() can drive an
-    // honest StatusBar dot and per-page "ledger unreachable" empty
-    // states. Without this, a half-dead Canton (sandbox JVM OOM'd, JSON
-    // API process still alive) leaves the UI showing "Connected to
+    // Every outcome — success, !ok response, network/timeout reject,
+    // in-band error — is reported to ledgerHealthBus so useLedgerHealth()
+    // can drive an honest StatusBar dot and per-page "ledger unreachable"
+    // empty states. Without this, a half-dead Canton (sandbox JVM OOM'd,
+    // JSON API process still alive) leaves the UI showing "Connected to
     // Canton" while every query silently returns no rows.
+    //
+    // Daml JSON API can return HTTP 200 with `{status: 500, errors: [...]}`
+    // in the body when the participant gRPC backend is UNAVAILABLE
+    // (verified live: `Endpoints.ParticipantServerError: UNAVAILABLE: io
+    // exception` arrives wrapped in 200 OK). `response.ok` alone is not
+    // enough — we also have to read the in-band `status` field and treat
+    // any 4xx/5xx as a failure for both the bus and the caller.
     let response: Response
     try {
       response = await fetch('/api/ledger', {
@@ -63,6 +70,13 @@ export class LedgerClient {
       throw new Error(`Ledger API error (${response.status}): ${text}`)
     }
     const parsed = (await response.json()) as T
+    const inBandStatus = (parsed as { status?: unknown } | null)?.status
+    if (typeof inBandStatus === 'number' && inBandStatus >= 400) {
+      ledgerHealthBus.recordFailure()
+      const errors = (parsed as { errors?: unknown }).errors
+      const detail = Array.isArray(errors) ? errors.join('; ') : ''
+      throw new Error(`Ledger API error (${inBandStatus}): ${detail}`)
+    }
     ledgerHealthBus.recordSuccess()
     return parsed
   }
