@@ -13,7 +13,7 @@ participants can adopt by editing one YAML file.
 [![Daml](https://img.shields.io/badge/Daml-2.10.0-orange.svg)](contracts/daml.yaml)
 [![Tests](https://img.shields.io/badge/tests-1940%20passing-brightgreen.svg)](#tests)
 
-**Live demo:** [demo.irsforge.com](https://demo.irsforge.com)
+**Site:** [irsforge.com](https://irsforge.com)  ·  **Live demo:** [demo.irsforge.com](https://demo.irsforge.com)
 
 ## What it does
 
@@ -33,7 +33,7 @@ on-chain settlement:
 
 ### 5-minute click-through
 
-See **[docs-site/docs/judges/quickstart.md](docs-site/docs/judges/quickstart.md)** for a
+See **[docs.irsforge.com/judges/quickstart](https://docs.irsforge.com/judges/quickstart)** for a
 narrated walkthrough of the propose, accept, lifecycle, CSA dispute, and
 operator resolve flow, plus the regulator timeline + audit projection.
 
@@ -120,7 +120,7 @@ Schema enforcement: `loadConfig()` rejects `profile: production` with a
 populated `demo:` subtree, and `validateProviderRefs` fails fast on unregistered
 provider ids before the oracle accepts traffic.
 
-See **[docs-site/docs/concepts/demo-vs-production.md](docs-site/docs/concepts/demo-vs-production.md)**
+See **[docs.irsforge.com/concepts/demo-vs-production](https://docs.irsforge.com/concepts/demo-vs-production)**
 for the exhaustive switch list.
 
 ## Tests
@@ -145,10 +145,10 @@ Per-workspace `vitest.config.ts` enforces coverage floors set to current minus
 
 ## Reading order for reviewers
 
-1. **[docs-site/docs/judges/quickstart.md](docs-site/docs/judges/quickstart.md)**: 5-min demo walk
-2. **[docs-site/docs/judges/tour.md](docs-site/docs/judges/tour.md)**: *why* every surface looks the way it does
-3. **[docs-site/docs/concepts/csa-model.md](docs-site/docs/concepts/csa-model.md)**: signed-CSB model + the bug it fixed
-4. **[docs-site/docs/operations/deploying-production.md](docs-site/docs/operations/deploying-production.md)**: what a participant configures
+1. **[docs.irsforge.com/judges/quickstart](https://docs.irsforge.com/judges/quickstart)**: 5-min demo walk
+2. **[docs.irsforge.com/judges/tour](https://docs.irsforge.com/judges/tour)**: *why* every surface looks the way it does
+3. **[docs.irsforge.com/concepts/csa-model](https://docs.irsforge.com/concepts/csa-model)**: signed-CSB model + the bug it fixed
+4. **[docs.irsforge.com/operations/deploying-production](https://docs.irsforge.com/operations/deploying-production)**: what a participant configures
 5. **[irsforge.yaml](irsforge.yaml)**: every product / role / provider / schedule, in one file
 
 ## License
