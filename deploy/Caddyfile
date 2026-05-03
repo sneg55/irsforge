@@ -26,4 +26,57 @@ demo.irsforge.com {
     # Everything else: Next.js prod app (homepage, /org/*, /api/* incl.
     # /api/ledger HTTP proxy, /api/config, /api/oracle).
     reverse_proxy 127.0.0.1:3000
+
+    # Maintenance page during the ~30-60s window when the Next.js
+    # container is restarting (hourly reset or CI redeploy). Without this,
+    # Caddy returns a raw 502 from the unreachable upstream — browsers
+    # render that as a generic gateway error with no retry guidance.
+    #
+    # We rewrite 502/503/504 to a branded 503 + Retry-After: 60 so
+    # CDNs/clients back off and a hard browser reload during the window
+    # gets a meta-refresh page that auto-recovers when the container is
+    # back. The /v1/stream/* WebSocket route is intentionally NOT covered
+    # — WS clients have their own reconnect logic and a 503 on an upgrade
+    # request isn't useful.
+    handle_errors {
+        @upstream_down expression `{err.status_code} == 502 || {err.status_code} == 503 || {err.status_code} == 504`
+        handle @upstream_down {
+            header Retry-After 60
+            header Cache-Control "no-store"
+            header Content-Type "text/html; charset=utf-8"
+            respond 503 <<HTML
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="refresh" content="15">
+<title>Restarting demo · IRSForge</title>
+<style>
+  html,body{margin:0;height:100%;background:#0b0d10;color:#e6e2d6;font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  main{min-height:100%;display:flex;align-items:center;justify-content:center;padding:2rem}
+  .card{max-width:32rem;border:1px solid rgba(180,135,40,.3);background:rgba(80,55,15,.18);border-radius:8px;padding:1.75rem 2rem;backdrop-filter:blur(6px)}
+  h1{margin:0 0 .5rem;font-size:1rem;font-weight:600;color:#fbd38d;letter-spacing:.01em}
+  p{margin:.5rem 0;color:#cfc8b6}
+  code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;color:#fbd38d}
+  .spin{display:inline-block;animation:spin 1.6s linear infinite;color:#fbd38d}
+  a{color:#fbd38d;text-decoration:none;border-bottom:1px dotted rgba(251,211,141,.5)}
+  a:hover{border-bottom-style:solid}
+  @keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<main>
+<div class="card">
+<h1><span class="spin" aria-hidden="true">⟳</span> Demo restarting</h1>
+<p>The shared demo wipes its in-memory ledger every hour on the round clock. The container is rebooting now (typically 30–60 seconds).</p>
+<p>This page auto-refreshes every 15s. Once Canton is back, you'll land on the party selector.</p>
+<p>Reference impl: <a href="https://github.com/sneg55/irsforge">github.com/sneg55/irsforge</a> · Docs: <a href="https://docs.irsforge.com">docs.irsforge.com</a></p>
+</div>
+</main>
+</body>
+</html>
+HTML
+        }
+    }
 }
