@@ -62,24 +62,33 @@ jobs:
             git fetch --all --prune
             git reset --hard origin/main
             git rev-parse --short HEAD
-            # Sync the host Caddyfile when the repo copy differs. Caddy runs
-            # on the host (not in the container), so it stays up through the
-            # hourly reset / compose rebuild and serves the branded 503
-            # maintenance page from its handle_errors block (see
-            # deploy/Caddyfile). Without this step the running Caddy keeps
-            # whatever config it was last reloaded with, and config changes
-            # in main never take effect, which is how the raw "Bad Gateway"
-            # 502 kept surfacing during restarts.
+            # Sync the host Caddyfile and reload Caddy. Caddy runs on the
+            # host (not in the container) so it stays up through the hourly
+            # reset / compose rebuild and serves the branded 503 maintenance
+            # page from its handle_errors block (see deploy/Caddyfile).
+            #
+            # We always validate + copy + reload, even when the on-disk file
+            # already matches. The reload is graceful (no dropped
+            # connections) and idempotent, and this guards against the case
+            # where the on-disk file was manually synced at some point but
+            # the running Caddy was never reloaded, which is how the raw
+            # "Bad Gateway" 502 kept surfacing during restarts.
             #
             # Validate the source before copying so a syntax error can't
             # clobber the working /etc/caddy/Caddyfile; set -euo pipefail
             # then aborts the deploy and surfaces the error in the workflow
             # log.
-            if ! cmp -s deploy/Caddyfile /etc/caddy/Caddyfile; then
-              caddy validate --config deploy/Caddyfile --adapter caddyfile
+            echo "caddy: validating deploy/Caddyfile"
+            caddy validate --config deploy/Caddyfile --adapter caddyfile
+            if cmp -s deploy/Caddyfile /etc/caddy/Caddyfile; then
+              echo "caddy: /etc/caddy/Caddyfile already matches"
+            else
+              echo "caddy: copying deploy/Caddyfile -> /etc/caddy/Caddyfile"
               cp deploy/Caddyfile /etc/caddy/Caddyfile
-              systemctl reload caddy
             fi
+            echo "caddy: reloading"
+            systemctl reload caddy
+            echo "caddy: reload complete"
             # Apply prod-only yaml deltas (demoReset.enabled + per-org
             # streamUrl). Lives on the box, not in public main; see
             # /opt/irsforge-overlay/postdeploy.sh.
