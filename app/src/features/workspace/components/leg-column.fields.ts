@@ -65,7 +65,7 @@ export function buildFields(
       },
       {
         label: 'Day Count',
-        value: leg.dayCount.replace(/_/g, '/'),
+        value: leg.dayCount,
         editable: e,
         type: 'select',
         options: DAY_COUNT_OPTIONS,
@@ -127,7 +127,7 @@ export function buildFields(
       },
       {
         label: 'Day Count',
-        value: leg.dayCount.replace(/_/g, '/'),
+        value: leg.dayCount,
         editable: e,
         type: 'select',
         options: DAY_COUNT_OPTIONS,
