@@ -40,7 +40,6 @@ const baseProps = {
   pendingUnwind: null,
   unwindRole: null,
   workflowInstrument: null,
-  workflowRegulators: [] as readonly string[],
   workflowNotional: '10000000',
   onExerciseAction: vi.fn(),
   onOpenUnwindModal: vi.fn(),
@@ -152,18 +151,6 @@ describe('OnChainPanel role-aware filter', () => {
     const { container } = render(<OnChainPanel {...baseProps} isOperator={false} />)
     const node = container.querySelector('[data-tooltip-key="status-active"]')
     expect(node?.getAttribute('title')).toMatch(/live and accruing/i)
-  })
-
-  test('renders Regulator-visible pill when workflowRegulators is non-empty', () => {
-    const { container } = render(
-      <OnChainPanel {...baseProps} isOperator={false} workflowRegulators={['Regulator::abc']} />,
-    )
-    expect(container.querySelector('[data-testid="regulator-visibility-pill"]')).not.toBeNull()
-  })
-
-  test('hides Regulator-visible pill when workflowRegulators is empty', () => {
-    const { container } = render(<OnChainPanel {...baseProps} isOperator={false} />)
-    expect(container.querySelector('[data-testid="regulator-visibility-pill"]')).toBeNull()
   })
 
   test('Next Fixing label carries tooltip', () => {

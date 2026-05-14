@@ -219,4 +219,53 @@ describe('TopBar interactions', () => {
     )
     expect(container.textContent).not.toContain('WHAT-IF')
   })
+
+  test('renders Regulator-visible pill near WHAT-IF when workflow has regulators', () => {
+    const { container } = render(
+      <TopBar
+        swapType="IRS"
+        onTypeChange={vi.fn()}
+        dates={baseDates}
+        onDateChange={vi.fn()}
+        mode="active"
+        whatIfActive={false}
+        onToggleWhatIf={vi.fn()}
+        workflowRegulators={['Regulator::abc']}
+      />,
+    )
+    expect(container.querySelector('[data-testid="regulator-visibility-pill"]')).not.toBeNull()
+  })
+
+  test('hides Regulator-visible pill in draft mode even when regulators provided', () => {
+    // Draft = pre-trade pricing; "regulator visible" is a runtime-workflow signal
+    // and has no meaning before the swap exists on-chain.
+    const { container } = render(
+      <TopBar
+        swapType="IRS"
+        onTypeChange={vi.fn()}
+        dates={baseDates}
+        onDateChange={vi.fn()}
+        mode="draft"
+        whatIfActive={false}
+        onToggleWhatIf={vi.fn()}
+        workflowRegulators={['Regulator::abc']}
+      />,
+    )
+    expect(container.querySelector('[data-testid="regulator-visibility-pill"]')).toBeNull()
+  })
+
+  test('hides Regulator-visible pill when workflowRegulators is empty', () => {
+    const { container } = render(
+      <TopBar
+        swapType="IRS"
+        onTypeChange={vi.fn()}
+        dates={baseDates}
+        onDateChange={vi.fn()}
+        mode="active"
+        whatIfActive={false}
+        onToggleWhatIf={vi.fn()}
+      />,
+    )
+    expect(container.querySelector('[data-testid="regulator-visibility-pill"]')).toBeNull()
+  })
 })

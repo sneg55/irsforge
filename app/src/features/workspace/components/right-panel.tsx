@@ -48,7 +48,6 @@ interface RightPanelProps {
   pendingUnwind: PendingUnwind | null
   unwindRole: 'proposer' | 'counterparty' | null
   workflowInstrument: SwapInstrumentPayload | null
-  workflowRegulators: readonly string[]
   workflowNotional: string
   currentNpv: number | null
   onProposeTerminate: (args: { pvAmount: number; reason: string }) => Promise<void>
@@ -86,7 +85,6 @@ export function RightPanel({
   pendingUnwind,
   unwindRole,
   workflowInstrument,
-  workflowRegulators,
   workflowNotional,
   currentNpv,
   onProposeTerminate,
@@ -182,7 +180,6 @@ export function RightPanel({
           pendingUnwind={pendingUnwind}
           unwindRole={unwindRole}
           workflowInstrument={workflowInstrument}
-          workflowRegulators={workflowRegulators}
           workflowNotional={workflowNotional}
           onExerciseAction={onExerciseAction}
           onOpenUnwindModal={() => setIsUnwindModalOpen(true)}

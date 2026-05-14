@@ -11,6 +11,7 @@ import type { DateAnchor, WorkspaceDates } from '../utils/date-recalc'
 import type { Tenor } from '../utils/tenor-parser'
 import { EditableDate } from './editable-date'
 import { EditableTenor } from './editable-tenor'
+import { RegulatorVisibilityPill } from './regulator-visibility-pill'
 
 interface TopBarProps {
   swapType: SwapType
@@ -20,6 +21,12 @@ interface TopBarProps {
   mode: WorkspaceMode
   whatIfActive: boolean
   onToggleWhatIf: () => void
+  /**
+   * Regulator parties on the resolved workflow. Drives the
+   * "Regulator visible" pill rendered next to the WHAT-IF toggle.
+   * Only relevant when `mode !== 'draft'`; empty array hides the pill.
+   */
+  workflowRegulators?: readonly string[]
 }
 
 export function TopBar({
@@ -30,6 +37,7 @@ export function TopBar({
   mode,
   whatIfActive,
   onToggleWhatIf,
+  workflowRegulators = [],
 }: TopBarProps) {
   const isEditable = mode === 'draft'
   const isOperator = useIsOperator()
@@ -125,6 +133,7 @@ export function TopBar({
         )}
         {mode !== 'draft' && (
           <>
+            <RegulatorVisibilityPill regulators={workflowRegulators} />
             <span className="text-[#555b6e] text-2xs uppercase tracking-wider">WHAT-IF</span>
             <button
               onClick={onToggleWhatIf}

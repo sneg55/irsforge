@@ -8,7 +8,6 @@ import type { SwapInstrumentPayload } from '@/shared/ledger/swap-instrument-type
 import { STATUS_ACTIONS, STATUS_COLORS } from '../constants'
 import type { PendingUnwind } from '../hooks/use-workspace-reducer'
 import type { StatusAction, SwapStatus, SwapType } from '../types'
-import { RegulatorVisibilityPill } from './regulator-visibility-pill'
 
 // Phase 6 Stage B — workflow choices the scheduler will fire automatically
 // in production. The frontend hides these manual buttons when
@@ -52,11 +51,6 @@ interface OnChainPanelProps {
    * resolves or when the workflow isn't active yet.
    */
   workflowInstrument: SwapInstrumentPayload | null
-  /**
-   * Regulator parties on the resolved workflow. Drives the
-   * "Regulator visible" pill near the cid; empty array hides the pill.
-   */
-  workflowRegulators: readonly string[]
   /** Scalar notional off the SwapWorkflow (IRS instrument doesn't carry it). */
   workflowNotional: string
   onExerciseAction: (
@@ -82,7 +76,6 @@ export function OnChainPanel({
   pendingUnwind,
   unwindRole,
   workflowInstrument,
-  workflowRegulators,
   workflowNotional,
   onExerciseAction,
   onOpenUnwindModal,
@@ -126,16 +119,13 @@ export function OnChainPanel({
         >
           {swapStatus ?? 'UNKNOWN'}
         </span>
-        <span className="ml-auto flex items-center gap-1.5">
-          <RegulatorVisibilityPill regulators={workflowRegulators} />
-          {contractId && (
-            <LedgerCidLink
-              cid={contractId}
-              truncate={12}
-              className="text-3xs text-[#555b6e] hover:text-[#8a9dc5]"
-            />
-          )}
-        </span>
+        {contractId && (
+          <LedgerCidLink
+            cid={contractId}
+            truncate={12}
+            className="ml-auto text-3xs text-[#555b6e] hover:text-[#8a9dc5]"
+          />
+        )}
       </div>
       {/* Details */}
       <div className="grid gap-1 text-3xs mb-2">

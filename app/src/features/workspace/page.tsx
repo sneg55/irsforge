@@ -99,7 +99,6 @@ function WorkspaceContent() {
     pendingUnwind: workspace.pendingUnwind,
     unwindRole: workspace.unwindRole,
     workflowInstrument: workspace.workflowInstrument,
-    workflowRegulators: workspace.workflowRegulators,
     workflowNotional:
       workspace.legs[0] && 'notional' in workspace.legs[0]
         ? String(workspace.legs[0].notional)
@@ -130,6 +129,7 @@ function WorkspaceContent() {
         mode={workspace.mode}
         whatIfActive={workspace.mode === 'whatif'}
         onToggleWhatIf={workspace.toggleWhatIf}
+        workflowRegulators={workspace.workflowRegulators}
       />
 
       {workspace.mode === 'whatif' && (
