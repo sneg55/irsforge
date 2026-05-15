@@ -14,8 +14,10 @@ import { Scheduler } from './scheduler/scheduler.js'
 import { fxSpotLedgerAdapter, seedCurves, seedFxSpots, seedIndices } from './seed/index.js'
 import { DemoCurveTicker } from './services/demo-curve-ticker.js'
 import { LedgerPublisher } from './services/ledger-publisher.js'
+import { makeCoalescedTick } from './services/mark-publisher/coalesced-tick.js'
 import { MarkPublisherService } from './services/mark-publisher/index.js'
 import { resolveSwapConfig } from './services/mark-publisher/replay.js'
+import { startSwapStreamWatcher } from './services/mark-publisher/swap-stream-watcher.js'
 import { SchedulerService } from './services/scheduler/index.js'
 import { discoverSetup } from './services/scheduler/setup-discovery.js'
 import { NyFedSofrService } from './services/sofr-service.js'
@@ -23,6 +25,7 @@ import { ENV } from './shared/env.js'
 import { IRSFORGE_PROVIDER_INTERFACE_ID } from './shared/generated/package-ids.js'
 import { createLogger } from './shared/logger.js'
 import { state } from './shared/state.js'
+import { SWAP_WORKFLOW_TEMPLATE_ID } from './shared/template-ids.js'
 
 const DEMO_PORT = 3001
 
@@ -56,7 +59,6 @@ if (refErrors.length > 0) {
   process.exit(1)
 }
 
- 
 async function main(): Promise<void> {
   const mode = ENV.MODE()
   const logger = createLogger()
@@ -168,21 +170,43 @@ async function main(): Promise<void> {
       },
     },
   })
-  const markCron = new Cron(ENV.MARK_PUBLISHER_CRON(), () => {
-    void markPublisher
-      .tick()
-      .then((r) => logger.info({ event: 'mark_tick', ...r }))
-      .catch((err) =>
-        logger.error({
-          event: 'mark_tick_failed',
-          error: err instanceof Error ? err.message : String(err),
+  // Both the cron and the SwapWorkflow stream watcher fire ticks through
+  // a single coalesced trigger so a swap-accept burst can't cause
+  // overlapping or piled-up ticks. 250ms debounce collapses a demo seed
+  // into one run; in-flight ticks queue exactly one follow-up.
+  const coalescedTick = makeCoalescedTick(
+    () =>
+      markPublisher
+        .tick()
+        .then((r) => {
+          logger.info({ event: 'mark_tick', ...r })
+          return r
+        })
+        .catch((err) => {
+          logger.error({
+            event: 'mark_tick_failed',
+            error: err instanceof Error ? err.message : String(err),
+          })
         }),
-      )
+    { debounceMs: 250 },
+  )
+  const markCron = new Cron(ENV.MARK_PUBLISHER_CRON(), () => coalescedTick.trigger())
+  // Push trigger: subscribe to SwapWorkflow CREATE events so accept → call
+  // doesn't wait for the next mark-publisher tick (~30s avg). Failure
+  // here is non-fatal — the cron continues to drive ticks if the WS
+  // endpoint is unreachable.
+  const swapStreamWatcher = startSwapStreamWatcher({
+    baseUrl: `ws://${ENV.LEDGER_HOST()}:${ENV.LEDGER_PORT()}`,
+    templateId: SWAP_WORKFLOW_TEMPLATE_ID,
+    getToken: operatorHandle.getToken,
+    onCreate: () => coalescedTick.trigger(),
+    logger,
   })
   logger.info({
     event: 'mark_publisher_started',
     cron: ENV.MARK_PUBLISHER_CRON(),
     nextRun: markCron.nextRun()?.toISOString() ?? null,
+    pushTrigger: 'swap-workflow-stream',
   })
 
   // Phase 6 Stage C2 — off-chain lifecycle / settle-net / mature scheduler.
@@ -246,6 +270,8 @@ async function main(): Promise<void> {
       logger.info({ event: 'shutdown_begin', signal })
       await new Promise<void>((r) => server.close(() => r()))
       markCron.stop()
+      swapStreamWatcher.stop()
+      coalescedTick.stop()
       schedulerCrons.forEach((c) => c.stop())
       operatorHandle.stop()
       schedulerHandle?.stop()
