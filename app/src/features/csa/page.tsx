@@ -229,6 +229,7 @@ function CsaRowWithStream({ csa, expanded, onToggle, activeParty }: RowWithStrea
         onToggle={onToggle}
         latestExposure={latest?.exposure ?? null}
         callSignal={callSignal}
+        activeParty={activeParty}
       />
       {expanded && (
         <tr className="bg-zinc-900/70 border-b border-zinc-800">

@@ -1,6 +1,7 @@
 'use client'
 
 import { PartyName } from 'canton-party-directory/ui'
+import { partyMatchesHint } from '@/shared/ledger/party-match'
 import type { CallSignal } from '../call-amount'
 import type { CsaViewModel } from '../decode'
 import { CsaStateBadge } from './csa-state-badge'
@@ -11,12 +12,21 @@ interface Props {
   onToggle: () => void
   latestExposure: number | null
   callSignal: CallSignal | null
+  /** Active party hint used to personalise the call-cell wording. */
+  activeParty: string
 }
 
 const fmt = (n: number) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
 
-export function CsaRow({ csa, expanded, onToggle, latestExposure, callSignal }: Props) {
+export function CsaRow({
+  csa,
+  expanded,
+  onToggle,
+  latestExposure,
+  callSignal,
+  activeParty,
+}: Props) {
   const postedA = csa.postedByA.get(csa.valuationCcy) ?? 0
   const postedB = csa.postedByB.get(csa.valuationCcy) ?? 0
   // CSB invariant: at most one side is pledgor at a time. Surface the
@@ -28,6 +38,7 @@ export function CsaRow({ csa, expanded, onToggle, latestExposure, callSignal }: 
         ? { party: csa.partyB, amount: postedB }
         : null
   const callParty = callSignal ? (callSignal.side === 'A' ? csa.partyA : csa.partyB) : null
+  const viewerIsFunder = callParty != null && partyMatchesHint(callParty, activeParty)
   return (
     <tr
       onClick={onToggle}
@@ -47,9 +58,13 @@ export function CsaRow({ csa, expanded, onToggle, latestExposure, callSignal }: 
       </td>
       <td className="px-4 py-3 text-right font-mono text-xs">
         {callSignal && callParty ? (
-          <span className="text-rose-400">
-            Call {fmt(callSignal.amount)} from <PartyName identifier={callParty} />
-          </span>
+          viewerIsFunder ? (
+            <span className="text-rose-400">Post {fmt(callSignal.amount)}</span>
+          ) : (
+            <span className="text-rose-400">
+              Call {fmt(callSignal.amount)} from <PartyName identifier={callParty} />
+            </span>
+          )
         ) : (
           <span className="text-zinc-600">—</span>
         )}
