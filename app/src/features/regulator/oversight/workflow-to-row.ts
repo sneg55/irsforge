@@ -1,4 +1,4 @@
-import { getInstrumentCurrency } from '@/shared/ledger/instrument-helpers'
+import { getInstrumentCurrency, getInstrumentTradeDate } from '@/shared/ledger/instrument-helpers'
 import type { SwapInstrumentPayload } from '@/shared/ledger/swap-instrument-types'
 import type {
   ContractResult,
@@ -18,8 +18,27 @@ export interface OversightRow {
   notional: number | null
   currency: string
   status: OversightStatus
+  // ISO-date-parsed epoch ms used as the deterministic sort key inside each
+  // status bucket. Semantics by status:
+  //   Live      → instrument effective (trade) date
+  //   Proposed  → proposal startDate (or firstPaymentDate for FX)
+  //   Matured   → actualMaturityDate (instant the workflow matured)
+  //   Terminated→ terminationDate (instant the workflow was terminated)
+  // null means the relevant date string was missing/unparseable — those rows
+  // sort to the bottom of their bucket.
+  sortDateMs: number | null
   createdAtMs: number | null
   cid: string
+}
+
+function parseIsoDateMs(s: string | undefined | null): number | null {
+  if (!s) return null
+  // Daml emits dates as bare ISO 'YYYY-MM-DD'. Date.parse() reads those as
+  // UTC midnight which is what we want for a deterministic sort key —
+  // timezone of the viewer doesn't matter because every row uses the same
+  // parser.
+  const n = Date.parse(s)
+  return Number.isNaN(n) ? null : n
 }
 
 function normaliseFamily(s: string): SwapFamily {
@@ -39,6 +58,16 @@ function currencyForWorkflow(
   return getInstrumentCurrency(instr)
 }
 
+function tradeDateMsForInstrument(
+  instrumentId: string,
+  byInstrumentId: Map<string, SwapInstrumentPayload>,
+): number | null {
+  const instr = byInstrumentId.get(instrumentId)
+  if (!instr) return null
+  const s = getInstrumentTradeDate(instr)
+  return parseIsoDateMs(s)
+}
+
 export function workflowToRow(
   c: ContractResult<SwapWorkflow>,
   byInstrumentId: Map<string, SwapInstrumentPayload>,
@@ -51,6 +80,7 @@ export function workflowToRow(
     notional: c.payload.notional ? Number.parseFloat(c.payload.notional) : null,
     currency: currencyForWorkflow(c.payload.instrumentKey.id.unpack, byInstrumentId),
     status: 'Live',
+    sortDateMs: tradeDateMsForInstrument(c.payload.instrumentKey.id.unpack, byInstrumentId),
     createdAtMs: null,
     cid: c.contractId,
   }
@@ -68,6 +98,10 @@ export function maturedToRow(
     notional: c.payload.notional ? Number.parseFloat(c.payload.notional) : null,
     currency: currencyForWorkflow(c.payload.instrumentKey.id.unpack, byInstrumentId),
     status: 'Matured',
+    // For terminal states, sort on the lifecycle date (when it matured), not
+    // the effective date — that's what a regulator scrubbing recent activity
+    // wants at the top.
+    sortDateMs: parseIsoDateMs(c.payload.actualMaturityDate),
     createdAtMs: null,
     cid: c.contractId,
   }
@@ -85,6 +119,7 @@ export function terminatedToRow(
     notional: c.payload.notional ? Number.parseFloat(c.payload.notional) : null,
     currency: currencyForWorkflow(c.payload.instrumentKey.id.unpack, byInstrumentId),
     status: 'Terminated',
+    sortDateMs: parseIsoDateMs(c.payload.terminationDate),
     createdAtMs: null,
     cid: c.contractId,
   }
@@ -105,9 +140,14 @@ export function proposalToRow(p: CrossOrgProposalRow): OversightRow {
     baseCurrency?: string
     fixedCurrency?: string
     legs?: { currency?: string }[]
+    startDate?: string
+    firstPaymentDate?: string
   }
   const explicit =
     payload.currency ?? payload.baseCurrency ?? payload.fixedCurrency ?? payload.legs?.[0]?.currency
+  // FX is the one family without `startDate` — its first-cashflow analog is
+  // `firstPaymentDate`. Every other proposal type carries `startDate`.
+  const dateStr = payload.startDate ?? payload.firstPaymentDate
   return {
     id: p.contractId,
     partyA: p.proposer,
@@ -116,6 +156,7 @@ export function proposalToRow(p: CrossOrgProposalRow): OversightRow {
     notional: payload.notional ? Number.parseFloat(payload.notional) : null,
     currency: explicit ?? (IMPLICIT_USD_FAMILIES.has(p.family) ? 'USD' : ''),
     status: 'Proposed',
+    sortDateMs: parseIsoDateMs(dateStr),
     createdAtMs: null,
     cid: p.contractId,
   }

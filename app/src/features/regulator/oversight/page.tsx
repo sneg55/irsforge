@@ -38,12 +38,22 @@ export function OversightPage() {
   const { byInstrumentId } = useSwapInstruments(client, families)
 
   const rows = useMemo<OversightRow[]>(() => {
-    return [
-      ...wf.workflows.map((c) => workflowToRow(c, byInstrumentId)),
-      ...props.proposals.map(proposalToRow),
-      ...wf.matured.map((c) => maturedToRow(c, byInstrumentId)),
-      ...wf.terminated.map((c) => terminatedToRow(c, byInstrumentId)),
-    ]
+    // Reference-impl sort contract:
+    //   bucket order   = Live → Proposed → Matured → Terminated (active risk on top)
+    //   within bucket  = sortDateMs descending; rows with null date go last
+    // This is the *default* presentation; column-sort in TradeTable can
+    // override it (then bucket grouping is intentionally lost).
+    const byDateDesc = (a: OversightRow, b: OversightRow): number => {
+      const ax = a.sortDateMs ?? Number.NEGATIVE_INFINITY
+      const bx = b.sortDateMs ?? Number.NEGATIVE_INFINITY
+      if (ax === bx) return a.id.localeCompare(b.id)
+      return bx - ax
+    }
+    const live = wf.workflows.map((c) => workflowToRow(c, byInstrumentId)).sort(byDateDesc)
+    const proposed = props.proposals.map(proposalToRow).sort(byDateDesc)
+    const matured = wf.matured.map((c) => maturedToRow(c, byInstrumentId)).sort(byDateDesc)
+    const terminated = wf.terminated.map((c) => terminatedToRow(c, byInstrumentId)).sort(byDateDesc)
+    return [...live, ...proposed, ...matured, ...terminated]
   }, [wf.workflows, wf.matured, wf.terminated, props.proposals, byInstrumentId])
 
   const filtered = useMemo<OversightRow[]>(() => {
