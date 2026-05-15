@@ -29,14 +29,14 @@ export function CsaDrawer({ csa, activeParty }: Props) {
     ? (csa.postedByA.get(csa.valuationCcy) ?? 0)
     : (csa.postedByB.get(csa.valuationCcy) ?? 0)
   const partyIdentifier = isA ? csa.partyA : csa.partyB
-  // Pre-fill the Post Collateral modal with the outstanding margin call when
-  // it's directed at this party (after MTA + rounding gating from
-  // `computeCallSignal`). Calls aimed at the counterparty don't pre-fill.
+  // Pre-fill the Post Collateral modal with whatever margin call is
+  // outstanding on this CSA (after MTA + rounding gating from
+  // `computeCallSignal`), regardless of which side is currently funder.
+  // The named row above the modal — "Outstanding margin call: $X" —
+  // makes the source explicit, and a "Use call amount" reset link is
+  // there if the user types over it.
   const callSignal = latest != null ? computeCallSignal(csa, latest.exposure) : null
-  const callOwedByMe =
-    callSignal && ((isA && callSignal.side === 'A') || (!isA && callSignal.side === 'B'))
-      ? callSignal.amount
-      : null
+  const outstandingCallAmount = callSignal ? callSignal.amount : null
   // Drill-through to /blotter filtered by the OTHER party — the natural
   // meaning of "trades that drive this CSA's exposure for me".
   const otherParty = isA ? csa.partyB : csa.partyA
@@ -109,7 +109,7 @@ export function CsaDrawer({ csa, activeParty }: Props) {
                 party={partyIdentifier}
                 currentExposure={latest?.exposure ?? null}
                 state={csa.state}
-                callOwedByMe={callOwedByMe}
+                outstandingCallAmount={outstandingCallAmount}
               />
               {disputeRecord && (csa.state === 'MarkDisputed' || csa.state === 'Escalated') && (
                 <DisputeCounterpartyActions

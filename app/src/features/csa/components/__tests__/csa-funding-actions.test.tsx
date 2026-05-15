@@ -121,9 +121,9 @@ describe('CsaFundingActions', () => {
     expect(call[4]).toBe(250_000)
   })
 
-  test('callOwedByMe pre-fills the Post modal and submits that figure by default', async () => {
+  test('outstandingCallAmount pre-fills the Post modal regardless of which side is funder', async () => {
     const { container } = renderWithQuery(
-      <CsaFundingActions {...baseProps} callOwedByMe={12_640_000} />,
+      <CsaFundingActions {...baseProps} outstandingCallAmount={12_640_000} />,
     )
     fireEvent.click(
       Array.from(container.querySelectorAll('button')).find((b) => b.textContent === 'Post')!,
@@ -140,9 +140,9 @@ describe('CsaFundingActions', () => {
     expect(postCollateral.mock.calls[0][4]).toBe(12_640_000)
   })
 
-  test('callOwedByMe does not pre-fill the Withdraw modal', () => {
+  test('outstandingCallAmount does not pre-fill the Withdraw modal', () => {
     const { container } = renderWithQuery(
-      <CsaFundingActions {...baseProps} callOwedByMe={12_640_000} />,
+      <CsaFundingActions {...baseProps} outstandingCallAmount={12_640_000} />,
     )
     fireEvent.click(
       Array.from(container.querySelectorAll('button')).find((b) => b.textContent === 'Withdraw')!,
