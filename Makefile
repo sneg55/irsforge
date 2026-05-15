@@ -160,9 +160,14 @@ logs:
 docs:
 	@cd docs-site && npm install --silent && npm start -- --port 3030
 
-# Build the docs site (CI gate — fails on broken links)
+# Build the docs site (CI gate — fails on broken internal links AND on stale
+# marketing-site refs to docs.irsforge.com paths that no longer resolve).
+# Docusaurus's built-in `onBrokenLinks: 'throw'` only catches markdown-resolved
+# links; the post-build checker reads the rendered HTML the same way Cloudflare
+# serves it, plus scans site/src/ for external docs refs.
 docs-build:
 	@cd docs-site && npm install --silent && npm run build
+	@node docs-site/scripts/check-broken-links.mjs
 
 # Deploy the docs site to Cloudflare Pages (project: irsforge-docs)
 docs-deploy: docs-build

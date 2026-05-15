@@ -1,0 +1,36 @@
+# Cloudflare Pages redirects.
+# Format: <from> <to> <status>
+# Docusaurus copies static/ to build/ so this lands at docs.irsforge.com/_redirects.
+#
+# Two classes of rule here:
+#
+# 1. Specific bad paths discovered in the wild. /judges/quickstart/tour was the
+#    one a user hit (intuitive guess: "tour nested under quickstart"). Tour is
+#    actually a sibling page, not a child. The mirror direction (tour/quickstart)
+#    is added preemptively for the same reason.
+#
+# 2. Category-level landings. The site has explicit category sidebars but no
+#    routes at /judges, /concepts, /integrators, etc. — those all 404 today.
+#    Each entry below redirects the bare category URL to the first page in that
+#    sidebar section. A user who bookmarks "/concepts" gets the swpm-parity
+#    page; we don't depend on them knowing the exact slug to type.
+#
+# Out of scope here: building real category index pages via
+# `link: { type: 'generated-index' }` in sidebars.ts is the more native fix
+# and would replace these redirects. Filed for follow-up.
+
+# (1) specific bad-guesses
+/judges/quickstart/tour       /judges/tour                                    301
+/judges/tour/quickstart       /judges/quickstart                              301
+
+# (2) category-level landings
+/judges                       /judges/quickstart                              301
+/getting-started              /getting-started/quickstart                     301
+/concepts                     /concepts/swpm-parity                           301
+/architecture                 /architecture/daml-finance-interfaces           301
+/products                     /products/irs                                   301
+/integrators                  /integrators/overview                           301
+/oracle                       /oracle/overview                                301
+/ui                           /ui/overview                                    301
+/reference                    /reference/config-yaml                          301
+/operations                   /operations/deploying-production                301
