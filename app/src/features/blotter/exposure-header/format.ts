@@ -3,6 +3,15 @@ import type { CsaStatusKind } from './types'
 
 export const TYPE_CHIP_ORDER = ['IRS', 'OIS', 'BASIS', 'XCCY', 'CDS'] as const
 
+// Coverage tolerance shared by the percent-string display and the
+// healthy-status threshold. 0.5% matches `Math.round`'s half-up
+// boundary at the percent level: anything that displays as "100%" via
+// `formatCoveragePct` (i.e. coverage in [99.5%, 100.5%]) also classifies
+// as `healthy` via `deriveCsaStatus`. Without this, dust-level shortfalls
+// from MTA/rounding/float-error showed "100%" and a "Warn" pill at the
+// same time — same source of truth for both decisions avoids that.
+export const COVERAGE_HEALTHY_EPSILON = 0.005
+
 export function compactCurrency(n: number): string {
   const abs = Math.abs(n)
   const sign = n < 0 ? '-' : ''
@@ -71,7 +80,7 @@ export function deriveCsaStatus(
   if (exposure === null) return 'unknown'
   if (exposure <= 0) return 'healthy'
   const coverage = ownPosted / exposure
-  if (coverage >= 1) return 'healthy'
+  if (coverage >= 1 - COVERAGE_HEALTHY_EPSILON) return 'healthy'
   if (coverage >= 0.8) return 'warn'
   return 'call'
 }

@@ -78,8 +78,19 @@ describe('deriveCsaStatus', () => {
   it('returns healthy when Active and coverage ≥ 100%', () => {
     expect(deriveCsaStatus('Active', 10_000_000, 5_000_000)).toBe('healthy')
   })
-  it('returns warn when Active and coverage in [80%, 100%)', () => {
+  it('returns warn when Active and coverage in [80%, ~99.5%)', () => {
     expect(deriveCsaStatus('Active', 8_500_000, 10_000_000)).toBe('warn')
+    // Just outside the healthy epsilon — coverage = 99.4%.
+    expect(deriveCsaStatus('Active', 9_940_000, 10_000_000)).toBe('warn')
+  })
+  it('treats dust-level shortfalls (≥99.5% coverage) as healthy — matches the rounded-up "100%" display', () => {
+    // 8_600_000 vs 8_639_835 = ~99.54% → both display as "100%" via
+    // formatCoveragePct AND classify as healthy. Without the shared
+    // epsilon, the tile would show "100%" + a "Warn" pill (real bug).
+    expect(deriveCsaStatus('Active', 8_600_000, 8_639_835)).toBe('healthy')
+    expect(formatCoveragePct(8_600_000, 8_639_835)).toBe('100%')
+    // Exact 99.5% boundary — healthy.
+    expect(deriveCsaStatus('Active', 9_950_000, 10_000_000)).toBe('healthy')
   })
   it('returns call when Active and coverage < 80%', () => {
     expect(deriveCsaStatus('Active', 5_000_000, 10_000_000)).toBe('call')
