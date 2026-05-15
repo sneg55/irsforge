@@ -18,7 +18,7 @@ export const demoResetSchema = z
     // Optional override for the banner copy. The default reads
     // "Shared demo — resets at HH:MM UTC. Your changes will be wiped."
     // Override when the deployment carries a different reset story
-    // (e.g. judges-only sandbox, longer interval).
+    // (e.g. participant-private sandbox, longer interval).
     message: z.string().optional(),
   })
   .default({})

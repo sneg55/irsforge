@@ -17,8 +17,7 @@
       "!**/.astro/**",
       "!**/*.astro",
       "!**/*.css",
-      "!oracle/test/integration/**",
-      "!docs/hackathon/_*-head.html"
+      "!oracle/test/integration/**"
     ]
   },
   "formatter": {

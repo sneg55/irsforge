@@ -1,14 +1,14 @@
 # IRSForge — Shared Demo Deployment
 
 Reference recipe for hosting the demo on a single VPS where multiple users
-share one Canton sandbox. Designed for hackathon / showcase usage, NOT for
+share one Canton sandbox. Designed for showcase / evaluation usage, NOT for
 real ledger persistence — the in-memory sandbox is wiped on every reset.
 
 ## What you get
 
 - All four services (Canton sandbox, auth, oracle, Next.js app) running in
   one container, prod builds, behind a single reverse proxy.
-- Round-clock automatic reset (default: every hour at :00 UTC) so judges
+- Round-clock automatic reset (default: every hour at :00 UTC) so visitors
   poking at the demo always land on a known clean baseline.
 - A countdown banner at the top of the SPA telling users when the next
   reset will fire and what gets wiped.
@@ -23,7 +23,7 @@ recipe.
 | Plan | vCPU | RAM | Verdict |
 |---|---|---|---|
 | CX22 | 2 | 4 GB | Skip — Canton JVM eats half, no headroom |
-| **CX32 / CPX31** | **4** | **8 GB** | **Recommended** for a hackathon demo |
+| **CX32 / CPX31** | **4** | **8 GB** | **Recommended** for a shared evaluation demo |
 | CX42 / CPX41 | 8 | 16 GB | Comfortable; use if you also rebuild on-box |
 
 ## VPS bring-up

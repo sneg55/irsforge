@@ -211,20 +211,6 @@ site-qa:
 site-deploy: site-build
 	@cd site && npx wrangler pages deploy dist --project-name=irsforge-site --branch=main --commit-dirty=true
 
-# Hackathon decks — recompose HTML fragments and regenerate the PDFs.
-# Uses Playwright/Chromium (already a site/ devDependency).
-.PHONY: decks decks-html decks-pdf
-
-decks-html:
-	@docs/hackathon/build-decks.sh
-
-decks-pdf: decks-html
-	@cd site && npm install --silent --no-audit --no-fund >/dev/null 2>&1 || true
-	@cd site && npx playwright install --with-deps chromium >/dev/null 2>&1 || true
-	@node docs/hackathon/build-pdfs.mjs
-
-decks: decks-pdf
-
 # Host-agnostic CI gate — Tier 2 #6 from docs/reference-impl-roadmap.md.
 # Wrap this in any pipeline runner (GitHub Actions, GitLab CI, Jenkins,
 # Buildkite, Drone, CircleCI) with `run: make ci`. Host-specific workflow
