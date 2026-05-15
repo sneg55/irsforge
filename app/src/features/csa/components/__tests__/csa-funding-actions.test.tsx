@@ -121,6 +121,36 @@ describe('CsaFundingActions', () => {
     expect(call[4]).toBe(250_000)
   })
 
+  test('callOwedByMe pre-fills the Post modal and submits that figure by default', async () => {
+    const { container } = renderWithQuery(
+      <CsaFundingActions {...baseProps} callOwedByMe={12_640_000} />,
+    )
+    fireEvent.click(
+      Array.from(container.querySelectorAll('button')).find((b) => b.textContent === 'Post')!,
+    )
+    const input = container.querySelector('input') as HTMLInputElement
+    expect(input.value).toBe('12640000')
+    const submitBtn = Array.from(container.querySelectorAll('button')).find(
+      (b) => b.textContent === 'Post' && b.closest('.fixed'),
+    )!
+    await act(async () => {
+      fireEvent.click(submitBtn)
+    })
+    expect(postCollateral).toHaveBeenCalled()
+    expect(postCollateral.mock.calls[0][4]).toBe(12_640_000)
+  })
+
+  test('callOwedByMe does not pre-fill the Withdraw modal', () => {
+    const { container } = renderWithQuery(
+      <CsaFundingActions {...baseProps} callOwedByMe={12_640_000} />,
+    )
+    fireEvent.click(
+      Array.from(container.querySelectorAll('button')).find((b) => b.textContent === 'Withdraw')!,
+    )
+    const input = container.querySelector('input') as HTMLInputElement
+    expect(input.value).toBe('0')
+  })
+
   test('clicking Dispute opens dispute modal', () => {
     const { container } = renderWithQuery(<CsaFundingActions {...baseProps} />)
     fireEvent.click(

@@ -19,6 +19,12 @@ interface Props {
   party: string
   currentExposure: number | null
   state: CsaState
+  /**
+   * Outstanding margin call directed at this party (after MTA + rounding),
+   * or null when no call is owed by this side. Forwarded to the Post
+   * modal as its initial Amount so the user doesn't retype the call figure.
+   */
+  callOwedByMe?: number | null
 }
 
 export function CsaFundingActions({
@@ -30,6 +36,7 @@ export function CsaFundingActions({
   party,
   currentExposure,
   state,
+  callOwedByMe,
 }: Props) {
   const { client } = useLedgerClient()
   const queryClient = useQueryClient()
@@ -105,6 +112,7 @@ export function CsaFundingActions({
         mode={amountMode ?? 'post'}
         ccy={ccy}
         max={amountMode === 'withdraw' ? postedByMe : undefined}
+        prefillAmount={amountMode === 'post' ? callOwedByMe : null}
         onClose={() => setAmountMode(null)}
         onSubmit={handleAmountSubmit}
       />

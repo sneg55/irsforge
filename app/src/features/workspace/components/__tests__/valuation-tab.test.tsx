@@ -36,7 +36,7 @@ describe('ValuationTab', () => {
     const dv01 = container.querySelector('[data-tooltip-key="dv01"]')
     expect(dv01?.getAttribute('title')).toMatch(/1bp/i)
     const modDuration = container.querySelector('[data-tooltip-key="mod-duration"]')
-    expect(modDuration?.getAttribute('title')).toMatch(/100bp/i)
+    expect(modDuration?.getAttribute('title')).toMatch(/synthetic-bond/i)
     const convexity = container.querySelector('[data-tooltip-key="convexity"]')
     expect(convexity?.getAttribute('title')).toMatch(/curvature/i)
   })

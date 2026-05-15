@@ -47,7 +47,8 @@ export function ValuationTab({ valuation }: ValuationTabProps) {
           {
             label: 'Mod Duration',
             tooltipKey: 'mod-duration',
-            tooltip: 'Approximate %-change in price for a 100bp parallel rate move.',
+            tooltip:
+              'Synthetic-bond duration (years). PV01 normalised by reference notional, matching SWPM. Positive for receivers, negative for payers.',
             value: valuation?.modDuration != null ? valuation.modDuration.toFixed(2) : '—',
           },
           {

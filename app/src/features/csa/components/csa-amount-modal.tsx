@@ -9,12 +9,20 @@ interface Props {
   mode: CsaAmountMode
   ccy: string
   max?: number
+  /**
+   * Pre-fill value for the Amount field at open time. In post mode this is
+   * typically the outstanding margin call directed at the active party so
+   * the user doesn't have to retype the figure they're already looking at.
+   * Ignored when ≤ 0; only consulted at open time so user edits aren't
+   * clobbered when the underlying mark stream ticks.
+   */
+  prefillAmount?: number | null
   onClose: () => void
   onSubmit: (amount: number) => Promise<void>
 }
 
-const fmt = (n: number) =>
-  n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+const fmt = (n: number, ccy = 'USD') =>
+  n.toLocaleString('en-US', { style: 'currency', currency: ccy, maximumFractionDigits: 0 })
 
 const CONFIG = {
   post: {
@@ -33,19 +41,37 @@ const CONFIG = {
   },
 } as const
 
-export function CsaAmountModal({ isOpen, mode, ccy, max, onClose, onSubmit }: Props) {
+function initialAmountText(mode: CsaAmountMode, prefillAmount: number | null | undefined): string {
+  if (mode === 'post' && prefillAmount && prefillAmount > 0) {
+    return String(prefillAmount)
+  }
+  return CONFIG[mode].defaultAmount
+}
+
+export function CsaAmountModal({
+  isOpen,
+  mode,
+  ccy,
+  max,
+  prefillAmount,
+  onClose,
+  onSubmit,
+}: Props) {
   const cfg = CONFIG[mode]
-  const [amountText, setAmountText] = useState<string>(cfg.defaultAmount)
+  const [amountText, setAmountText] = useState<string>(() => initialAmountText(mode, prefillAmount))
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     if (isOpen) {
-      setAmountText(cfg.defaultAmount)
+      setAmountText(initialAmountText(mode, prefillAmount))
       setError(null)
       setBusy(false)
     }
-  }, [isOpen, cfg.defaultAmount])
+    // Intentionally only re-run on open transitions; subsequent prefill
+    // changes mid-modal would clobber a user's manual edit.
+     
+  }, [isOpen])
 
   if (!isOpen) return null
 
@@ -98,6 +124,26 @@ export function CsaAmountModal({ isOpen, mode, ccy, max, onClose, onSubmit }: Pr
           }}
           className="mb-3 w-full rounded border border-[#1e2235] bg-transparent px-2 py-1 font-mono text-sm focus:border-zinc-500 outline-hidden"
         />
+        {mode === 'post' && prefillAmount && prefillAmount > 0 && (
+          <div
+            className="mb-3 flex items-center justify-between text-2xs"
+            data-testid="csa-amount-prefill-hint"
+          >
+            <span className="text-[#555b6e]">
+              Outstanding margin call:{' '}
+              <span className="text-emerald-300">{fmt(prefillAmount, ccy)}</span>
+            </span>
+            {amountText !== String(prefillAmount) && (
+              <button
+                type="button"
+                onClick={() => setAmountText(String(prefillAmount))}
+                className="text-2xs text-blue-400 hover:text-blue-300"
+              >
+                Use call amount
+              </button>
+            )}
+          </div>
+        )}
         {mode === 'withdraw' && max !== undefined && (
           <div className="mb-3 flex items-center justify-between text-2xs">
             <span className="text-[#555b6e]">

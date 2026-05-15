@@ -71,14 +71,33 @@ function priceWithContext(config: SwapConfig, ctx: PricingContext): number {
   }, 0)
 }
 
+// Reference notional used to normalise modified duration and convexity.
+// Dividing by NPV is the textbook formula but explodes for par swaps where
+// NPV → 0 by construction. SWPM's "Mod Duration" instead treats the swap as
+// a synthetic bond (fixed leg + phantom notional redemption) whose PV ≈
+// |notional| at par. We use |fixed-leg notional| as that proxy — stable
+// through par, scales with maturity, signed naturally (positive duration for
+// receivers, negative for payers).
+function referenceNotional(config: SwapConfig, ctx: PricingContext): number {
+  const fixedLeg = config.legs.find((l) => l.legType === 'fixed')
+  const refLeg = fixedLeg ?? config.legs.find((l) => 'notional' in l && l.notional > 0)
+  if (!refLeg || !('notional' in refLeg)) return 0
+  const notional = Math.abs(refLeg.notional)
+  if (config.type !== 'XCCY') return notional
+  const reportingCcy = ctx.reportingCcy ?? legCurrency(refLeg) ?? 'USD'
+  const ccy = legCurrency(refLeg) ?? reportingCcy
+  return notional * fxFactor(ccy, reportingCcy, ctx.fxSpots ?? {})
+}
+
 function calcRiskMetrics(config: SwapConfig, ctx: PricingContext, npv: number) {
   const bp = 0.0001
   const pvUp = priceWithContext(config, bumpParallel(ctx, bp))
   const pvDown = priceWithContext(config, bumpParallel(ctx, -bp))
 
   const dv01 = Math.abs(pvUp - pvDown) / 2
-  const modDuration = npv !== 0 ? -((pvUp - pvDown) / (2 * bp)) / npv : null
-  const convexity = npv !== 0 ? (pvUp + pvDown - 2 * npv) / (npv * bp * bp) : null
+  const refN = referenceNotional(config, ctx)
+  const modDuration = refN > 0 ? -((pvUp - pvDown) / (2 * bp)) / refN : null
+  const convexity = refN > 0 ? (pvUp + pvDown - 2 * npv) / (refN * bp * bp) : null
 
   return { dv01, modDuration, convexity }
 }

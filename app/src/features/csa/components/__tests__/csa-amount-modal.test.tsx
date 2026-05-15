@@ -120,6 +120,64 @@ describe('CsaAmountModal — submit + validation', () => {
     expect(input.value).toBe('1234')
   })
 
+  test('prefillAmount populates the input on open in post mode', () => {
+    const { container } = render(
+      <CsaAmountModal
+        isOpen
+        mode="post"
+        ccy="USD"
+        prefillAmount={12_640_000}
+        onClose={() => {}}
+        onSubmit={async () => {}}
+      />,
+    )
+    const input = container.querySelector('input') as HTMLInputElement
+    expect(input.value).toBe('12640000')
+    const hint = container.querySelector('[data-testid="csa-amount-prefill-hint"]')
+    expect(hint?.textContent).toMatch(/Outstanding margin call/i)
+    expect(hint?.textContent).toMatch(/\$12,640,000/)
+  })
+
+  test('prefillAmount is ignored in withdraw mode', () => {
+    const { container } = render(
+      <CsaAmountModal
+        isOpen
+        mode="withdraw"
+        ccy="USD"
+        max={500_000}
+        prefillAmount={12_640_000}
+        onClose={() => {}}
+        onSubmit={async () => {}}
+      />,
+    )
+    const input = container.querySelector('input') as HTMLInputElement
+    expect(input.value).toBe('0')
+    expect(container.querySelector('[data-testid="csa-amount-prefill-hint"]')).toBeNull()
+  })
+
+  test('"Use call amount" reset link reappears after the user edits the field', () => {
+    const { container } = render(
+      <CsaAmountModal
+        isOpen
+        mode="post"
+        ccy="USD"
+        prefillAmount={12_640_000}
+        onClose={() => {}}
+        onSubmit={async () => {}}
+      />,
+    )
+    // No reset link while value matches the prefill.
+    expect(container.textContent).not.toContain('Use call amount')
+    const input = container.querySelector('input') as HTMLInputElement
+    fireEvent.change(input, { target: { value: '5000000' } })
+    const resetBtn = Array.from(container.querySelectorAll('button')).find(
+      (b) => b.textContent === 'Use call amount',
+    )
+    expect(resetBtn).toBeDefined()
+    fireEvent.click(resetBtn as HTMLButtonElement)
+    expect(input.value).toBe('12640000')
+  })
+
   test('Cancel fires onClose', () => {
     const onClose = vi.fn()
     const { container } = render(

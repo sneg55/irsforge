@@ -3,6 +3,7 @@
 import { usePathname } from 'next/navigation'
 import { isOperatorParty, isRegulatorParty } from '@/shared/hooks/use-is-operator'
 import { hintFromParty, partyMatchesHint } from '@/shared/ledger/party-match'
+import { computeCallSignal } from '../call-amount'
 import type { CsaViewModel } from '../decode'
 import { useDisputeRecord } from '../hooks/use-dispute-record'
 import { useMarkStream } from '../hooks/use-mark-stream'
@@ -28,6 +29,14 @@ export function CsaDrawer({ csa, activeParty }: Props) {
     ? (csa.postedByA.get(csa.valuationCcy) ?? 0)
     : (csa.postedByB.get(csa.valuationCcy) ?? 0)
   const partyIdentifier = isA ? csa.partyA : csa.partyB
+  // Pre-fill the Post Collateral modal with the outstanding margin call when
+  // it's directed at this party (after MTA + rounding gating from
+  // `computeCallSignal`). Calls aimed at the counterparty don't pre-fill.
+  const callSignal = latest != null ? computeCallSignal(csa, latest.exposure) : null
+  const callOwedByMe =
+    callSignal && ((isA && callSignal.side === 'A') || (!isA && callSignal.side === 'B'))
+      ? callSignal.amount
+      : null
   // Drill-through to /blotter filtered by the OTHER party — the natural
   // meaning of "trades that drive this CSA's exposure for me".
   const otherParty = isA ? csa.partyB : csa.partyA
@@ -100,6 +109,7 @@ export function CsaDrawer({ csa, activeParty }: Props) {
                 party={partyIdentifier}
                 currentExposure={latest?.exposure ?? null}
                 state={csa.state}
+                callOwedByMe={callOwedByMe}
               />
               {disputeRecord && (csa.state === 'MarkDisputed' || csa.state === 'Escalated') && (
                 <DisputeCounterpartyActions
