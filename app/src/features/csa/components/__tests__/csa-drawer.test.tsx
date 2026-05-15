@@ -95,33 +95,40 @@ function renderDrawer(activeParty: string, csa: CsaViewModel = baseCsa) {
   )
 }
 
-describe('CsaDrawer — outstandingCallAmount plumbing', () => {
-  test('passes the gated call amount through to CsaFundingActions when a mark exists', () => {
+describe('CsaDrawer — outstandingCallAmount + counterpartyHasOpenCall plumbing', () => {
+  test('passes the call amount when the active party IS the funder', () => {
     // Exposure of -8.64M against zero thresholds and 5M already posted by A.
-    // gateCall(target - current) = -13.64M (mod 10k); side = B (JPM).
-    mockMarkStream.latest = { asOf: '2026-05-15T12:00:00Z', exposure: -8_640_000 }
-    renderDrawer('Goldman')
-    expect(fundingActionsProps).toHaveLength(1)
-    expect(fundingActionsProps[0]!['outstandingCallAmount']).toBe(13_640_000)
-  })
-
-  test('passes the same amount regardless of which side is the active party', () => {
+    // gateCall(target - current) = -13.64M; side = B (JPM owes).
+    // JPMorgan IS the funder → prefill applies.
     mockMarkStream.latest = { asOf: '2026-05-15T12:00:00Z', exposure: -8_640_000 }
     renderDrawer('JPMorgan')
+    expect(fundingActionsProps).toHaveLength(1)
     expect(fundingActionsProps[0]!['outstandingCallAmount']).toBe(13_640_000)
+    expect(fundingActionsProps[0]!['counterpartyHasOpenCall']).toBe(false)
   })
 
-  test('passes null when there is no mark yet (latest = null)', () => {
+  test('passes null + counterpartyHasOpenCall when active party is NOT the funder', () => {
+    // Same exposure, but Goldman (= A) is not the funder. Without this gate,
+    // posting from Goldman doubled the call (the bug fixed by this commit).
+    mockMarkStream.latest = { asOf: '2026-05-15T12:00:00Z', exposure: -8_640_000 }
+    renderDrawer('Goldman')
+    expect(fundingActionsProps[0]!['outstandingCallAmount']).toBeNull()
+    expect(fundingActionsProps[0]!['counterpartyHasOpenCall']).toBe(true)
+  })
+
+  test('passes null + no warning when there is no mark yet (latest = null)', () => {
     mockMarkStream.latest = null
     renderDrawer('Goldman')
     expect(fundingActionsProps[0]!['outstandingCallAmount']).toBeNull()
+    expect(fundingActionsProps[0]!['counterpartyHasOpenCall']).toBe(false)
   })
 
-  test('passes null when the call gates to zero (within MTA)', () => {
-    // Exposure 50k below the 100k MTA; gateCall returns 0; no prefill.
+  test('passes null + no warning when the call gates to zero (within MTA)', () => {
+    // Exposure 50k below the 100k MTA; gateCall returns 0; no prefill, no warning.
     mockMarkStream.latest = { asOf: '2026-05-15T12:00:00Z', exposure: 50_000 }
     renderDrawer('Goldman', { ...baseCsa, postedByA: new Map(), postedByB: new Map() })
     expect(fundingActionsProps[0]!['outstandingCallAmount']).toBeNull()
+    expect(fundingActionsProps[0]!['counterpartyHasOpenCall']).toBe(false)
   })
 })
 

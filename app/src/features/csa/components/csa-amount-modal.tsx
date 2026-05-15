@@ -17,6 +17,14 @@ interface Props {
    * clobbered when the underlying mark stream ticks.
    */
   prefillAmount?: number | null
+  /**
+   * True when an outstanding call exists but is directed at the COUNTERPARTY,
+   * not the active party. Surfaces a warning banner explaining that posting
+   * from this side moves csb in the wrong direction and will *worsen* the
+   * call rather than clear it (each wrong-side post doubles the gap because
+   * `PostCollateral` always increments the poster's signed contribution).
+   */
+  counterpartyHasOpenCall?: boolean
   onClose: () => void
   onSubmit: (amount: number) => Promise<void>
 }
@@ -54,6 +62,7 @@ export function CsaAmountModal({
   ccy,
   max,
   prefillAmount,
+  counterpartyHasOpenCall,
   onClose,
   onSubmit,
 }: Props) {
@@ -70,7 +79,6 @@ export function CsaAmountModal({
     }
     // Intentionally only re-run on open transitions; subsequent prefill
     // changes mid-modal would clobber a user's manual edit.
-     
   }, [isOpen])
 
   if (!isOpen) return null
@@ -108,6 +116,18 @@ export function CsaAmountModal({
     >
       <div className="w-[420px] rounded border border-[#1e2235] bg-[#111320] p-5 text-white">
         <h2 className="mb-4 text-sm font-semibold tracking-wider">{cfg.title}</h2>
+        {mode === 'post' && counterpartyHasOpenCall && (
+          <div
+            className="mb-4 rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-2xs text-amber-200"
+            data-testid="csa-amount-counterparty-call-warning"
+          >
+            <div className="font-semibold mb-0.5">Call is on the counterparty</div>
+            <div className="text-amber-300/80">
+              Posting from this side will <span className="font-semibold">worsen</span> the call
+              (your csb moves the wrong way). Only post if you intend to over-collateralize.
+            </div>
+          </div>
+        )}
         <label htmlFor="csa-amount" className="mb-1 block text-2xs text-[#555b6e]">
           {cfg.label} ({ccy})
         </label>

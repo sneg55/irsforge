@@ -20,13 +20,20 @@ interface Props {
   currentExposure: number | null
   state: CsaState
   /**
-   * Outstanding margin call on the CSA (after MTA + rounding), or null
-   * when there's no open call. Forwarded to the Post modal as its initial
-   * Amount so the user doesn't retype the figure already shown on the
-   * row. Not gated on which side is funder — the modal's caption makes
-   * the source explicit and the user can edit freely.
+   * Outstanding margin call directed at the active party (the funder).
+   * Forwarded to the Post modal as its initial Amount so the user
+   * doesn't retype the figure shown on the row. Null when no call OR
+   * when the call is on the counterparty — wrong-side prefilling caused
+   * the "post → call doubles" bug fixed alongside this prop.
    */
   outstandingCallAmount?: number | null
+  /**
+   * True when there's an outstanding call on the CSA but it's directed
+   * at the COUNTERPARTY, not the active party. Surfaces a banner in the
+   * Post modal explaining that posting from this side will worsen the
+   * gap rather than clear it.
+   */
+  counterpartyHasOpenCall?: boolean
 }
 
 export function CsaFundingActions({
@@ -39,6 +46,7 @@ export function CsaFundingActions({
   currentExposure,
   state,
   outstandingCallAmount,
+  counterpartyHasOpenCall,
 }: Props) {
   const { client } = useLedgerClient()
   const queryClient = useQueryClient()
@@ -115,6 +123,7 @@ export function CsaFundingActions({
         ccy={ccy}
         max={amountMode === 'withdraw' ? postedByMe : undefined}
         prefillAmount={amountMode === 'post' ? outstandingCallAmount : null}
+        counterpartyHasOpenCall={amountMode === 'post' && counterpartyHasOpenCall}
         onClose={() => setAmountMode(null)}
         onSubmit={handleAmountSubmit}
       />

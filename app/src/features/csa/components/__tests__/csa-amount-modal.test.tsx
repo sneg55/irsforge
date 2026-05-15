@@ -178,6 +178,40 @@ describe('CsaAmountModal — submit + validation', () => {
     expect(input.value).toBe('12640000')
   })
 
+  test('renders the counterparty-call warning banner when counterpartyHasOpenCall is true', () => {
+    const { container } = render(
+      <CsaAmountModal
+        isOpen
+        mode="post"
+        ccy="USD"
+        counterpartyHasOpenCall
+        onClose={() => {}}
+        onSubmit={async () => {}}
+      />,
+    )
+    const banner = container.querySelector('[data-testid="csa-amount-counterparty-call-warning"]')
+    expect(banner).not.toBeNull()
+    expect(banner?.textContent).toMatch(/Call is on the counterparty/i)
+    expect(banner?.textContent).toMatch(/worsen/i)
+  })
+
+  test('does not render the warning banner in withdraw mode', () => {
+    const { container } = render(
+      <CsaAmountModal
+        isOpen
+        mode="withdraw"
+        ccy="USD"
+        max={500_000}
+        counterpartyHasOpenCall
+        onClose={() => {}}
+        onSubmit={async () => {}}
+      />,
+    )
+    expect(
+      container.querySelector('[data-testid="csa-amount-counterparty-call-warning"]'),
+    ).toBeNull()
+  })
+
   test('Cancel fires onClose', () => {
     const onClose = vi.fn()
     const { container } = render(
