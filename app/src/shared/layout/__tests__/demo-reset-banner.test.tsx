@@ -88,11 +88,11 @@ describe('<DemoResetBanner />', () => {
     mockDemoReset = {
       enabled: true,
       intervalMinutes: 60,
-      message: 'Judges-only sandbox.',
+      message: 'Custom maintenance message.',
     }
     const { container } = render(<DemoResetBanner />)
     await vi.advanceTimersByTimeAsync(0)
-    expect(container.textContent).toContain('Judges-only sandbox.')
+    expect(container.textContent).toContain('Custom maintenance message.')
     expect(container.textContent).not.toContain('UTC')
   })
 })

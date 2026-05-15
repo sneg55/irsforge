@@ -50,14 +50,6 @@ export default function OrgSelectorPage() {
               irsforge.com
             </a>
             <a
-              href="https://docs.irsforge.com/judges/quickstart"
-              target="_blank"
-              rel="noreferrer"
-              className="rounded-md px-3 py-1.5 text-amber-200 transition-colors hover:bg-zinc-900 hover:text-amber-100"
-            >
-              Quickstart for judges
-            </a>
-            <a
               href="https://docs.irsforge.com"
               target="_blank"
               rel="noreferrer"

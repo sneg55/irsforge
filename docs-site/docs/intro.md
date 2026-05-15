@@ -8,15 +8,11 @@ sidebar_position: 1
 
 On-chain Interest Rate Swap platform for [Canton Network](https://www.canton.network/).
 
-Built for **HackCanton Season #1, Track 1 (RWA & Business Workflows)**, and engineered as a **reference open-source implementation** that real Canton participants can adopt without forking.
+A **reference open-source implementation** that real Canton participants can adopt without forking.
 
 Five product families (IRS, OIS, Basis, XCCY, CDS) on the full Daml Finance stack. Signed-CSB margin model. Oracle-driven 24/7 lifecycle. FpML round-tripping. Regulator wired in as observer at contract creation, not as a quarterly export.
 
 ## Start here
-
-:::tip[Judges]
-**[5-minute click-through →](./judges/quickstart)** Live-demo tour that exercises every load-bearing feature: propose, accept, lifecycle, margin call, post collateral. Screenshots inline.
-:::
 
 :::info[Buyers]
 **[Live demo at demo.irsforge.com →](https://demo.irsforge.com)** Seeded parties, seeded trades, no install. A live Canton sandbox you can click through right now.

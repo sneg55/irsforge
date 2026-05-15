@@ -15,11 +15,6 @@ import { useEffect, useState } from 'react'
 
 const SECTIONS: { label: string; href: string; description: string }[] = [
   {
-    label: 'For Judges',
-    href: '/judges/quickstart',
-    description: 'Five-minute click-through and annotated tour.',
-  },
-  {
     label: 'Getting Started',
     href: '/getting-started/quickstart',
     description: 'Install, run, see it work locally.',
@@ -93,10 +88,8 @@ export default function NotFoundContent({ className }: { className?: string }): 
             <p>That URL isn't a route on this site.</p>
           )}
           <p>
-            Common cause: a deep path that looks nested but isn't. For example,{' '}
-            <code>/judges/quickstart/tour</code> is wrong because <em>tour</em> is a sibling of{' '}
-            <em>quickstart</em>, not a child page — the correct URL is{' '}
-            <a href="/judges/tour">/judges/tour</a>.
+            Common cause: a deep path that looks nested but isn't — pages live under their category
+            prefix, not under each other. The sidebar structure on the left is the source of truth.
           </p>
 
           <h2>Try one of these sections</h2>

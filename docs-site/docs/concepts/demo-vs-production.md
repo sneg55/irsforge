@@ -73,6 +73,6 @@ The schema **rejects** a `demo:` block when `profile: production`, so demo-only 
 
 ## Why one yaml drives both
 
-The hackathon goal is a **reference implementation** — a participant evaluating Canton should be able to read one config file and understand exactly what they need to provide for live deployment. The demo profile exists only to make that file runnable offline; every demo-only key is grouped under the top-level `demo:` block and is opt-in.
+IRSForge ships as a **reference implementation** — a participant evaluating Canton should be able to read one config file and understand exactly what they need to provide for live deployment. The demo profile exists only to make that file runnable offline; every demo-only key is grouped under the top-level `demo:` block and is opt-in.
 
 See [`reference/config-yaml`](../reference/config-yaml) for the full key-by-key reference.

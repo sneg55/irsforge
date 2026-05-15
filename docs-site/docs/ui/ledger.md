@@ -6,7 +6,7 @@ sidebar_label: Ledger
 # Ledger (`/org/[orgId]/ledger`)
 
 **Purpose:** visible proof that activity is settling on-chain — a mini block-explorer scoped to the active party's readable contract set, plus live toasts and a cid deep-link chip everywhere a contract ID is shown.
-**Who uses it:** judges watching the demo, operators debugging a workflow, traders confirming an exercise landed.
+**Who uses it:** operators debugging a workflow, traders confirming an exercise landed, anyone proving "it's on-chain".
 **MARS analog:** none — this is IRSForge-specific. Closest in TradFi: a Bloomberg TKIT / ATMS message blotter, but for Canton ledger events.
 **Source:** `app/src/features/ledger/`.
 

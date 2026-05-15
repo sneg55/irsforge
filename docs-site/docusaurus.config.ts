@@ -70,7 +70,6 @@ const config: Config = {
       title: 'IRSForge',
       items: [
         { type: 'docSidebar', sidebarId: 'main', position: 'left', label: 'Docs' },
-        { to: '/judges/quickstart', label: 'For Judges', position: 'left' },
         {
           href: 'https://github.com/sneg55/irsforge',
           label: 'GitHub',

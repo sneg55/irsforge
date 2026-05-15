@@ -20,7 +20,7 @@ The mental model is **SWPM + MARS, on-chain**. A non-technical user coming from 
 | `/org/[orgId]/blotter` | [Blotter](./blotter) — positions, exposure, FpML | Trader / risk |
 | `/org/[orgId]/workspace` | [Workspace](./workspace) — leg composer + pricing | Trader |
 | `/org/[orgId]/csa` | [CSA](./csa) — collateral, marks, disputes | Operations / counterparties |
-| `/org/[orgId]/ledger` | [Ledger](./ledger) — onchain event stream + cid deep-links | Judges / ops / anyone proving "it's on-chain" |
+| `/org/[orgId]/ledger` | [Ledger](./ledger) — onchain event stream + cid deep-links | Ops / anyone proving "it's on-chain" |
 | `/org/[orgId]/operator` | [Operator](./operator) — co-sign queue, lifecycle events, scheduler health, manual fixings | Operator only |
 | `/org/[orgId]/oversight` | Regulator oversight blotter | Regulator only |
 | `/org/[orgId]/timeline` | Regulator business-event timeline | Regulator only |

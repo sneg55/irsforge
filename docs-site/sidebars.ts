@@ -5,12 +5,6 @@ const sidebars: SidebarsConfig = {
     'intro',
     {
       type: 'category',
-      label: 'For Judges',
-      collapsed: false,
-      items: ['judges/quickstart', 'judges/tour'],
-    },
-    {
-      type: 'category',
       label: 'By Role',
       collapsed: false,
       items: [

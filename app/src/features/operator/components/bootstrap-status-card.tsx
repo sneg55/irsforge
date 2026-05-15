@@ -73,7 +73,7 @@ export function BootstrapStatusCard() {
   // Once every contract is on-chain, collapse to a thin banner with one
   // pill per section so the operator can read at a glance which areas of
   // the platform are healthy without expanding. Daily-view stays clean,
-  // judge-view shows full breakdown.
+  // expanded view shows the full breakdown.
   if (allOk && !open) {
     return (
       <div

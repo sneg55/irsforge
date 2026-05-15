@@ -59,7 +59,7 @@ These are not gaps — they're where on-chain settlement changes the model:
 
 ## What's **missing** vs SWPM/MARS (known gaps)
 
-Honest list. These are in scope for future phases, not this hackathon release:
+Honest list. These are in scope for future phases, not the current release:
 
 - **Historical VaR / CVaR** — MARS does historical/parametric VaR; IRSForge currently stops at DV01 + scenario.
 - **XVA** (CVA/DVA/FVA) — out of scope; SWPM has a dedicated `XVA` tab.
