@@ -232,3 +232,53 @@ testCsaImAmountNegativeRejected = do
   (op, pa, pb, reg, sch) <- allocateThree
   let c = (baseCsa op pa pb reg sch) with imAmount = -1.0
   submitMultiMustFail [op, pa, pb] [] do createCmd c
+
+-- 16. PostCollateral self-settles to Active when the post fully closes
+-- an outstanding margin call. Avoids the up-to-60s stale-badge wait for
+-- the next mark-publisher tick.
+testPostSelfSettlesWhenGapClosed : Script ()
+testPostSelfSettlesWhenGapClosed = do
+  (op, pa, pb, reg, sch) <- allocateThree
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  -- Publish a mark that calls A for $1M, then settle into MarginCallOutstanding.
+  (cid, _) <- submit op do
+    exerciseCmd cid C.PublishMark with
+      asOf     = time (date 2026 Apr 17) 12 0 0
+      exposure = 1_000_000.0
+      snapshot = "{}"
+  cid <- submit op do exerciseCmd cid C.SettleVm
+  Some c <- queryContractId op cid
+  assert (c.state == T.MarginCallOutstanding)
+  -- A posts the full $1M. Self-settle should flip state back to Active
+  -- in the same tx — no second SettleVm needed.
+  cid <- submit pa do
+    exerciseCmd cid C.PostCollateral with
+      poster = pa; ccy = "USD"; amount = 1_000_000.0
+  Some c <- queryContractId op cid
+  assert (c.state == T.Active)
+  assert (csbUsd c == 1_000_000.0)
+
+-- 17. PostCollateral leaves state at MarginCallOutstanding when the
+-- post is only partial — next mark-publisher tick still owns shortfall
+-- emission for the remaining gap, no double-emit from PostCollateral.
+testPostPartialKeepsCallOutstanding : Script ()
+testPostPartialKeepsCallOutstanding = do
+  (op, pa, pb, reg, sch) <- allocateThree
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  (cid, _) <- submit op do
+    exerciseCmd cid C.PublishMark with
+      asOf     = time (date 2026 Apr 17) 12 0 0
+      exposure = 1_000_000.0
+      snapshot = "{}"
+  cid <- submit op do exerciseCmd cid C.SettleVm
+  -- A posts $400k of the $1M call — gap remains.
+  cid <- submit pa do
+    exerciseCmd cid C.PostCollateral with
+      poster = pa; ccy = "USD"; amount = 400_000.0
+  Some c <- queryContractId op cid
+  assert (c.state == T.MarginCallOutstanding)
+  assert (csbUsd c == 400_000.0)
+  -- Exactly one MarginShortfall — the one from the original SettleVm.
+  -- PostCollateral must not emit a second one.
+  shortfalls <- query @S.MarginShortfall op
+  assert (length shortfalls == 1)

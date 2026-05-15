@@ -16,29 +16,11 @@ import qualified Csa.DisputeOps as DOps
 import Csa.Math
 import Swap.Workflow (SwapWorkflow)
 
--- ---------------------------------------------------------------------------
--- Signed Credit Support Balance (CSB) model
---
--- The CSA tracks one signed per-currency balance, `csb`, representing net
--- collateral A has pledged toward B. Positive `csb` means A is the pledgor
--- and B holds the collateral; negative means B is the pledgor and A holds.
--- Zero means neither side has any pledge outstanding.
---
--- This mirrors the "Credit Support Balance" convention used by Bloomberg
--- MARS, AcadiaSoft and real ISDA CSAs, where only one side is ever pledgor
--- at a time. The two-map pool model it replaced admitted a state — both
--- sides simultaneously posted — that real CSAs never reach, and produced
--- phantom margin calls on the wrong side when one side over-posted.
---
--- Pure helpers (computeRequired, targetCsb, gateCall, RequiredPair) live
--- in Csa.Math so this module stays under the 300-line cap. They are
--- re-exported from this module so existing call sites (`C.computeRequired`,
--- `C.targetCsb`, `C.gateCall`) keep compiling unchanged.
--- ---------------------------------------------------------------------------
-
--- ---------------------------------------------------------------------------
--- Csa template
--- ---------------------------------------------------------------------------
+-- Signed CSB model: one per-currency balance per CSA. csb > 0 ⇒ A is
+-- pledgor, csb < 0 ⇒ B is pledgor, 0 ⇒ neither. Mirrors Bloomberg MARS /
+-- AcadiaSoft / real ISDA CSAs. Pure math (computeRequired, targetCsb,
+-- gateCall, RequiredPair) lives in Csa.Math and is re-exported. Full
+-- rationale: docs/superpowers/specs/2026-04-18-csa-signed-csb-design.md.
 
 template Csa
   with
@@ -71,9 +53,12 @@ template Csa
       && fromOptional False (fmap (>= 0.0) (Map.lookup T.DirA threshold))
       && fromOptional False (fmap (>= 0.0) (Map.lookup T.DirB threshold))
 
-    -- Post increments the signed CSB in the poster's direction:
-    --   partyA posts  ⇒ csb += amount  (A is pledgor, CSB becomes more positive)
-    --   partyB posts  ⇒ csb -= amount  (B is pledgor, CSB becomes more negative)
+    -- Post: A → csb += amount, B → csb -= amount. Self-settles to Active
+    -- when state == MarginCallOutstanding and the post closes the gap
+    -- under MTA + rounding (avoids a ~60s stale-badge wait for the next
+    -- mark-publisher tick). Never sets MarginCallOutstanding — that stays
+    -- mark-publisher-driven so partial posts don't double-emit. Dispute
+    -- states leave state untouched (require human resolution).
     choice PostCollateral : ContractId Csa
       with
         poster : Party
@@ -88,7 +73,17 @@ template Csa
                   (poster == partyA || poster == partyB)
         let current = fromOptional 0.0 (Map.lookup ccy csb)
             delta   = if poster == partyA then amount else -amount
-        create this with csb = Map.insert ccy (current + delta) csb
+            newCsb  = Map.insert ccy (current + delta) csb
+        case (state, lastMarkCid) of
+          (T.MarginCallOutstanding, Some mCid) -> do
+            mk <- fetch mCid
+            let target     = targetCsb mk.exposure threshold
+                newCurrent = fromOptional 0.0 (Map.lookup valuationCcy newCsb)
+                gated      = gateCall (target - newCurrent) mta rounding
+            if gated == 0.0
+              then create this with csb = newCsb, state = T.Active
+              else create this with csb = newCsb
+          _ -> create this with csb = newCsb
 
     -- Withdraw pulls the withdrawer's own pledge back toward zero. A party
     -- can only withdraw up to the amount *they themselves* have pledged:
@@ -261,12 +256,9 @@ publishMarkImpl self csa asOf exposure snapshot = do
   csaCid' <- create csa with lastMarkCid = Some markCid
   pure (csaCid', markCid)
 
--- Signed-CSB settlement. SettleVm is a pure *assessment* step: computes
--- target - current, gates by MTA/rounding, sets Active (within MTA) or
--- MarginCallOutstanding + emits MarginShortfall attributed to the side
--- whose action would close the gap. Does NOT move csb — explicit
--- Post/Withdraw choices change balance. Rationale: docs/superpowers/
--- specs/2026-04-18-csa-signed-csb-design.md.
+-- SettleVm: assessment-only. Computes target − current, gates by
+-- MTA/rounding, sets Active or MarginCallOutstanding + emits
+-- MarginShortfall. Never moves csb (Post/Withdraw do).
 settleVmImpl : ContractId Csa -> Csa -> Update (ContractId Csa)
 settleVmImpl self csa = do
   assertMsg "SettleVm cannot run while CSA mark is disputed or escalated"
