@@ -3,6 +3,7 @@
 import { PartyName } from 'canton-party-directory/ui'
 import type { LedgerActivityEvent } from '../types'
 import { kindColorClass } from '../utils'
+import { PayloadSummary } from './payload-summary'
 
 interface Props {
   cid: string | null
@@ -63,10 +64,15 @@ export function LedgerEventDrawer({ cid, events, rawPayloadEnabled, onClose }: P
                   ) : null}
                   {new Date(e.ts).toLocaleString()}
                 </div>
+                {e.payload !== undefined ? (
+                  <div className="mt-3">
+                    <PayloadSummary templateId={e.templateId} payload={e.payload} />
+                  </div>
+                ) : null}
                 {rawPayloadEnabled && e.payload !== undefined ? (
                   <details className="mt-2">
                     <summary className="cursor-pointer text-3xs uppercase tracking-wider text-zinc-500">
-                      Payload
+                      Raw JSON
                     </summary>
                     <pre className="mt-2 max-h-64 overflow-auto rounded bg-zinc-950 p-2 text-3xs text-zinc-300">
                       {JSON.stringify(e.payload, null, 2)}

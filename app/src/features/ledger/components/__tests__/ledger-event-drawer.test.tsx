@@ -3,18 +3,34 @@ import { describe, expect, it, vi } from 'vitest'
 import type { LedgerActivityEvent } from '../../types'
 import { LedgerEventDrawer } from '../ledger-event-drawer'
 
+vi.mock('next/navigation', () => ({
+  useParams: () => ({ orgId: 'demo' }),
+}))
+
+vi.mock('canton-party-directory/ui', () => ({
+  PartyName: ({ identifier }: { identifier: string }) => <span>{identifier}</span>,
+}))
+
 const events: LedgerActivityEvent[] = [
   {
     kind: 'create',
-    templateId: 'IRSForge:Swap:SwapWorkflow',
+    templateId: 'IRSForge:Swap.Workflow:SwapWorkflow',
     contractId: '00a',
     party: null,
     ts: 1,
-    payload: { counterparty: 'BankA', notional: 1_000_000 },
+    payload: {
+      swapType: 'IRS',
+      partyA: 'Alice::ns',
+      partyB: 'Bob::ns',
+      notional: '1000000',
+      operator: 'Operator::ns',
+      scheduler: 'Sched::ns',
+      regulators: ['SEC::ns'],
+    },
   },
   {
     kind: 'archive',
-    templateId: 'IRSForge:Swap:SwapWorkflow',
+    templateId: 'IRSForge:Swap.Workflow:SwapWorkflow',
     contractId: '00a',
     party: null,
     ts: 2,
@@ -37,18 +53,31 @@ describe('LedgerEventDrawer', () => {
     expect(screen.getByText(/archive/i)).toBeTruthy()
   })
 
-  it('shows raw payload when enabled', () => {
+  it('renders the human-readable summary (labels + formatted notional)', () => {
     render(
       <LedgerEventDrawer cid="00a" events={events} rawPayloadEnabled={true} onClose={vi.fn()} />,
     )
-    expect(screen.getByText(/BankA/)).toBeTruthy()
+    expect(screen.getByText('Swap workflow')).toBeTruthy()
+    expect(screen.getByText('Notional')).toBeTruthy()
+    // formatted with thousands separator + 2 decimals
+    expect(screen.getByText('1,000,000.00')).toBeTruthy()
+    // partyA was resolved through MaybeParty + the PartyName mock
+    expect(screen.getAllByText('Alice::ns').length).toBeGreaterThan(0)
   })
 
-  it('hides raw payload when disabled', () => {
+  it('keeps raw JSON behind a collapsed details block when enabled', () => {
+    render(
+      <LedgerEventDrawer cid="00a" events={events} rawPayloadEnabled={true} onClose={vi.fn()} />,
+    )
+    expect(screen.getByText(/Raw JSON/i)).toBeTruthy()
+  })
+
+  it('hides raw JSON when rawPayload is disabled but still shows the summary', () => {
     render(
       <LedgerEventDrawer cid="00a" events={events} rawPayloadEnabled={false} onClose={vi.fn()} />,
     )
-    expect(screen.queryByText(/BankA/)).toBeNull()
+    expect(screen.queryByText(/Raw JSON/i)).toBeNull()
+    expect(screen.getByText('Swap workflow')).toBeTruthy()
   })
 
   it('shows empty-buffer message when cid is unknown', () => {
