@@ -131,45 +131,59 @@ export class DemoCurveTicker {
 
       if (ccyCurve.projection.provider === 'demo-stub') {
         // Schema stores projections keyed by indexId (see shared-config
-        // schema.ts:160). Seed path mirrors this; the ticker must too,
-        // otherwise stub.projection (singular) is undefined and crashes.
-        const indexId = ccyCurve.projection.indexId
-        const stubProjection = stub.projections?.[indexId]
-        if (!stubProjection) {
+        // schema.ts:160). Iterate every seeded projection — `ccyCurve`
+        // only names the *primary* indexId (e.g. USD → USD-SOFR), but
+        // BASIS swaps need USD-EFFR fresh too. Earlier ticker only
+        // republished the primary, so secondary index curves seeded
+        // once at boot would cross the 10-min staleness threshold
+        // perpetually and stick the blotter's "valuation may be stale"
+        // banner (audit follow-up 2026-05-16).
+        const stubProjections = stub.projections ?? {}
+        const indexIds = Object.keys(stubProjections)
+        if (indexIds.length === 0) {
           this.deps.logger.warn({
             event: 'demo_curve_ticker_skip',
             ccy,
-            indexId,
-            reason: 'no stub projection pillars for indexId',
+            reason: 'no stub projections configured for currency',
           })
           continue
         }
-        const projectionPillars = this.perturb(stubProjection.pillars, bpsRange)
-        try {
-          await this.deps.client.exercise({
-            templateId: IRSFORGE_PROVIDER_INTERFACE_ID,
-            contractId: providerCid,
-            choice: 'Provider_PublishProjectionCurve',
-            argument: {
+        for (const indexId of indexIds) {
+          const stubProjection = stubProjections[indexId]
+          if (!stubProjection) continue
+          const projectionPillars = this.perturb(stubProjection.pillars, bpsRange)
+          try {
+            await this.deps.client.exercise({
+              templateId: IRSFORGE_PROVIDER_INTERFACE_ID,
+              contractId: providerCid,
+              choice: 'Provider_PublishProjectionCurve',
+              argument: {
+                indexId,
+                currency: ccy,
+                asOf,
+                pillars: projectionPillars,
+                interpolation,
+                dayCount,
+                constructionMetadata: JSON.stringify({ source: 'demo-curve-ticker' }),
+              },
+            })
+            published += 1
+            // Only mirror the primary indexId to State — the overnight
+            // state is consumed by daily-publisher-bootstrap which keys
+            // off the configured primary projection (USD-SOFR) only.
+            if (indexId === ccyCurve.projection.indexId) {
+              this.recordOvernightState(indexId, projectionPillars, asOf)
+            }
+          } catch (err) {
+            errors += 1
+            this.deps.logger.error({
+              event: 'demo_curve_ticker_publish_failed',
+              ccy,
               indexId,
-              currency: ccy,
-              asOf,
-              pillars: projectionPillars,
-              interpolation,
-              dayCount,
-              constructionMetadata: JSON.stringify({ source: 'demo-curve-ticker' }),
-            },
-          })
-          published += 1
-          this.recordOvernightState(indexId, projectionPillars, asOf)
-        } catch (err) {
-          errors += 1
-          this.deps.logger.error({
-            event: 'demo_curve_ticker_publish_failed',
-            ccy,
-            curveType: 'Projection',
-            error: err instanceof Error ? err.message : String(err),
-          })
+              curveType: 'Projection',
+              error: err instanceof Error ? err.message : String(err),
+            })
+          }
         }
       }
     }

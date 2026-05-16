@@ -131,6 +131,41 @@ describe('DemoCurveTicker.tick', () => {
     expect(calls.map((c) => c[0].choice)).toEqual(['Provider_PublishDiscountCurve'])
   })
 
+  it('publishes every seeded projection (multi-index), not just the primary indexId', async () => {
+    // Regression for the stuck "valuation may be stale: USD USD-EFFR"
+    // banner — earlier ticker only published `ccyCurve.projection.indexId`
+    // (USD-SOFR) so any secondary index curve (USD-EFFR for BASIS) was
+    // seeded once at boot and drifted past the 10-min staleness threshold.
+    const client = makeClient()
+    const cfg = makeConfig()
+    // Inject a second projection on the same currency.
+    // biome-ignore lint/suspicious/noExplicitAny: test fixture is a partial Config shape
+    const stubProjections = (cfg as any).demo.stubCurves.USD.projections
+    stubProjections['USD-EFFR'] = {
+      pillars: [
+        { tenorDays: 1, zeroRate: 0.0535 },
+        { tenorDays: 365, zeroRate: 0.0465 },
+      ],
+    }
+    const ticker = new DemoCurveTicker({
+      client,
+      config: cfg,
+      logger: makeLogger(),
+      random: () => 1,
+      now: () => new Date('2026-04-20T10:00:00Z'),
+    })
+
+    const result = await ticker.tick()
+    // 1 discount + 2 projections (USD-SOFR + USD-EFFR).
+    expect(result).toEqual({ published: 3, errors: 0 })
+    const calls = (client.exercise as unknown as ReturnType<typeof vi.fn>).mock.calls
+    const projectionIndexIds = calls
+      .filter((c) => c[0].choice === 'Provider_PublishProjectionCurve')
+      .map((c) => c[0].argument.indexId)
+      .sort()
+    expect(projectionIndexIds).toEqual(['USD-EFFR', 'USD-SOFR'])
+  })
+
   it('no-ops when the ticker is disabled', async () => {
     const client = makeClient()
     const ticker = new DemoCurveTicker({
