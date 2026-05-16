@@ -30,15 +30,28 @@ Top of page. Aggregates across all open swaps in the active party's netting set.
 | Column | Source |
 |---|---|
 | Family | `IRS` / `OIS` / `BASIS` / `XCCY` / `CDS` |
-| Direction | Pay / Receive (red / green) |
-| Notional + ccy | Trade payload |
+| Direction | Pay / Receive (red / green) for traders; pair-aware leg detail for operator / regulator viewers |
+| Notional + ccy | Trade payload; compact form (`$10M`, `€25M`) — same shape across blotter, regulator oversight, and operator surfaces |
 | Tenor / Maturity | Trade dates |
 | Coupon / Spread | Per-leg config |
-| **NPV** | Live from pricing engine |
-| **Trend** | Sparkline from `CurveSnapshot` history |
+| **NPV** | Live from pricing engine — **viewer-relative** (see below) |
+| **DV01** | Same sign convention as NPV |
+| **Trend** | Sparkline from `CurveSnapshot` history, sign-aligned to the viewer's NPV |
 | Status | Proposed / Active / Disputed / Matured |
 
 Rows are clickable — opens the **row drawer**.
+
+### Viewer-relative NPV
+
+NPV, DV01, and the trend sparkline are flipped at the row-mapper boundary (`app/src/features/blotter/workflow-to-row.ts`) so that bilateral counterparties read **mirror-image MTM on the same trade** — if Goldman shows `+$9.5M` on the BOOK RISK tile, JPMorgan shows `−$9.5M`. The pricing engine itself is viewer-agnostic; the flip lives in the UI layer.
+
+See [pricing & curves — viewer-relativity](../concepts/pricing-and-curves#viewer-relativity) for the architectural detail and the symmetry test that locks the invariant.
+
+### Valuation-stale banner
+
+When any input curve has aged past the staleness threshold (default 10 min, configurable via `app/src/features/operator/hooks/use-curve-staleness.ts::CURVE_STALENESS_MINUTES`), a yellow banner appears above the table naming the affected curves (e.g. "USD USD-EFFR"). NPV / DV01 on rows that depend on those curves can drift until the publisher catches up.
+
+In demo profile the [demo curve ticker](../oracle/demo-curve-ticker) refreshes every seeded projection (including secondary indices like USD-EFFR) every 10s, so the banner should stay hidden unless the oracle service is down.
 
 ## Row drawer
 

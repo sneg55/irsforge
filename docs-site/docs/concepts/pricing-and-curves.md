@@ -82,6 +82,26 @@ CDS:
 
 Pricing-correctness fix: NPV must be aggregated with **per-leg direction** (`Pay = -1`, `Receive = +1`), not flipped at the trade level. Multi-leg products (XCCY especially) had silent sign errors before this.
 
+## Viewer-relativity
+
+The engine is **viewer-agnostic**. `pricingEngine.price()` multiplies each leg PV by its `directionSign` (`pay = -1`, `receive = +1`) using the leg-direction labels in the `SwapConfig`. Those labels are anchored to **one side** of the trade — for IRS/OIS the workspace builds the config with fixed='receive' / float='pay', which gives an NPV from the receive-fixed party's perspective.
+
+If both counterparties read that NPV unchanged, they see the same signed value on the same trade — fine for a static-mark service, wrong for a derivatives platform where each side has their own P&L. The fix lives at the **row-mapper boundary** (`app/src/features/blotter/workflow-to-row.ts`) rather than inside the engine:
+
+```ts
+const direction = getInstrumentDirection(instr, isPartyA)
+const viewerSign = instr && direction === 'pay' ? -1 : 1
+const npv = valuation.npv * viewerSign
+const dv01 = valuation.dv01 * viewerSign
+const sparkline = valuation.sparkline?.map((v) => v * viewerSign)
+```
+
+Result: Goldman's BOOK RISK NPV is the exact negative of JPMorgan's BOOK RISK NPV on the same set of trades, and rows mirror cell-by-cell.
+
+The engine stays viewer-agnostic so oracle, scripts, and any future PQS projection consumer can reuse it without knowing who's looking. Operator and regulator views read the row with `isPartyA === false` (their hint matches neither side), so they see the engine's natural sign — for the regulator's canonical surface (`/oversight`) we surface the pair-level MTM directly rather than per-trade NPV.
+
+A symmetry regression test lives in `app/src/features/blotter/__tests__/workflow-to-row.test.ts` — renders the same trade with each party as viewer and asserts NPV/DV01/sparkline come out exact negatives. Extend it when adding a new product family.
+
 ## Maturity anchor
 
 CDS pricing uses `maturityDate` as the discount anchor — not `today` — so the present value remains stable across days as the trade ages. XCCY theta is filtered to the in-currency leg to avoid double-counting.

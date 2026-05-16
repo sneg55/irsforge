@@ -46,11 +46,13 @@ Right side of the top bar:
 
 | Tab | What it shows |
 |---|---|
-| **Cashflows** | Per-period table: pay date, fixing, accrual, DF, PV |
+| **Valuation** | NET VALUATION cluster: NPV (with currency suffix derived from the first leg with a currency), Par Rate, DV01 labelled `(<ccy> / bp)`, Mod Duration labelled `(years)`, Convexity. Per-leg PV + accrued. Cashflow tables for each leg. |
 | **Risk** | DV01, theta, per-curve sensitivities |
 | **Solver** | Solve for fair coupon (sets NPV = 0); What-If mode |
 | **Attribution** | P&L attribution drawer — what moved NPV since last mark |
 | **On-chain** | Raw Daml payload preview; "Propose" button for draft trades. The short contract ID in the panel header is a clickable chip — click to jump into the [Ledger](./ledger) drawer for that contract's full event lineage. |
+
+The reporting currency on the Valuation cluster is derived from `SwapConfig.legs[]` (first leg with a `currency` field, fallback `'USD'`). Protection (CDS) and asset legs have no leg currency and inherit the USD fallback — open a follow-up if a non-USD CDS/asset family lands.
 
 ![Workspace — risk tab](/img/ui/workspace/workspace--risk-tab.png)
 

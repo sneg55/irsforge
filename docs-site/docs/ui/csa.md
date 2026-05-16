@@ -59,8 +59,8 @@ One row per `Csa` contract visible to the active party. Columns:
 | Counterparties | `partyA ↔ partyB` |
 | Reporting ccy | `valuationCcy` |
 | Signed CSB | Per-currency, signed (positive = A pledged) |
-| MTM | Latest mark |
-| Call | Outstanding call amount |
+| **Exposure** | Absolute amount + viewer-relative caption: `$8.6M · cpty owes me` / `$8.6M · I owe cpty` / `$0 · flat` — same convention as the blotter's Collateral tile. The underlying mark is signed "A owes B" on chain; this cell translates to the viewer's perspective so a reader doesn't have to know which side they are on. |
+| Call | Outstanding call amount, framed from the viewer's side (`Post $X` if you're the funder, `Call $X from <cpty>` otherwise) |
 | State | `Active` / `MarginCallOutstanding` / `MarkDisputed` / `Escalated` / `Terminated` |
 | Mark sparkline | History from `MarkSnapshot` |
 
@@ -70,7 +70,7 @@ Clicking a row opens the **drawer**.
 
 ![CSA — drawer](/img/ui/csa/csa--drawer-active.png)
 
-Shows full CSA params (thresholds, MTA, rounding, eligible collateral, ISDA MA reference, governing law, Initial Margin) plus action buttons by role/state. The regulator's [CSA Board](../ui/operator) renders the same metadata fields in a side-by-side card for cross-pair oversight.
+Shows full CSA params (thresholds, MTA, rounding, eligible collateral, ISDA MA reference, governing law, Initial Margin) plus action buttons by role/state. The [Regulator CSA Board](./regulator#csa-board) renders the same metadata fields in a side-by-side card for cross-pair oversight (and hides ISDA MA / Initial Margin rows when the fields aren't set, so an empty placeholder doesn't read as "schema half-wired").
 
 ### Funding actions (`csa-funding-actions.tsx`)
 

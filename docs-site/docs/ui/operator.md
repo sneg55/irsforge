@@ -19,6 +19,8 @@ When you log in as an `org.role: operator` party, IRSForge replaces the standard
 
 A pre-flight panel showing how many swap-instrument templates are wired against the on-chain factories. Used during initial deployment / DAR upgrades to verify the platform is fully bootstrapped before traders start proposing.
 
+The **Cash & oracle** section lists each Oracle provider on its own row (e.g. `Oracle provider · demo stub`, `Oracle provider · NYFed`) so the count column reflects per-template cardinality rather than a single rolled-up "Oracle provider 2" that reads to a CTO buyer as "two oracles in production". Demo profile typically ships one stub + one stub for NYFed (seeded but inactive); production profile activates NYFed and the stub goes away.
+
 ---
 
 ## 2. Operator queue
@@ -65,8 +67,10 @@ A blank queue isn't ambiguous. The empty state reads on-ledger `Operator.Policy:
 A 90-day lookahead of every live `SwapWorkflow` whose instrument matures in-window. Each row shows:
 
 ```
-2026-07-16  IRS  Maturity  Goldman Sachs – JPMorgan  10.0M   in 82 days   ledger
+2026-07-16  IRS  Maturity  Goldman Sachs ↔ JPMorgan  $10M   in 82 days   ledger
 ```
+
+The pair separator is `↔` (matching the regulator's Oversight surface and the trader's blotter when viewed as operator/regulator). The notional is compact (`$10M`) — same `formatCompactAmount` helper as every other surface so a reader switching roles never re-translates the units.
 
 Clicking the row navigates to `/org/<id>/workspace?swap=<cid>` — the canonical swap-detail destination, matching how blotter active-row clicks already route. The right-side `ledger` link drops into `/org/<id>/ledger?cid=<cid>` for the audit drill-down.
 

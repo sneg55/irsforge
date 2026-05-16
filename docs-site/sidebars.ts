@@ -75,6 +75,8 @@ const sidebars: SidebarsConfig = {
         'ui/workspace',
         'ui/blotter',
         'ui/csa',
+        'ui/operator',
+        'ui/regulator',
         'ui/ledger',
         'ui/fpml-import-export',
         'ui/party-selector',

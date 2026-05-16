@@ -68,14 +68,12 @@ site/.lighthouseci/
 # agent-browser user-data dir from local smoke tests
 irsforge-smoke/
 
-# Internal planning + research docs — not for upstream
-docs/TODO.md
-docs/audits/
-docs/business-brief.md
-docs/gtm-outline.md
-docs/hackathon/
-docs/reference-impl-roadmap.md
-docs/superpowers/
+# Internal planning + research docs — not for upstream.
+# docs/ has its own local-only git repo at docs/.git; nested-repo
+# detection means we have to ignore the whole dir, not per-path.
+# Root-anchor with the leading slash so it doesn't accidentally swallow
+# `docs-site/docs/` (the tracked Docusaurus content tree).
+/docs/
 hackcanton-hackathon.md
 hackcanton-irs-deep-dive.md
 spike-3x/
