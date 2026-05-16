@@ -33,6 +33,7 @@ import { RowDetailsDrawer } from './row-details-drawer'
 import { SwapTable } from './swap-table'
 import { downloadRowsAsCsv } from './to-csv'
 import type { SwapRow } from './types'
+import { ValuationStaleBanner } from './valuation-stale-banner'
 import { workflowToRow } from './workflow-to-row'
 
 // Re-export so existing test imports (`from '../page'`) keep working.
@@ -210,6 +211,8 @@ export function Blotter() {
       ) : (
         <ExposureHeader data={exposureHeaderData} csaHref={csaBase} />
       )}
+      <ValuationStaleBanner />
+
       {showLedgerUnreachable ? (
         <LedgerUnreachable
           message={

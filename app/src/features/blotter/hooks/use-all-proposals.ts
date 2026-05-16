@@ -28,9 +28,17 @@ const TEMPLATES: { type: SwapType; templateId: string }[] = [
 ]
 
 function toRow(type: SwapType, c: ContractResult<AnyProposal>, activeParty: string): SwapRow {
+  // Proposals use proposer/counterparty rather than partyA/partyB on
+  // their Daml payloads; once accepted they become a Swap.Workflow with
+  // partyA = proposer, partyB = counterparty. Mirror that here so the
+  // pair-aware renderer (operator / regulator) shows the same ordering
+  // across the proposal → live transition.
+  const p = c.payload as { proposer?: string; counterparty?: string }
   return {
     contractId: c.contractId,
     type,
+    partyA: p.proposer ?? '',
+    partyB: p.counterparty ?? '',
     counterparty: getCounterparty(c.payload, activeParty),
     notional: getNotional(type, c.payload),
     currency: getCurrency(type, c.payload),

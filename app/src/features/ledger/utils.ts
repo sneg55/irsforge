@@ -26,6 +26,36 @@ export function shortTemplate(templateId: string): string {
   return parts.slice(-2).join(':')
 }
 
+// Pick a sensible "owner" party from a Canton create payload. Used by the
+// ledger activity table where create/archive events arrive without an
+// explicit acting party — the templates almost always carry one of these
+// fields. Returns null when the payload is not an object or carries none
+// of the recognised keys, in which case the column falls back to "—".
+const PARTY_FIELD_PRIORITY = [
+  'partyA',
+  'partyB',
+  'proposer',
+  'counterparty',
+  'debtor',
+  'creditor',
+  'payer',
+  'payee',
+  'disputer',
+  'owner',
+  'custodian',
+  'operator',
+] as const
+
+export function partyFromPayload(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object') return null
+  const p = payload as Record<string, unknown>
+  for (const key of PARTY_FIELD_PRIORITY) {
+    const v = p[key]
+    if (typeof v === 'string' && v.length > 0) return v
+  }
+  return null
+}
+
 // Tailwind class for the kind's accent color (border-left on toasts, text on rows/headers).
 export function kindColorClass(
   kind: 'create' | 'exercise' | 'archive',

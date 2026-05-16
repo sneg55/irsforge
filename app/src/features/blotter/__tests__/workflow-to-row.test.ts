@@ -84,6 +84,38 @@ describe('workflowToRow pendingUnwind join', () => {
     expect(row.pendingUnwind).toEqual({ role: 'counterparty', proposalCid: 'p-2' })
   })
 
+  it('flips NPV/DV01/sparkline sign for the pay-side viewer (audit E1)', () => {
+    // For IRS, getInstrumentDirection returns 'pay' for partyA and
+    // 'receive' for partyB. The pricing engine anchors to the 'receive'
+    // perspective, so partyA must see the negated engine NPV and partyB
+    // must see the raw engine NPV; the two views must be exact mirrors
+    // on the same trade — the regulator-of-truth pitch is broken
+    // otherwise.
+    const valuation = { npv: 1234, dv01: 56, sparkline: [10, 20, 30] }
+    const rowA = workflowToRow(
+      wf('wf-mirror', 'PartyA::fp', 'PartyB::fp'),
+      'PartyA',
+      valuation,
+      IRS_INSTR,
+      new Map(),
+    )
+    const rowB = workflowToRow(
+      wf('wf-mirror', 'PartyA::fp', 'PartyB::fp'),
+      'PartyB',
+      valuation,
+      IRS_INSTR,
+      new Map(),
+    )
+    expect(rowA.direction).toBe('pay')
+    expect(rowB.direction).toBe('receive')
+    expect(rowA.npv).toBe(-1234)
+    expect(rowB.npv).toBe(1234)
+    expect(rowA.dv01).toBe(-56)
+    expect(rowB.dv01).toBe(56)
+    expect(rowA.sparkline).toEqual([-10, -20, -30])
+    expect(rowB.sparkline).toEqual([10, 20, 30])
+  })
+
   it('threads tradeDate, legDetail, and maturingSoon onto the row', () => {
     const row = workflowToRow(
       wf('wf-1', 'PartyA::fp', 'PartyB::fp'),

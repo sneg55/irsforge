@@ -59,24 +59,32 @@ export function CsaBoardCard({ csa }: { csa: CsaViewModel }) {
         </dd>
         <dt className="text-zinc-500">Valuation ccy</dt>
         <dd className="text-right font-mono font-medium text-zinc-100">{csa.valuationCcy}</dd>
-        <dt className="text-zinc-500">ISDA MA</dt>
-        <dd
-          data-testid="csa-board-isda-ma"
-          className="text-right font-mono font-medium text-zinc-100"
-        >
-          {csa.isdaMasterAgreementRef || '—'}
-        </dd>
+        {csa.isdaMasterAgreementRef && (
+          <>
+            <dt className="text-zinc-500">ISDA MA</dt>
+            <dd
+              data-testid="csa-board-isda-ma"
+              className="text-right font-mono font-medium text-zinc-100"
+            >
+              {csa.isdaMasterAgreementRef}
+            </dd>
+          </>
+        )}
         <dt className="text-zinc-500">Governing law</dt>
         <dd data-testid="csa-board-governing-law" className="text-right font-medium text-zinc-100">
           {lawDisplay(csa.governingLaw)}
         </dd>
-        <dt className="text-zinc-500">Initial Margin</dt>
-        <dd
-          data-testid="csa-board-im-amount"
-          className="text-right font-mono font-medium text-zinc-100"
-        >
-          {csa.imAmount > 0 ? `${csa.imAmount.toLocaleString()} ${csa.valuationCcy}` : '—'}
-        </dd>
+        {csa.imAmount > 0 && (
+          <>
+            <dt className="text-zinc-500">Initial Margin</dt>
+            <dd
+              data-testid="csa-board-im-amount"
+              className="text-right font-mono font-medium text-zinc-100"
+            >
+              {csa.imAmount.toLocaleString()} {csa.valuationCcy}
+            </dd>
+          </>
+        )}
         <dt className="text-zinc-500">
           Posted by <PartyName identifier={csa.partyA} />
         </dt>

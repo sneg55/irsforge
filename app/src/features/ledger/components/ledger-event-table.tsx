@@ -4,8 +4,15 @@ import { PartyName } from 'canton-party-directory/ui'
 import type { LedgerActivityEvent } from '../types'
 import { kindColorClass, shortTemplate } from '../utils'
 
+// Render every ledger row in UTC. The demo is served from a multi-jurisdiction
+// CDN and the demo-reset banner already speaks UTC, so a local-time row
+// drifts from the rest of the audit surface. Format: HH:mm:ss UTC.
 function shortTime(ts: number): string {
-  return new Date(ts).toLocaleTimeString()
+  const d = new Date(ts)
+  const hh = String(d.getUTCHours()).padStart(2, '0')
+  const mm = String(d.getUTCMinutes()).padStart(2, '0')
+  const ss = String(d.getUTCSeconds()).padStart(2, '0')
+  return `${hh}:${mm}:${ss} UTC`
 }
 
 interface Props {

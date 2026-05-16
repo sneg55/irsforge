@@ -5,6 +5,8 @@ import { type StreamPhase, streamPhase } from '@/shared/hooks/use-stream-phase'
 import { useStreamedEvents } from '@/shared/hooks/use-streamed-events'
 import { DEFAULT_STREAM_TEMPLATES } from '../constants'
 import { type LedgerActivityEvent, useLedgerActivityBuffer } from '../hooks/use-ledger-activity'
+import { useLedgerActivityHttpSeed } from '../hooks/use-ledger-activity-http-seed'
+import { partyFromPayload } from '../utils'
 
 interface LedgerActivityContextValue {
   events: LedgerActivityEvent[]
@@ -55,12 +57,28 @@ export function LedgerActivityProvider({
     templateIds,
     enabled,
     onCreated: (payload, contractId, templateId) => {
-      push({ kind: 'create', templateId, contractId, party: null, ts: Date.now(), payload })
+      push({
+        kind: 'create',
+        templateId,
+        contractId,
+        party: partyFromPayload(payload),
+        ts: Date.now(),
+        payload,
+      })
     },
     onArchived: (contractId, templateId) => {
+      // Canton archive events carry no payload, so the party column for
+      // archives stays `—` unless an earlier create for the same cid is
+      // still in the buffer (the drawer correlates via cid).
       push({ kind: 'archive', templateId, contractId, party: null, ts: Date.now() })
     },
   })
+
+  // HTTP-poll seed: covers JWT profiles where /v1/stream/query yields an
+  // empty active set even though /v1/query for the same templates returns
+  // rows (regulator demo profile is the known case — see audit A3). Buffer
+  // dedup-on-(kind,cid) makes this safe to run alongside WS.
+  useLedgerActivityHttpSeed({ templateIds, enabled, push })
 
   const systemPrefixes = templateFilter.systemPrefixes ?? []
   const phase: StreamPhase = streamPhase(status, buffer.events.length > 0)

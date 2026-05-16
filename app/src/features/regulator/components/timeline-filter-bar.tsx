@@ -10,7 +10,12 @@ interface Props {
   clearKindFilter: () => void
 }
 
-const FILTERABLE_KINDS: BusinessEventKind[] = [
+// SYSTEM_KINDS (OracleRatePublished, CurveSnapshotted) are gated by the
+// "Include system events" toggle, not the per-kind chip row, so the
+// filter chips operate over this narrower union.
+type FilterableKind = Exclude<BusinessEventKind, 'OracleRatePublished' | 'CurveSnapshotted'>
+
+const FILTERABLE_KINDS: FilterableKind[] = [
   'TradeProposed',
   'TradeAccepted',
   'TradeMatured',
@@ -29,6 +34,21 @@ const FILTERABLE_KINDS: BusinessEventKind[] = [
   'SettlementAudited',
   'ShortfallRecorded',
 ]
+const KIND_LABEL: Record<FilterableKind, string> = {
+  TradeProposed: 'Trade proposed',
+  TradeAccepted: 'Trade accepted',
+  TradeMatured: 'Matured',
+  TradeTerminated: 'Terminated',
+  CsaPublished: 'CSA published',
+  MarginCalled: 'Margin called',
+  DisputeOpened: 'Dispute opened',
+  DisputeEscalated: 'Dispute escalated',
+  DisputeResolved: 'Dispute resolved',
+  MarkPosted: 'Mark posted',
+  NettedSettlement: 'Net settled',
+  SettlementAudited: 'Settlement audited',
+  ShortfallRecorded: 'Shortfall',
+}
 
 export function TimelineFilterBar({
   includeSystem,
@@ -60,7 +80,7 @@ export function TimelineFilterBar({
             kindFilter.has(k) ? 'bg-blue-600 text-white' : 'bg-zinc-900 text-zinc-400'
           }`}
         >
-          {k}
+          {KIND_LABEL[k]}
         </button>
       ))}
       {kindFilter.size > 0 && (

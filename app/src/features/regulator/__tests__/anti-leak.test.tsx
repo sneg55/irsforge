@@ -70,6 +70,10 @@ vi.mock('@/features/regulator/hooks/use-all-proposals-cross-org', () => ({
   useAllProposalsCrossOrg: () => ({ proposals: [], isLoading: false }),
 }))
 
+vi.mock('@/features/regulator/hooks/use-all-marks-by-pair', () => ({
+  useAllMarksByPair: () => ({ forPair: () => null, isLoading: false }),
+}))
+
 vi.mock('@/features/regulator/hooks/use-all-csas', () => ({
   useAllCsas: () => ({
     data: [

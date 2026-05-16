@@ -120,7 +120,19 @@ export type BusinessEvent =
       cid: string
       ts: number
     }
-  | { kind: 'ShortfallRecorded'; partyA: string; partyB: string; cid: string; ts: number }
+  | {
+      kind: 'ShortfallRecorded'
+      partyA: string
+      partyB: string
+      // Underfunded amount and currency, sourced directly from
+      // `Csa.Shortfall:MarginShortfall.{deficit, currency}` on chain.
+      // Older shape carried no number, which left the regulator's
+      // headline shortfall event blank on the timeline.
+      deficit: number
+      ccy: string
+      cid: string
+      ts: number
+    }
   | { kind: 'OracleRatePublished'; templateName: string; cid: string; ts: number }
   | { kind: 'CurveSnapshotted'; templateName: string; cid: string; ts: number }
 

@@ -153,11 +153,12 @@ function factoryRows(input: BuildInput): BootstrapRow[] {
 }
 
 export function buildBootstrapResult(input: BuildInput): UseBootstrapStatusResult {
-  const oracleCount =
-    (input.demoProvider.data?.length ?? 0) + (input.nyfedProvider.data?.length ?? 0)
-  const oracleLoading = input.demoProvider.isLoading || input.nyfedProvider.isLoading
-  const oracleCid = firstCid(input.demoProvider) ?? firstCid(input.nyfedProvider)
-
+  // Audit E9: the previous single "Oracle provider" row summed both
+  // provider templates and read as "2 oracles wired" to a buyer skimming
+  // the bootstrap card. Split into separate rows so the demo-stub and
+  // the NYFed provider are each visible as their own contract — closer
+  // to the truth of the demo profile (stub is active, NYFed is seeded
+  // but currently a placeholder).
   const sections: { name: BootstrapSection; rows: BootstrapRow[] }[] = [
     {
       name: 'Identity',
@@ -198,13 +199,22 @@ export function buildBootstrapResult(input: BuildInput): UseBootstrapStatusResul
           contractId: firstCid(input.cashSetup),
         }),
         row({
-          key: 'oracle-provider',
+          key: 'oracle-provider-demo',
           section: 'Cash & oracle',
-          label: 'Oracle provider',
-          count: oracleCount,
-          loading: oracleLoading,
-          ledgerTemplateFilter: 'Oracle.',
-          contractId: oracleCid,
+          label: 'Oracle provider · demo stub',
+          count: input.demoProvider.data?.length ?? 0,
+          loading: input.demoProvider.isLoading,
+          ledgerTemplateFilter: 'Oracle.DemoStubProvider',
+          contractId: firstCid(input.demoProvider),
+        }),
+        row({
+          key: 'oracle-provider-nyfed',
+          section: 'Cash & oracle',
+          label: 'Oracle provider · NYFed',
+          count: input.nyfedProvider.data?.length ?? 0,
+          loading: input.nyfedProvider.isLoading,
+          ledgerTemplateFilter: 'Oracle.NYFedProvider',
+          contractId: firstCid(input.nyfedProvider),
         }),
       ],
     },

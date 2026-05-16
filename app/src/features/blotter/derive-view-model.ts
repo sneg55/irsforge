@@ -100,6 +100,11 @@ export function deriveBlotterViewModel(input: DeriveViewModelInputs): BlotterVie
   const draftRows: SwapRow[] = drafts.map((d) => ({
     contractId: d.draftId,
     type: d.type,
+    // Drafts have no on-chain workflow yet, so partyA/partyB are empty —
+    // the renderer treats empty strings as "unset" and falls back to the
+    // legacy counterparty column.
+    partyA: '',
+    partyB: '',
     counterparty: '—',
     notional: d.notional,
     currency: 'USD',

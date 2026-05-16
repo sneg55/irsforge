@@ -5,9 +5,14 @@ import { formatAmount, formatFixedRate, formatNotional, valueColorClass } from '
 
 interface ValuationTabProps {
   valuation: ValuationResult | null
+  /** Reporting currency for NPV / DV01. Falls back to 'USD' for legacy
+   *  call sites that haven't been threaded yet. Audit E4: the NET
+   *  VALUATION cluster used to print raw numbers with no currency or
+   *  units, so a EUR trade and a USD trade looked identical. */
+  reportingCcy?: string
 }
 
-export function ValuationTab({ valuation }: ValuationTabProps) {
+export function ValuationTab({ valuation, reportingCcy = 'USD' }: ValuationTabProps) {
   return (
     <div className="p-3.5">
       <div className="flex items-center gap-1 text-3xs font-semibold tracking-wider text-[#3b82f6] mb-2">
@@ -27,7 +32,14 @@ export function ValuationTab({ valuation }: ValuationTabProps) {
             valuation ? valueColorClass(valuation.npv) : 'text-[#555b6e]'
           }`}
         >
-          {valuation ? formatAmount(valuation.npv) : '—'}
+          {valuation ? (
+            <>
+              {formatAmount(valuation.npv)}{' '}
+              <span className="text-sm text-[#8b8fa3]">{reportingCcy}</span>
+            </>
+          ) : (
+            '—'
+          )}
         </div>
       </div>
       <div className="grid grid-cols-2 gap-1.5">
@@ -39,13 +51,13 @@ export function ValuationTab({ valuation }: ValuationTabProps) {
             value: valuation?.parRate != null ? formatFixedRate(valuation.parRate) : '—',
           },
           {
-            label: 'DV01',
+            label: `DV01 (${reportingCcy} / bp)`,
             tooltipKey: 'dv01',
             tooltip: 'Dollar sensitivity to a 1bp parallel shift in the discount curve.',
             value: valuation ? formatNotional(valuation.dv01) : '—',
           },
           {
-            label: 'Mod Duration',
+            label: 'Mod Duration (years)',
             tooltipKey: 'mod-duration',
             tooltip:
               'Synthetic-bond duration (years). PV01 normalised by reference notional, matching SWPM. Positive for receivers, negative for payers.',

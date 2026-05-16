@@ -8,6 +8,7 @@ import { useMemo } from 'react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ROUTES } from '@/shared/constants/routes'
 import { useLedger } from '@/shared/contexts/ledger-context'
+import { formatCompactAmount } from '@/shared/format/amount'
 import { type SwapFamily, useSwapInstruments } from '@/shared/hooks/use-swap-instruments'
 import { pollIntervalWithBackoff } from '@/shared/ledger/poll-interval'
 import type { SwapInstrumentPayload } from '@/shared/ledger/swap-instrument-types'
@@ -93,12 +94,11 @@ function daysBetween(today: Date, target: Date): number {
   return Math.round((target.getTime() - today.getTime()) / msPerDay)
 }
 
-function formatNotional(raw: string): string {
+function formatLifecycleNotional(raw: string, ccy: string | null): string {
   const n = Number(raw)
   if (!Number.isFinite(n)) return raw
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`
-  return n.toFixed(0)
+  // Audit E3: same compact format as blotter / oversight.
+  return formatCompactAmount(n, ccy ?? 'USD')
 }
 
 export function LifecycleEventsCard() {
@@ -231,16 +231,11 @@ export function LifecycleEventsCard() {
                 </span>
                 <span className="flex items-center gap-1 text-zinc-300">
                   <PartyName identifier={e.partyA} />
-                  <span className="text-zinc-500">–</span>
+                  <span className="text-zinc-500">↔</span>
                   <PartyName identifier={e.partyB} />
                 </span>
                 <span className="flex items-center gap-1.5 font-mono text-xs text-zinc-500">
-                  <span>{formatNotional(e.notional)}</span>
-                  {e.notionalCurrency && (
-                    <span className="rounded bg-zinc-800 px-1 py-0.5 text-3xs uppercase tracking-wide text-zinc-300">
-                      {e.notionalCurrency}
-                    </span>
-                  )}
+                  <span>{formatLifecycleNotional(e.notional, e.notionalCurrency)}</span>
                 </span>
                 <span className="ml-auto flex items-center gap-3 text-xs">
                   <span className="text-zinc-500">{daysLabel}</span>

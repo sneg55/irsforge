@@ -25,6 +25,20 @@ import { type TabKey, TabStrip } from './tab-strip'
 import { UnwindModal } from './unwind-modal'
 import { ValuationTab } from './valuation-tab'
 
+// Reporting currency for the NET VALUATION panel — first leg with a
+// declared currency wins. Protection / asset legs (CDS, ASSET) carry no
+// currency on the leg itself; fall back to USD in that case since the
+// pricer's `reportingCcy` default is USD too. Audit E4.
+function pickReportingCcy(cfg: SwapConfig | null): string {
+  if (!cfg) return 'USD'
+  for (const leg of cfg.legs) {
+    if ('currency' in leg && typeof leg.currency === 'string' && leg.currency.length > 0) {
+      return leg.currency
+    }
+  }
+  return 'USD'
+}
+
 interface RightPanelProps {
   valuation: ValuationResult | null
   curve: DiscountCurve | null
@@ -99,13 +113,21 @@ export function RightPanel({
   const [activeTab, setActiveTab] = useState<TabKey>('valuation')
   const csaSummary = useCsaSummary(activeParty)
   const { directory } = usePartyDirectory()
-  const counterpartyOptions = directory
-    .entries()
-    .filter((e) => e.hint && e.hint !== 'Operator' && e.hint !== 'Regulator')
   const isOperator = useIsOperator()
   const isRegulator = useIsRegulator()
   const { config } = useConfig()
   const assetObservablesEnabled = config?.observables?.ASSET?.enabled ?? false
+  // Restrict the counterparty list to other trader orgs. Without the
+  // role gate, system parties like `Scheduler` and the Canton-sandbox
+  // admin hint leak in via the directory and let a trader propose a
+  // swap to a non-trader, which is meaningless and surfaces as a demo
+  // smell on the public site.
+  const traderHints = new Set(
+    (config?.orgs ?? []).filter((o) => o.role === 'trader').map((o) => o.hint),
+  )
+  const counterpartyOptions = directory
+    .entries()
+    .filter((e) => e.hint && traderHints.has(e.hint) && e.hint !== activeParty)
 
   return (
     <div className="min-h-full" style={{ background: '#0a0c12' }}>
@@ -190,7 +212,9 @@ export function RightPanel({
           in the reference strip below; Attribution lives in the collapsible
           drawer. */}
       <TabStrip tabs={TABS} active={activeTab} onChange={setActiveTab}>
-        {activeTab === 'valuation' && <ValuationTab valuation={valuation} />}
+        {activeTab === 'valuation' && (
+          <ValuationTab valuation={valuation} reportingCcy={pickReportingCcy(swapConfig)} />
+        )}
         {activeTab === 'risk' && <RiskTab swapConfig={swapConfig} pricingCtx={pricingCtx} />}
         {activeTab === 'solver' && (
           <SolverTab

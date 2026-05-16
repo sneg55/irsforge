@@ -30,6 +30,8 @@ export function maturedToRow(
   return {
     contractId: c.contractId,
     type: p.swapType as SwapType,
+    partyA: p.partyA,
+    partyB: p.partyB,
     counterparty: isPartyA ? p.partyB : p.partyA,
     notional: parseFloat(p.notional),
     currency: getInstrumentCurrency(instr),
@@ -56,6 +58,8 @@ export function terminatedToRow(
   return {
     contractId: c.contractId,
     type: p.swapType as SwapType,
+    partyA: p.partyA,
+    partyB: p.partyB,
     counterparty: isPartyA ? p.partyB : p.partyA,
     notional: parseFloat(p.notional),
     currency: getInstrumentCurrency(instr),

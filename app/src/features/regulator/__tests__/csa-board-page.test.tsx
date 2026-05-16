@@ -78,12 +78,14 @@ describe('CsaBoardPage', () => {
     expect(isda?.textContent).toContain('ISDA-2002-DEMO')
     expect(law?.textContent).toContain('English law')
     expect(im?.textContent).toContain('25,000,000 USD')
-    // Active card has empty ref / NY law / zero IM ⇒ em-dashes.
+    // Active card has empty ISDA ref and zero IM, so those rows are hidden
+    // rather than rendered as em-dash placeholders (audit C2). Only the
+    // governing-law row stays present because every CSA carries one.
     const active = cards[1] as HTMLElement
-    expect(active.querySelector('[data-testid="csa-board-isda-ma"]')?.textContent).toContain('—')
+    expect(active.querySelector('[data-testid="csa-board-isda-ma"]')).toBeNull()
     expect(active.querySelector('[data-testid="csa-board-governing-law"]')?.textContent).toContain(
       'NY law',
     )
-    expect(active.querySelector('[data-testid="csa-board-im-amount"]')?.textContent).toContain('—')
+    expect(active.querySelector('[data-testid="csa-board-im-amount"]')).toBeNull()
   })
 })

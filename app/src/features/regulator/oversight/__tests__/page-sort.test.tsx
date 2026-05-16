@@ -149,6 +149,10 @@ vi.mock('../../hooks/use-all-proposals-cross-org', () => ({
   }),
 }))
 
+vi.mock('../../hooks/use-all-marks-by-pair', () => ({
+  useAllMarksByPair: () => ({ forPair: () => null, isLoading: false }),
+}))
+
 function bodyRowCidPrefixes(): string[] {
   return Array.from(document.querySelectorAll('tbody tr')).map((tr) => {
     const cells = tr.querySelectorAll('td')

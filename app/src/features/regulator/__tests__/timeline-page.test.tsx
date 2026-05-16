@@ -38,23 +38,32 @@ vi.mock('../hooks/use-business-events', () => ({
 }))
 
 describe('TimelinePage', () => {
+  // After B2 (audit), filter chips render human labels like "Mark posted",
+  // which collide with the event-row text. Scope these assertions to event
+  // rows by matching the cid that only the event card renders.
+  const rowText = (re: RegExp) =>
+    screen.queryAllByText(re).filter((el) => el.closest('[data-slot="timeline-card"]') !== null)
+
   it('renders non-system events by default; hides system events', () => {
     render(<TimelinePage />)
-    expect(screen.queryByText(/IRS accepted/)).not.toBe(null)
-    expect(screen.queryByText(/Mark posted/)).not.toBe(null)
-    expect(screen.queryByText(/Oracle rate published/)).toBe(null)
+    expect(rowText(/IRS accepted/).length).toBeGreaterThan(0)
+    expect(rowText(/Mark posted/).length).toBeGreaterThan(0)
+    expect(rowText(/Oracle rate published/).length).toBe(0)
   })
 
   it('shows system events when toggle is enabled', () => {
     render(<TimelinePage />)
     fireEvent.click(screen.getByText('Include system events'))
-    expect(screen.queryByText(/Oracle rate published/)).not.toBe(null)
+    expect(rowText(/Oracle rate published/).length).toBeGreaterThan(0)
   })
 
   it('event-type filter narrows to selected kinds', () => {
     render(<TimelinePage />)
-    fireEvent.click(screen.getByText('TradeAccepted'))
-    expect(screen.queryByText(/IRS accepted/)).not.toBe(null)
-    expect(screen.queryByText(/Mark posted/)).toBe(null)
+    // Click the chip by aria-label so we don't accidentally hit an event row.
+    const chip = document.querySelector('button[aria-label="filter-TradeAccepted"]')
+    if (!chip) throw new Error('TradeAccepted filter chip not found')
+    fireEvent.click(chip)
+    expect(rowText(/IRS accepted/).length).toBeGreaterThan(0)
+    expect(rowText(/Mark posted/).length).toBe(0)
   })
 })

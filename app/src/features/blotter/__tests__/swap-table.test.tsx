@@ -164,13 +164,16 @@ describe('SwapTable — render + navigation', () => {
     expect(td?.textContent).toMatch(/proposal/i)
   })
 
-  test('isLoading shows 5 skeleton rows and "(…)" counters on non-drafts tabs', () => {
+  test('isLoading shows 5 skeleton rows and "…" counters on non-drafts tabs', () => {
     const { container } = render(<SwapTable {...baseProps} isLoading rows={[]} />)
     expect(container.querySelectorAll('tbody tr').length).toBe(5)
     const activeTabBtn = Array.from(container.querySelectorAll('button')).find((b) =>
       (b.textContent ?? '').startsWith('Active'),
     )
-    expect(activeTabBtn?.textContent).toContain('(…)')
+    // The loading counter renders as a chip with "…" instead of a number;
+    // older shape was `Active (…)` parenthesised — present shape is
+    // `Active` + chip. Assert the ellipsis still surfaces.
+    expect(activeTabBtn?.textContent).toContain('…')
   })
 
   test('pagination appears when rows > PAGE_SIZE and advances via > button', () => {

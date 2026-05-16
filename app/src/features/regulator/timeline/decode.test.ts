@@ -210,6 +210,8 @@ describe('decode', () => {
     if (out?.kind === 'ShortfallRecorded') {
       expect(out.partyA).toBe('PartyA')
       expect(out.partyB).toBe('PartyB')
+      expect(out.deficit).toBe(1000)
+      expect(out.ccy).toBe('USD')
     }
   })
 

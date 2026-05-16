@@ -40,7 +40,20 @@ vi.mock('@/shared/hooks/use-is-operator', () => ({
 }))
 
 vi.mock('@/shared/contexts/config-context', () => ({
-  useConfig: () => ({ config: { observables: { ASSET: { enabled: true } } } }),
+  useConfig: () => ({
+    config: {
+      observables: { ASSET: { enabled: true } },
+      // Trader-role filter (audit B1) keys off `org.role === 'trader'`,
+      // so the mock now spells out trader/operator/regulator orgs the
+      // way the real YAML does.
+      orgs: [
+        { id: 'goldman', hint: 'PartyA', role: 'trader' },
+        { id: 'jpmorgan', hint: 'PartyB', role: 'trader' },
+        { id: 'operator', hint: 'Operator', role: 'operator' },
+        { id: 'regulator', hint: 'Regulator', role: 'regulator' },
+      ],
+    },
+  }),
 }))
 
 vi.mock('../unwind-modal', () => ({

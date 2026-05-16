@@ -29,6 +29,14 @@ export interface OversightRow {
   sortDateMs: number | null
   createdAtMs: number | null
   cid: string
+  // Latest pair-level MTM from the on-chain Csa.Mark stream, signed from
+  // partyA's perspective. Same number across every Live row in the same
+  // pair (audit E5 — first cut surfaces pair MTM; per-trade NPV would
+  // need the regulator to replicate the trader's pricing pipeline). Null
+  // when no mark exists yet, when the row isn't a Live workflow (terminal
+  // and proposed states have no MTM), or when the mark stream hasn't
+  // loaded yet.
+  latestMtm: number | null
 }
 
 function parseIsoDateMs(s: string | undefined | null): number | null {
@@ -83,6 +91,7 @@ export function workflowToRow(
     sortDateMs: tradeDateMsForInstrument(c.payload.instrumentKey.id.unpack, byInstrumentId),
     createdAtMs: null,
     cid: c.contractId,
+    latestMtm: null,
   }
 }
 
@@ -104,6 +113,7 @@ export function maturedToRow(
     sortDateMs: parseIsoDateMs(c.payload.actualMaturityDate),
     createdAtMs: null,
     cid: c.contractId,
+    latestMtm: null,
   }
 }
 
@@ -122,6 +132,7 @@ export function terminatedToRow(
     sortDateMs: parseIsoDateMs(c.payload.terminationDate),
     createdAtMs: null,
     cid: c.contractId,
+    latestMtm: null,
   }
 }
 
@@ -159,5 +170,6 @@ export function proposalToRow(p: CrossOrgProposalRow): OversightRow {
     sortDateMs: parseIsoDateMs(dateStr),
     createdAtMs: null,
     cid: p.contractId,
+    latestMtm: null,
   }
 }

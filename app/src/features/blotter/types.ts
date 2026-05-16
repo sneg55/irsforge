@@ -8,6 +8,13 @@ export type BlotterTab = 'active' | 'proposals' | 'drafts' | 'matured' | 'unwoun
 export interface SwapRow {
   contractId: string
   type: SwapType
+  /** The party HINT on the workflow's `partyA` slot (canonical, unflipped). */
+  partyA: string
+  /** The party HINT on the workflow's `partyB` slot. */
+  partyB: string
+  /** From the viewer's perspective: the other side of `partyA`/`partyB`.
+   *  When the viewer is neither party (operator / regulator), defaults to
+   *  `partyB` and the renderer is expected to fall back to the pair. */
   counterparty: string
   notional: number
   currency: string

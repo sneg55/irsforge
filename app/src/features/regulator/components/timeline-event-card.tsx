@@ -45,45 +45,45 @@ function summarise(e: BusinessEvent): ReactNode {
     case 'TradeProposed':
       return (
         <>
-          {e.family} proposed — <PartyName identifier={e.proposer} /> →{' '}
+          {e.family} proposed · <PartyName identifier={e.proposer} /> →{' '}
           <PartyName identifier={e.counterparty} />
         </>
       )
     case 'TradeAccepted':
       return (
         <>
-          {e.family} accepted — <Pair a={e.partyA} b={e.partyB} />, notional{' '}
+          {e.family} accepted · <Pair a={e.partyA} b={e.partyB} />, notional{' '}
           {(e.notional / 1_000_000).toFixed(1)}M
         </>
       )
     case 'TradeMatured':
       return (
         <>
-          {e.family} matured — <Pair a={e.partyA} b={e.partyB} />
+          {e.family} matured · <Pair a={e.partyA} b={e.partyB} />
         </>
       )
     case 'TradeTerminated':
       return (
         <>
-          {e.family} terminated — <Pair a={e.partyA} b={e.partyB} />
+          {e.family} terminated · <Pair a={e.partyA} b={e.partyB} />
         </>
       )
     case 'CsaPublished':
       return (
         <>
-          CSA updated — <Pair a={e.partyA} b={e.partyB} /> ({e.ccy})
+          CSA updated · <Pair a={e.partyA} b={e.partyB} /> ({e.ccy})
         </>
       )
     case 'MarginCalled':
       return (
         <>
-          Margin call — <Pair a={e.partyA} b={e.partyB} /> ({e.ccy})
+          Margin call · <Pair a={e.partyA} b={e.partyB} /> ({e.ccy})
         </>
       )
     case 'DisputeOpened':
       return (
         <>
-          Dispute opened ({e.reason}) — <Pair a={e.partyA} b={e.partyB} />, counter-mark{' '}
+          Dispute opened ({e.reason}) · <Pair a={e.partyA} b={e.partyB} />, counter-mark{' '}
           {e.counterMark.toLocaleString(undefined, {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2,
@@ -94,19 +94,19 @@ function summarise(e: BusinessEvent): ReactNode {
     case 'DisputeEscalated':
       return (
         <>
-          Dispute escalated — <Pair a={e.partyA} b={e.partyB} />
+          Dispute escalated · <Pair a={e.partyA} b={e.partyB} />
         </>
       )
     case 'DisputeResolved':
       return (
         <>
-          Dispute resolved ({e.resolution}) — <Pair a={e.partyA} b={e.partyB} />
+          Dispute resolved ({e.resolution}) · <Pair a={e.partyA} b={e.partyB} />
         </>
       )
     case 'MarkPosted':
       return (
         <>
-          Mark posted — <Pair a={e.partyA} b={e.partyB} />, exposure{' '}
+          Mark posted · <Pair a={e.partyA} b={e.partyB} />, exposure{' '}
           {e.exposure.toLocaleString(undefined, {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2,
@@ -120,14 +120,14 @@ function summarise(e: BusinessEvent): ReactNode {
       const sum = e.netByCcy.map(([ccy, amt]) => `${fmt(amt)} ${ccy}`).join(', ')
       return (
         <>
-          Netted settlement — <Pair a={e.partyA} b={e.partyB} />: {sum || '0'}
+          Netted settlement · <Pair a={e.partyA} b={e.partyB} />: {sum || '0'}
         </>
       )
     }
     case 'SettlementAudited':
       return (
         <>
-          {SETTLEMENT_LABEL[e.source]} — <PartyName identifier={e.payer} /> →{' '}
+          {SETTLEMENT_LABEL[e.source]} · <PartyName identifier={e.payer} /> →{' '}
           <PartyName identifier={e.payee} />{' '}
           {e.amount.toLocaleString(undefined, {
             minimumFractionDigits: 2,
@@ -139,7 +139,17 @@ function summarise(e: BusinessEvent): ReactNode {
     case 'ShortfallRecorded':
       return (
         <>
-          Margin shortfall — <Pair a={e.partyA} b={e.partyB} />
+          Margin shortfall · <Pair a={e.partyA} b={e.partyB} />
+          {e.deficit > 0 && (
+            <>
+              , deficit{' '}
+              {e.deficit.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}{' '}
+              {e.ccy || ''}
+            </>
+          )}
         </>
       )
     case 'OracleRatePublished':

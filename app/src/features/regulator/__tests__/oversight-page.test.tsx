@@ -51,6 +51,13 @@ vi.mock('../hooks/use-all-proposals-cross-org', () => ({
   useAllProposalsCrossOrg: () => ({ proposals: [], isLoading: false }),
 }))
 
+// Audit E5 added a pair-level MTM column backed by useAllMarksByPair
+// (uses useQuery). The page test renders without a QueryClientProvider,
+// so stub the hook to a no-op resolver.
+vi.mock('../hooks/use-all-marks-by-pair', () => ({
+  useAllMarksByPair: () => ({ forPair: () => null, isLoading: false }),
+}))
+
 describe('OversightPage', () => {
   it('renders the cross-org blotter with the seeded row', () => {
     render(<OversightPage />)

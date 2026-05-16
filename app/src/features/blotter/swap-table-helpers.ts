@@ -1,6 +1,8 @@
 import type { ColumnDef } from './constants'
 import type { BlotterTab, SwapRow } from './types'
 
+import { formatCompactAmount } from '@/shared/format/amount'
+
 export type SortDir = 'asc' | 'desc'
 export interface SortState {
   key: string
@@ -67,8 +69,11 @@ export const EMPTY_MESSAGES: Record<BlotterTab, string> = {
   unwound: 'No unwound swaps yet.',
 }
 
-export function formatNotional(n: number): string {
-  return n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+export function formatNotional(n: number, ccy: string = 'USD'): string {
+  // Audit E3: unified compact-currency form across every surface that
+  // renders a swap notional. Previously a per-trade `$10,000,000` here
+  // while the workspace ribbon showed `$10M` and oversight showed `10M`.
+  return formatCompactAmount(n, ccy)
 }
 
 export function formatNpv(n: number | null): string {

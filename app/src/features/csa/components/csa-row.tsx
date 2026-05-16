@@ -54,7 +54,24 @@ export function CsaRow({
       <td
         className={`px-4 py-3 text-right font-mono ${latestExposure !== null ? 'text-zinc-300' : 'text-zinc-600'}`}
       >
-        {latestExposure !== null ? fmt(latestExposure) : '—'}
+        {latestExposure !== null
+          ? (() => {
+              // Render exposure from the viewer's perspective with the same
+              // wording the blotter / workspace ribbons use, so a reader
+              // bouncing between surfaces doesn't have to translate
+              // "negative exposure" into a direction in their head.
+              const viewerIsA = partyMatchesHint(csa.partyA, activeParty)
+              const viewerSigned = viewerIsA ? -latestExposure : latestExposure
+              const caption =
+                viewerSigned === 0 ? 'flat' : viewerSigned > 0 ? 'cpty owes me' : 'I owe cpty'
+              return (
+                <>
+                  {fmt(Math.abs(viewerSigned))}
+                  <span className="ml-1 text-3xs text-zinc-500">· {caption}</span>
+                </>
+              )
+            })()
+          : '—'}
       </td>
       <td className="px-4 py-3 text-right font-mono text-xs">
         {callSignal && callParty ? (

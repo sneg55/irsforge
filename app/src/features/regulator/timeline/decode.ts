@@ -216,12 +216,16 @@ export function decode(e: LedgerActivityEvent): BusinessEvent | null {
     // Daml record fields are `debtor` (under-funded short side) and
     // `creditor` (in-the-money side); historical `partyA/partyB`
     // payload shape never existed on-ledger.
-    const p = e.payload as { debtor?: string; creditor?: string } | undefined
+    const p = e.payload as
+      | { debtor?: string; creditor?: string; deficit?: string; currency?: string }
+      | undefined
     if (!p?.debtor || !p?.creditor) return null
     return {
       kind: 'ShortfallRecorded',
       partyA: p.debtor,
       partyB: p.creditor,
+      deficit: p.deficit ? Number.parseFloat(p.deficit) : 0,
+      ccy: p.currency ?? '',
       cid: e.contractId,
       ts: e.ts,
     }

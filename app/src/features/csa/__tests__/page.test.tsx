@@ -162,14 +162,17 @@ describe('CsaPage', () => {
     useCsaProposalsMock.mockReturnValue({ proposals: [], isLoading: false })
     const { container, getByTestId } = wrap(<CsaPage />)
     expect(container.textContent).toMatch(/No CSAs/)
-    expect(getByTestId('csa-tab-active').textContent).toMatch(/Active\s*\(0\)/)
+    // The tab label and count render as separate spans (label text +
+    // chip span), so the parenthesised `Active (0)` shape is gone — the
+    // assertion now reads tab label + count concatenated.
+    expect(getByTestId('csa-tab-active').textContent).toMatch(/Active\s*0/)
   })
 
   test('renders table with one row and toggles drawer on click', () => {
     useCsasMock.mockReturnValue(csasResult({ data: [csa()] }))
     useCsaProposalsMock.mockReturnValue({ proposals: [], isLoading: false })
     const { container, queryByTestId, getByTestId } = wrap(<CsaPage />)
-    expect(getByTestId('csa-tab-active').textContent).toMatch(/Active\s*\(1\)/)
+    expect(getByTestId('csa-tab-active').textContent).toMatch(/Active\s*1/)
     expect(queryByTestId('csa-drawer')).toBeNull()
     const row = container.querySelector('tbody tr') as HTMLElement
     fireEvent.click(row)
@@ -184,7 +187,7 @@ describe('CsaPage', () => {
     )
     useCsaProposalsMock.mockReturnValue({ proposals: [], isLoading: false })
     const { container, getByTestId } = wrap(<CsaPage />)
-    expect(getByTestId('csa-tab-active').textContent).toMatch(/Active\s*\(2\)/)
+    expect(getByTestId('csa-tab-active').textContent).toMatch(/Active\s*2/)
     expect(container.querySelectorAll('tbody tr').length).toBe(2)
   })
 
@@ -193,7 +196,7 @@ describe('CsaPage', () => {
       useCsasMock.mockReturnValue(csasResult())
       useCsaProposalsMock.mockReturnValue({ proposals: [], isLoading: false })
       const { getByTestId } = wrap(<CsaPage />)
-      expect(getByTestId('csa-tab-proposals').textContent).toMatch(/Proposals\s*\(0\)/)
+      expect(getByTestId('csa-tab-proposals').textContent).toMatch(/Proposals\s*0/)
     })
 
     test('Proposals tab shows in-direction Accept button when activated', () => {

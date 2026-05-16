@@ -1,6 +1,7 @@
 'use client'
 
 import { PartyName } from 'canton-party-directory/ui'
+import { useIsOperator, useIsRegulator } from '@/shared/hooks/use-is-operator'
 import { Sparkline } from '../workspace/components/sparkline'
 import { SWAP_TYPE_CONFIGS } from '../workspace/constants'
 import { statusCodeFor } from './status-code'
@@ -105,7 +106,24 @@ function ActiveCells({ row }: { row: SwapRow }) {
   )
 }
 
-function DirectionCell({ row }: { row: SwapRow }) {
+function DirectionCell({ row, isThirdParty }: { row: SwapRow; isThirdParty: boolean }) {
+  // Operator / regulator are not counterparties to the trade. The Pay /
+  // Receive verb only makes sense from inside the trade, so for third
+  // parties we drop the verb and surface the neutral leg detail alone
+  // (audit E2). Trader view is unchanged.
+  if (isThirdParty) {
+    return (
+      <td className="px-4 py-3">
+        <div className="leading-tight">
+          {row.legDetail ? (
+            <span className="font-mono text-xs text-zinc-300">{row.legDetail}</span>
+          ) : (
+            <span className="text-zinc-600">—</span>
+          )}
+        </div>
+      </td>
+    )
+  }
   const isPay = row.direction === 'pay'
   return (
     <td className="px-4 py-3">
@@ -130,6 +148,13 @@ export function SwapTableRow({
   const typeConfig = SWAP_TYPE_CONFIGS[row.type]
   const badgeClass = TYPE_BADGE_COLORS[row.type] ?? 'bg-zinc-500/20 text-zinc-400'
   const rowClass = row.status === 'Draft' ? 'opacity-60 italic' : ''
+  // Operator and regulator aren't counterparties to the trade; they need
+  // to see the pair, not "one side from the other side's perspective"
+  // (audit E2). When partyA/partyB aren't on the row (drafts, legacy
+  // shapes) fall back to the trader-view cell.
+  const isOperator = useIsOperator()
+  const isRegulator = useIsRegulator()
+  const isThirdParty = (isOperator || isRegulator) && !!row.partyA && !!row.partyB
 
   return (
     <tr
@@ -145,16 +170,24 @@ export function SwapTableRow({
       </td>
       <StatusCell row={row} activeTab={activeTab} />
       <td className="px-4 py-3 text-white">
-        <PartyName identifier={row.counterparty} />
+        {isThirdParty ? (
+          <span className="inline-flex items-center gap-1.5">
+            <PartyName identifier={row.partyA} />
+            <span className="text-zinc-600">↔</span>
+            <PartyName identifier={row.partyB} />
+          </span>
+        ) : (
+          <PartyName identifier={row.counterparty} />
+        )}
       </td>
       <td className="px-4 py-3 text-right font-mono text-zinc-300">
-        {formatNotional(row.notional)}
+        {formatNotional(row.notional, row.currency)}
       </td>
       <td className="px-4 py-3 text-zinc-300">{row.currency}</td>
       <td className="px-4 py-3 text-zinc-300">{row.tradeDate}</td>
       <td className="px-4 py-3 text-zinc-300">{row.maturity}</td>
       {isTerminal ? <TerminalCells row={row} /> : <ActiveCells row={row} />}
-      <DirectionCell row={row} />
+      <DirectionCell row={row} isThirdParty={isThirdParty} />
       {isDrafts && (
         <td className="px-4 py-3 text-right">
           <button

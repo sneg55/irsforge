@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react'
 import { TradeTable } from '@/shared/components/trade-table/trade-table'
 import { useLedgerClient } from '@/shared/hooks/use-ledger-client'
 import { type SwapFamily, useSwapInstruments } from '@/shared/hooks/use-swap-instruments'
+import { useAllMarksByPair } from '../hooks/use-all-marks-by-pair'
 import { useAllProposalsCrossOrg } from '../hooks/use-all-proposals-cross-org'
 import { useAllSwapWorkflows } from '../hooks/use-all-swap-workflows'
 import { OVERSIGHT_COLUMNS } from './columns'
@@ -36,6 +37,7 @@ export function OversightPage() {
   }, [wf.workflows, wf.matured, wf.terminated])
 
   const { byInstrumentId } = useSwapInstruments(client, families)
+  const marks = useAllMarksByPair()
 
   const rows = useMemo<OversightRow[]>(() => {
     // Reference-impl sort contract:
@@ -49,12 +51,22 @@ export function OversightPage() {
       if (ax === bx) return a.id.localeCompare(b.id)
       return bx - ax
     }
-    const live = wf.workflows.map((c) => workflowToRow(c, byInstrumentId)).sort(byDateDesc)
+    // Audit E5: join the pair-level MTM onto Live rows so the regulator
+    // can see a current valuation without bouncing through a trader
+    // surface. Terminal and proposed states intentionally show '—' since
+    // there's no live MTM at those points in a swap's lifecycle.
+    const live = wf.workflows
+      .map((c) => {
+        const r = workflowToRow(c, byInstrumentId)
+        const m = marks.forPair(r.partyA, r.partyB)
+        return m ? { ...r, latestMtm: m.exposure } : r
+      })
+      .sort(byDateDesc)
     const proposed = props.proposals.map(proposalToRow).sort(byDateDesc)
     const matured = wf.matured.map((c) => maturedToRow(c, byInstrumentId)).sort(byDateDesc)
     const terminated = wf.terminated.map((c) => terminatedToRow(c, byInstrumentId)).sort(byDateDesc)
     return [...live, ...proposed, ...matured, ...terminated]
-  }, [wf.workflows, wf.matured, wf.terminated, props.proposals, byInstrumentId])
+  }, [wf.workflows, wf.matured, wf.terminated, props.proposals, byInstrumentId, marks])
 
   const filtered = useMemo<OversightRow[]>(() => {
     return rows.filter((r) => {
@@ -98,7 +110,7 @@ export function OversightPage() {
               type="button"
               aria-label={`filter-${s}`}
               onClick={() => setStatusFilter(s)}
-              className={`rounded px-3 py-1.5 ${
+              className={`rounded px-3 py-1.5 capitalize ${
                 statusFilter === s
                   ? 'bg-blue-600 text-white'
                   : 'bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-white'

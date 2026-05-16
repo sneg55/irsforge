@@ -1,6 +1,7 @@
 import { PartyName } from 'canton-party-directory/ui'
 import { LedgerCidLink } from '@/features/ledger/components/ledger-cid-link'
 import type { TradeTableColumn } from '@/shared/components/trade-table/types'
+import { formatCompactAmount } from '@/shared/format/amount'
 import type { OversightRow } from './workflow-to-row'
 
 const STATUS_COLOR: Record<OversightRow['status'], string> = {
@@ -44,10 +45,9 @@ export const OVERSIGHT_COLUMNS: TradeTableColumn<OversightRow>[] = [
   {
     key: 'notional',
     header: 'Notional',
-    render: (r) =>
-      r.notional === null
-        ? '—'
-        : `${(r.notional / 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 2 })}M`,
+    // Audit E3: shared compact format so the regulator's `$10M` matches
+    // the trader's blotter row and the operator's maturities card.
+    render: (r) => (r.notional === null ? '—' : formatCompactAmount(r.notional, r.currency)),
     sortBy: (r) => r.notional,
   },
   {
@@ -65,6 +65,23 @@ export const OVERSIGHT_COLUMNS: TradeTableColumn<OversightRow>[] = [
     ),
     sortBy: (r) => STATUS_ORDER[r.status],
     sortDirection: 'asc',
+  },
+  {
+    // Audit E5: pair-level MTM from the on-chain CSA mark stream. Renders
+    // signed from partyA's perspective so the regulator can spot which
+    // direction the exposure is running without bouncing through a
+    // trader surface. '—' for Proposed / Matured / Terminated rows.
+    key: 'latestMtm',
+    header: 'Latest MTM',
+    render: (r) =>
+      r.latestMtm === null ? (
+        <span className="text-zinc-600">—</span>
+      ) : (
+        <span className={r.latestMtm >= 0 ? 'text-emerald-300' : 'text-rose-300'}>
+          {formatCompactAmount(r.latestMtm, r.currency || 'USD')}
+        </span>
+      ),
+    sortBy: (r) => r.latestMtm,
   },
   { key: 'cid', header: 'CID', render: (r) => <LedgerCidLink cid={r.cid} /> },
 ]
