@@ -90,6 +90,7 @@ async function main(): Promise<void> {
         callbackUrl: `${platform.authPublicUrl}/auth/callback`,
       },
       config.orgs,
+      config.profile,
     )
   }
 
@@ -163,6 +164,14 @@ async function main(): Promise<void> {
       }
       const reqUrl = new URL(req.url ?? '/', `http://${req.headers.host}`)
       const orgId = reqUrl.searchParams.get('orgId') ?? ''
+      // Reject unknown orgIds before they reach the state store. Stops a
+      // class of dead-flow redirects where the callback would later fail
+      // with "Unknown orgId" — and makes the org allowlist (Phase A.1)
+      // the single source of truth for what's mintable.
+      if (!orgs.some((o) => o.id === orgId)) {
+        sendError(res, 400, `Unknown orgId: ${orgId}`)
+        return
+      }
       const state = crypto.randomUUID()
       const nonce = crypto.randomUUID()
       stateStore.put(state, { orgId, nonce })

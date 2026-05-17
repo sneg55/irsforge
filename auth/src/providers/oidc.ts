@@ -1,6 +1,11 @@
 import type { Org } from 'irsforge-shared-config'
 import { createRemoteJWKSet, type JWTPayload, type JWTVerifyGetKey, jwtVerify } from 'jose'
-import type { AuthProvider, AuthRequest, AuthResult } from './interface.js'
+import {
+  type AuthProvider,
+  type AuthRequest,
+  type AuthResult,
+  assertOrgMembership,
+} from './interface.js'
 
 export interface OidcConfig {
   authority: string
@@ -30,6 +35,7 @@ export class OidcProvider implements AuthProvider {
   constructor(
     private readonly config: OidcConfig,
     private readonly orgs: Org[],
+    private readonly profile: 'demo' | 'production' = 'demo',
   ) {}
 
   private async discover(): Promise<OidcDiscovery> {
@@ -112,6 +118,14 @@ export class OidcProvider implements AuthProvider {
     }
 
     const email = typeof claims['email'] === 'string' ? claims['email'] : undefined
+    const groups = Array.isArray(claims['groups'])
+      ? (claims['groups'] as unknown[]).filter((g): g is string => typeof g === 'string')
+      : undefined
+    // Production deployments must bind the verified IdP identity to an
+    // explicit org allowlist; otherwise any valid IdP user could mint a
+    // token for any configured org. Demo profile is exempt (party-picker
+    // UX) — see plan 2026-05-17-post-launch-hardening (issue 1).
+    assertOrgMembership({ sub: claims.sub, email, groups }, org, this.profile)
     const userId = email ?? claims.sub
     if (!userId) {
       throw new Error('OIDC id_token missing sub claim')

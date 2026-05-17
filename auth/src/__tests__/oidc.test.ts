@@ -19,6 +19,7 @@ const TEST_ORG: Org = {
   party: 'PartyA::abc',
   displayName: 'Goldman',
   hint: 'goldman',
+  role: 'trader',
   ledgerUrl: 'http://localhost:6865',
   subdomain: 'goldman',
 }
@@ -87,7 +88,7 @@ after(async () => {
   )
 })
 
-function makeProvider(): OidcProvider {
+function makeProvider(opts?: { orgs?: Org[]; profile?: 'demo' | 'production' }): OidcProvider {
   return new OidcProvider(
     {
       authority: baseUrl,
@@ -96,7 +97,8 @@ function makeProvider(): OidcProvider {
       scopes: SCOPES,
       callbackUrl: `${baseUrl}/cb`,
     },
-    [TEST_ORG],
+    opts?.orgs ?? [TEST_ORG],
+    opts?.profile ?? 'demo',
   )
 }
 
@@ -105,6 +107,7 @@ interface IdTokenOpts {
   audience?: string
   nonce?: string
   expSeconds?: number // seconds from now
+  groups?: string[]
   signWith?: CryptoKey // override signing key (for bad-sig case)
   sub?: string
   email?: string
@@ -116,6 +119,7 @@ async function signIdToken(opts: IdTokenOpts = {}): Promise<string> {
   const jwt = new SignJWT({
     nonce: opts.nonce ?? 'n-default',
     ...(opts.email ? { email: opts.email } : {}),
+    ...(opts.groups ? { groups: opts.groups } : {}),
   })
     .setProtectedHeader({ alg: 'RS256', kid: signingKid })
     .setIssuedAt(now)
@@ -186,6 +190,98 @@ describe('OidcProvider.handleCallback', () => {
       () => provider.handleCallback('code-7', 'unknown-org', 'n-org'),
       /Unknown orgId/,
     )
+  })
+})
+
+describe('OidcProvider.handleCallback — production org-membership enforcement', () => {
+  const goldmanOnly: Org[] = [
+    {
+      id: 'goldman',
+      party: 'PartyA::abc',
+      displayName: 'Goldman',
+      hint: 'goldman',
+      role: 'trader',
+      ledgerUrl: 'http://localhost:6865',
+      subdomain: 'goldman',
+      allowedSubjects: ['alice@goldman.example'],
+    },
+    {
+      id: 'jpmorgan',
+      party: 'PartyB::def',
+      displayName: 'JPMorgan',
+      hint: 'jpmorgan',
+      role: 'trader',
+      ledgerUrl: 'http://localhost:6865',
+      subdomain: 'jpmorgan',
+      allowedSubjects: ['bob@jpmorgan.example'],
+    },
+  ]
+
+  it('rejects cross-org login: alice@goldman cannot mint a token for jpmorgan', async () => {
+    const provider = makeProvider({ orgs: goldmanOnly, profile: 'production' })
+    nextIdToken = await signIdToken({
+      nonce: 'n-cross-org',
+      sub: 'alice@goldman.example',
+      email: 'alice@goldman.example',
+    })
+    await assert.rejects(
+      () => provider.handleCallback('code-cross', 'jpmorgan', 'n-cross-org'),
+      /not authorised for org jpmorgan/i,
+    )
+  })
+
+  it('accepts when the subject is on the org allowlist', async () => {
+    const provider = makeProvider({ orgs: goldmanOnly, profile: 'production' })
+    nextIdToken = await signIdToken({
+      nonce: 'n-ok-sub',
+      sub: 'alice@goldman.example',
+      email: 'alice@goldman.example',
+    })
+    const result = await provider.handleCallback('code-ok-sub', 'goldman', 'n-ok-sub')
+    assert.equal(result.orgId, 'goldman')
+    assert.equal(result.party, 'PartyA::abc')
+  })
+
+  it('accepts via allowedGroups when the id_token carries a matching group', async () => {
+    const orgsWithGroups: Org[] = [
+      {
+        ...goldmanOnly[0],
+        allowedSubjects: undefined,
+        allowedGroups: ['goldman-traders'],
+      },
+    ]
+    const provider = makeProvider({ orgs: orgsWithGroups, profile: 'production' })
+    nextIdToken = await signIdToken({
+      nonce: 'n-grp',
+      sub: 'anyone',
+      groups: ['some-other-group', 'goldman-traders'],
+    })
+    const result = await provider.handleCallback('code-grp', 'goldman', 'n-grp')
+    assert.equal(result.orgId, 'goldman')
+  })
+
+  it('rejects when neither subject nor groups match the allowlist', async () => {
+    const provider = makeProvider({ orgs: goldmanOnly, profile: 'production' })
+    nextIdToken = await signIdToken({
+      nonce: 'n-no-match',
+      sub: 'charlie@external.example',
+      groups: ['random-group'],
+    })
+    await assert.rejects(
+      () => provider.handleCallback('code-no-match', 'goldman', 'n-no-match'),
+      /not authorised for org goldman/i,
+    )
+  })
+
+  it('demo profile bypasses the allowlist check entirely', async () => {
+    const provider = makeProvider({ orgs: goldmanOnly, profile: 'demo' })
+    nextIdToken = await signIdToken({
+      nonce: 'n-demo',
+      sub: 'anyone@anywhere.example',
+    })
+    // Same identity that would be rejected under production → accepted in demo.
+    const result = await provider.handleCallback('code-demo', 'goldman', 'n-demo')
+    assert.equal(result.orgId, 'goldman')
   })
 })
 
