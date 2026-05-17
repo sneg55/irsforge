@@ -76,7 +76,13 @@ for pair in "${PAIRS[@]}"; do
     echo "error: main_package_id missing from $DAR (entry: $NAME)." >&2
     exit 1
   fi
-  echo "export const $NAME = \"$PKG_ID\";" >> "$TMP"
+  # Wrap declaration onto two lines so Biome's formatter (lineWidth 100,
+  # quoteStyle single, semicolons asNeeded) leaves the file untouched.
+  # Without this, every regen dirties git status with quote/semi/wrap noise.
+  {
+    echo "export const $NAME ="
+    echo "  '$PKG_ID'"
+  } >> "$TMP"
   echo "  $NAME = $PKG_ID"
 done
 
@@ -85,7 +91,7 @@ done
 # oracle-provider-pluggability plan).
 {
   echo ""
-  echo "export const IRSFORGE_PROVIDER_INTERFACE_ID = \`\${IRSFORGE_PACKAGE_ID}:Oracle.Interface:Provider\`;"
+  echo "export const IRSFORGE_PROVIDER_INTERFACE_ID = \`\${IRSFORGE_PACKAGE_ID}:Oracle.Interface:Provider\`"
 } >> "$TMP"
 
 # Emit identical constants for the oracle. It runs under tsx so TS imports

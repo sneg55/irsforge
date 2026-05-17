@@ -64,6 +64,8 @@ site/.astro/
 site/test-results/
 site/playwright-report/
 site/.lighthouseci/
+# Playwright visual-regression baselines are darwin-local; CI does not regenerate them
+site/tests/**/*-snapshots/
 
 # agent-browser user-data dir from local smoke tests
 irsforge-smoke/
