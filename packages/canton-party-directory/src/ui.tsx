@@ -1,4 +1,4 @@
-import { type CSSProperties, useCallback, useState } from 'react'
+import { type CSSProperties, useCallback, useId, useState } from 'react'
 import { extractHint, getInitials, shortenIdentifier } from './fallback'
 import { usePartyDirectory } from './react'
 
@@ -89,6 +89,7 @@ export function PartyName({
   const { displayName: resolve, loading } = usePartyDirectory()
   const [showTooltip, setShowTooltip] = useState(false)
   const [showCopied, setShowCopied] = useState(false)
+  const tooltipId = useId()
 
   const name = resolve(identifier)
   const hint = extractHint(identifier)
@@ -117,6 +118,15 @@ export function PartyName({
 
   const rootStyle = copyable ? styles.root : styles.rootNoCopy
 
+  // Tooltip semantics: when the tooltip is visible, link it to the chip
+  // via `aria-describedby` and tag the floating span with `role="tooltip"`.
+  // Without this, screen readers and a11y walkers (including agent-browser
+  // accessibility snapshots) read the absolutely-positioned tooltip span
+  // as a sibling text node and concatenate it inline with the display
+  // name — surfacing as `"Goldman SachsPartyA::1220..."`. See
+  // feedback_party_name_for_all_displays for the underlying rule.
+  const tooltipVisible = showTooltip && tooltip && !showCopied
+
   return (
     <span
       className={className}
@@ -125,6 +135,7 @@ export function PartyName({
       onMouseEnter={() => tooltip && setShowTooltip(true)}
       onMouseLeave={() => setShowTooltip(false)}
       title={tooltip ? undefined : identifier}
+      aria-describedby={tooltipVisible ? tooltipId : undefined}
     >
       {variant === 'badge' && isKnown && <span style={styles.badge}>{getInitials(name)}</span>}
 
@@ -140,8 +151,10 @@ export function PartyName({
 
       {variant === 'full' && isKnown && hint && <span style={styles.hint}>({hint})</span>}
 
-      {showTooltip && tooltip && !showCopied && (
-        <span style={styles.tooltip}>{shortenIdentifier(identifier)}</span>
+      {tooltipVisible && (
+        <span id={tooltipId} role="tooltip" style={styles.tooltip}>
+          {shortenIdentifier(identifier)}
+        </span>
       )}
 
       {showCopied && <span style={styles.copied}>Copied</span>}

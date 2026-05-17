@@ -79,4 +79,21 @@ describe('PartyName', () => {
     const el = screen.getByText('Goldman Sachs').closest('span')
     expect(el?.className).toContain('custom-class')
   })
+
+  test('hover tooltip uses role="tooltip" and is linked via aria-describedby', async () => {
+    render(<PartyName identifier={FULL_ID} />, { wrapper: Wrapper })
+    const nameEl = screen.getByText('Goldman Sachs')
+    fireEvent.mouseEnter(nameEl)
+
+    // Tooltip span carries role="tooltip" so screen readers and a11y
+    // walkers don't concatenate it inline with the display name.
+    const tooltip = screen.getByRole('tooltip')
+    expect(tooltip).toBeDefined()
+    // tooltip and chip are linked via aria-describedby so the relationship
+    // is explicit, not an artifact of DOM sibling order. The root span
+    // that owns the describedby is the tooltip's parent (its DOM sibling
+    // is the display-name span).
+    const root = tooltip.parentElement
+    expect(root?.getAttribute('aria-describedby')).toBe(tooltip.id)
+  })
 })
