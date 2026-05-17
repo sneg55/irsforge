@@ -1,0 +1,161 @@
+-- Tests for WithdrawExcess hardening. Phase C of the post-launch
+-- hardening plan (issue 3): WithdrawExcess used to gate only on
+-- "withdraw at most your own pledge", which let a pledgor pull
+-- collateral back even while a mark required it. Now also rejects
+-- withdrawals that worsen the margin position relative to the latest
+-- published mark, and blocks all withdrawals during Disputed /
+-- Escalated states.
+--
+-- Lives in a sibling file so Csa.Test stays under the 300-line cap.
+module Csa.TestWithdrawSafety where
+
+import Daml.Script
+import DA.Map qualified as Map
+import DA.Optional (fromOptional)
+import DA.Date (date, Month(..))
+import DA.Time (time)
+import qualified Csa.Types as T
+import qualified Csa.Csa as C
+import qualified Csa.Dispute as D
+
+allocateFive : Script (Party, Party, Party, Party, Party)
+allocateFive = do
+  op  <- allocatePartyWithHint "WsOp"  (PartyIdHint "WsOp")
+  pa  <- allocatePartyWithHint "WsPA"  (PartyIdHint "WsPA")
+  pb  <- allocatePartyWithHint "WsPB"  (PartyIdHint "WsPB")
+  reg <- allocatePartyWithHint "WsReg" (PartyIdHint "WsReg")
+  sch <- allocatePartyWithHint "WsSch" (PartyIdHint "WsSch")
+  pure (op, pa, pb, reg, sch)
+
+baseCsa : Party -> Party -> Party -> Party -> Party -> C.Csa
+baseCsa op pa pb reg sch = C.Csa with
+  operator    = op
+  partyA      = pa
+  partyB      = pb
+  regulators   = [reg]
+  scheduler   = sch
+  threshold   = Map.fromList [(T.DirA, 0.0), (T.DirB, 0.0)]
+  mta         = 100_000.0
+  rounding    = 10_000.0
+  eligible    = [T.EligibleCollateral with currency = "USD"; haircut = 1.0]
+  valuationCcy = "USD"
+  csb         = Map.empty
+  state       = T.Active
+  lastMarkCid = None
+  isdaMasterAgreementRef = ""
+  governingLaw           = T.NewYork
+  imAmount               = 0.0
+  activeDispute          = None
+
+csbUsd : C.Csa -> Decimal
+csbUsd c = fromOptional 0.0 (Map.lookup "USD" c.csb)
+
+-- 1. Withdraw cannot create a margin call. A has fully posted the
+-- target; withdrawing any non-trivial slice would re-open exposure.
+testWithdrawCannotCreateCall : Script ()
+testWithdrawCannotCreateCall = do
+  (op, pa, pb, reg, sch) <- allocateFive
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  cid <- submit pa do
+    exerciseCmd cid C.PostCollateral with
+      poster = pa; ccy = "USD"; amount = 1_000_000.0
+  (cid, _) <- submit op do
+    exerciseCmd cid C.PublishMark with
+      asOf     = time (date 2026 Apr 17) 12 0 0
+      exposure = 1_000_000.0
+      snapshot = "{}"
+  -- Mark says A must keep $1M pledged. Withdrawing 500k would put the
+  -- CSA back into a $500k call. Must fail.
+  submitMustFail pa do
+    exerciseCmd cid C.WithdrawExcess with
+      withdrawer = pa; ccy = "USD"; amount = 500_000.0
+
+-- 2. Withdraw of true excess succeeds (A pledged 5M, target 3M; A pulls 2M).
+testWithdrawOfPureExcessSucceeds : Script ()
+testWithdrawOfPureExcessSucceeds = do
+  (op, pa, pb, reg, sch) <- allocateFive
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  cid <- submit pa do
+    exerciseCmd cid C.PostCollateral with
+      poster = pa; ccy = "USD"; amount = 5_000_000.0
+  (cid, _) <- submit op do
+    exerciseCmd cid C.PublishMark with
+      asOf     = time (date 2026 Apr 17) 12 0 0
+      exposure = 3_000_000.0
+      snapshot = "{}"
+  cid <- submit pa do
+    exerciseCmd cid C.WithdrawExcess with
+      withdrawer = pa; ccy = "USD"; amount = 2_000_000.0
+  Some c <- queryContractId pa cid
+  assert (csbUsd c == 3_000_000.0)
+
+-- 3. Withdraw blocked while CSA is in MarkDisputed state.
+testWithdrawBlockedWhenDisputed : Script ()
+testWithdrawBlockedWhenDisputed = do
+  (op, pa, pb, reg, sch) <- allocateFive
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  cid <- submit pa do
+    exerciseCmd cid C.PostCollateral with
+      poster = pa; ccy = "USD"; amount = 5_000_000.0
+  (cid, _) <- submit op do
+    exerciseCmd cid C.PublishMark with
+      asOf     = time (date 2026 Apr 17) 12 0 0
+      exposure = 0.0
+      snapshot = "{}"
+  -- Open a dispute. partyB is the disputer (counterparty to the mark).
+  cid <- submit pb do
+    exerciseCmd cid C.Dispute with
+      disputer = pb; counterMark = 100.0; reason = T.Valuation; notes = ""
+  -- Even though no mark requires the 5M anymore, the withdraw must be
+  -- blocked while resolution is pending.
+  submitMustFail pa do
+    exerciseCmd cid C.WithdrawExcess with
+      withdrawer = pa; ccy = "USD"; amount = 1_000_000.0
+
+-- 4. During an outstanding margin call, the over-posting side can
+-- reduce their excess but cannot grow the call further. A is the
+-- debtor (target +1M, A pledged 500k → gap +500k). A attempting to
+-- withdraw 200k would push the gap to +700k — must fail.
+testWithdrawDuringCallOutCannotGrowCall : Script ()
+testWithdrawDuringCallOutCannotGrowCall = do
+  (op, pa, pb, reg, sch) <- allocateFive
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  cid <- submit pa do
+    exerciseCmd cid C.PostCollateral with
+      poster = pa; ccy = "USD"; amount = 500_000.0
+  (cid, _) <- submit op do
+    exerciseCmd cid C.PublishMark with
+      asOf     = time (date 2026 Apr 17) 12 0 0
+      exposure = 1_000_000.0
+      snapshot = "{}"
+  cid <- submit op do exerciseCmd cid C.SettleVm
+  -- Confirm we're in CallOut for the test's premise to be meaningful.
+  Some c <- queryContractId op cid
+  assert (c.state == T.MarginCallOutstanding)
+  submitMustFail pa do
+    exerciseCmd cid C.WithdrawExcess with
+      withdrawer = pa; ccy = "USD"; amount = 200_000.0
+
+-- 5. Regression for `testOverpostDoesNotPinWrongSide` from Csa.Test
+-- (test #10 there). B over-posts during CallOut and withdraws the
+-- excess back to exactly target — must still succeed under the new
+-- "cannot grow call" rule because |gap| shrinks from 1.58M to 0.
+testWithdrawCanUnwindOverpostDuringCallOut : Script ()
+testWithdrawCanUnwindOverpostDuringCallOut = do
+  (op, pa, pb, reg, sch) <- allocateFive
+  cid <- submitMulti [op, pa, pb] [] do createCmd (baseCsa op pa pb reg sch)
+  cid <- submit pb do
+    exerciseCmd cid C.PostCollateral with
+      poster = pb; ccy = "USD"; amount = 10_000_000.0
+  (cid, _) <- submit op do
+    exerciseCmd cid C.PublishMark with
+      asOf     = time (date 2026 Apr 17) 12 0 0
+      exposure = (-8_420_000.0)
+      snapshot = "{}"
+  cid <- submit op do exerciseCmd cid C.SettleVm
+  -- B reduces over-post to exactly target — gap drops to zero.
+  cid <- submit pb do
+    exerciseCmd cid C.WithdrawExcess with
+      withdrawer = pb; ccy = "USD"; amount = 1_580_000.0
+  Some c <- queryContractId op cid
+  assert (csbUsd c == (-8_420_000.0))

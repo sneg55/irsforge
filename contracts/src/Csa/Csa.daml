@@ -13,6 +13,7 @@ import qualified Csa.Netting as N
 import qualified Csa.Shortfall as S
 import qualified Csa.Dispute as D
 import qualified Csa.DisputeOps as DOps
+import qualified Csa.WithdrawOps as WOps
 import Csa.Math
 import Swap.Workflow (SwapWorkflow)
 
@@ -93,10 +94,8 @@ template Csa
               else create this with csb = newCsb
           _ -> create this with csb = newCsb
 
-    -- Withdraw pulls the withdrawer's own pledge back toward zero. A party
-    -- can only withdraw up to the amount *they themselves* have pledged:
-    -- A can withdraw up to `max 0 csb`, B can withdraw up to `max 0 (-csb)`.
-    -- Attempting to withdraw from the counterparty's pledge is rejected.
+    -- Body lifted into `Csa.WithdrawOps.withdrawExcessImpl` so this file
+    -- stays under the 300-line cap; see that module for the full rule.
     choice WithdrawExcess : ContractId Csa
       with
         withdrawer : Party
@@ -104,16 +103,15 @@ template Csa
         amount     : Decimal
       controller withdrawer
       do
-        assertMsg "amount must be positive" (amount > 0.0)
-        assertMsg "withdrawer must be partyA or partyB"
-                  (withdrawer == partyA || withdrawer == partyB)
-        let current = fromOptional 0.0 (Map.lookup ccy csb)
-            myPledge = if withdrawer == partyA then max 0.0 current
-                       else max 0.0 (-current)
-            delta = if withdrawer == partyA then -amount else amount
-        assertMsg "withdraw above own pledged balance is forbidden"
-                  (amount <= myPledge)
-        create this with csb = Map.insert ccy (current + delta) csb
+        lastExposure <- case lastMarkCid of
+          None -> pure None
+          Some mCid -> do
+            mk <- fetch mCid
+            pure (Some mk.exposure)
+        newCsb <- WOps.withdrawExcessImpl
+          partyA partyB threshold mta rounding valuationCcy
+          csb state lastExposure withdrawer ccy amount
+        create this with csb = newCsb
 
     choice PublishMark : (ContractId Csa, ContractId M.MarkToMarket)
       with

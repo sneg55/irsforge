@@ -1,0 +1,70 @@
+-- WithdrawExcess body, lifted out of Csa.Csa to keep that file under the
+-- 300-line cap. Mirrors the Csa.DisputeOps pattern.
+--
+-- Phase C of the post-launch hardening plan (issue 3) hardens the
+-- withdrawal rule beyond "withdraw at most your own pledge":
+--   (a) ccy must equal valuationCcy (defence in depth — PostCollateral
+--       already enforces this; here too, so a non-valuationCcy entry
+--       sneaked into csb by a malformed contract can't be siphoned out);
+--   (b) no withdrawals while a dispute is open (MarkDisputed / Escalated
+--       require human resolution before collateral can move);
+--   (c) the post-withdrawal magnitude of the gated margin call must not
+--       exceed the pre-withdrawal magnitude. Under Active that requires
+--       the call to stay at zero; under MarginCallOutstanding it lets an
+--       over-poster unwind their excess (|gap| decreases) but blocks a
+--       debtor from growing their own deficit.
+module Csa.WithdrawOps where
+
+import DA.Map qualified as Map
+import DA.Optional (fromOptional)
+import qualified Csa.Types as T
+import Csa.Math
+
+-- | Validate the withdrawal and return the new csb map. The choice body
+--   creates the next Csa contract with `csb = result`.
+--
+--   `lastExposure` is the MarkToMarket exposure (Decimal) at the last
+--   published mark, or None if no mark has been published yet. The
+--   choice body resolves the mark cid into the exposure before calling
+--   so this module avoids importing Csa.Mark (which would re-introduce
+--   a circular import via Csa.Csa).
+withdrawExcessImpl
+  : Party        -- ^ partyA
+  -> Party       -- ^ partyB
+  -> Map.Map T.Direction Decimal  -- ^ threshold
+  -> Decimal     -- ^ mta
+  -> Decimal     -- ^ rounding
+  -> Text        -- ^ valuationCcy
+  -> Map.Map Text Decimal  -- ^ csb (pre-withdrawal)
+  -> T.CsaState  -- ^ state
+  -> Optional Decimal  -- ^ last mark exposure (None ⇒ no mark yet)
+  -> Party       -- ^ withdrawer
+  -> Text        -- ^ ccy
+  -> Decimal     -- ^ amount
+  -> Update (Map.Map Text Decimal)
+withdrawExcessImpl partyA partyB threshold mta rounding valuationCcy
+                   csb state lastExposure withdrawer ccy amount = do
+  assertMsg "amount must be positive" (amount > 0.0)
+  assertMsg "withdrawer must be partyA or partyB"
+            (withdrawer == partyA || withdrawer == partyB)
+  assertMsg "ccy must equal valuationCcy until FX-aware collateral ships"
+            (ccy == valuationCcy)
+  assertMsg "cannot withdraw while CSA is disputed or escalated"
+            (state /= T.MarkDisputed && state /= T.Escalated)
+  let current = fromOptional 0.0 (Map.lookup ccy csb)
+      myPledge = if withdrawer == partyA then max 0.0 current
+                 else max 0.0 (-current)
+      delta = if withdrawer == partyA then -amount else amount
+      newCsb = Map.insert ccy (current + delta) csb
+  assertMsg "withdraw above own pledged balance is forbidden"
+            (amount <= myPledge)
+  case lastExposure of
+    None -> pure newCsb
+    Some exposure -> do
+      let target     = targetCsb exposure threshold
+          newCurrent = fromOptional 0.0 (Map.lookup valuationCcy newCsb)
+          newGated   = gateCall (target - newCurrent) mta rounding
+          oldGated   = gateCall (target - current) mta rounding
+      assertMsg "withdrawal would worsen the margin position"
+                (abs newGated <= abs oldGated)
+      pure newCsb
