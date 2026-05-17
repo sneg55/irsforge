@@ -1,0 +1,22 @@
+-- InitParties record extracted from Setup.InitImpl to keep that file
+-- under the 300-line cap (the bootstrapPairs field added in Phase E of
+-- the post-launch hardening plan pushed it over).
+module Setup.InitTypes where
+
+import Setup.GeneratedConfig qualified as Config
+
+-- | Pre-allocated parties consumed by `Setup.InitImpl.initForParties`.
+--   Tests allocate their own pool and call `initForParties` directly;
+--   `Setup.Init.init` wraps it with `allocatePartyWithHint` +
+--   `createUser` for the demo entry point.
+data InitParties = InitParties
+  with
+    operator       : Party
+    partyA         : Party
+    partyB         : Party
+    regulators     : [Party]
+    scheduler      : Party
+    -- Hint → Party for resolving bootstrap pair hints.
+    tradersByHint  : [(Text, Party)]
+    -- Pairs to seed; tests override Config.bootstrapCsaPairs here.
+    bootstrapPairs : [Config.BootstrapCsaPair]

@@ -3,6 +3,7 @@ module Setup.GeneratedConfig where
 
 import Daml.Finance.Interface.Types.Date.V3.DayCount (DayCountConventionEnum(..))
 import Operator.Policy (PolicyMode(..))
+import Csa.Types (GoverningLaw(..))
 
 data CurrencyDef = CurrencyDef
   with
@@ -67,7 +68,7 @@ csaValuationCcy : Text
 csaValuationCcy = "USD"
 
 csaEligibleCollateral : [(Text, Decimal)]
-csaEligibleCollateral = [("USD", 1.0), ("EUR", 1.0)]
+csaEligibleCollateral = [("USD", 1.0)]
 
 demoCsaInitialFunding : [(Text, Decimal)]
 demoCsaInitialFunding = [("USD", 5000000.0)]
@@ -95,4 +96,18 @@ operatorPolicySeeds =
     ("OIS", Auto)
   ,
     ("XCCY", Auto)
+  ]
+
+data BootstrapCsaPair = BootstrapCsaPair
+  with
+    traderAHint            : Text
+    traderBHint            : Text
+    isdaMasterAgreementRef : Text
+    governingLaw           : GoverningLaw
+  deriving (Eq, Show)
+
+bootstrapCsaPairs : [BootstrapCsaPair]
+bootstrapCsaPairs =
+  [
+
   ]

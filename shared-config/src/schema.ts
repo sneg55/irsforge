@@ -8,6 +8,9 @@ import {
   oidcAuthSchema,
   serviceAccountSchema,
 } from './schema-auth.js'
+// Org schema (incl. the role enum) lives in a sibling file so adding a
+// new role value only requires touching one place; re-exported here.
+import { bootstrapSchema } from './schema-bootstrap.js'
 // CSA schemas live in a sibling file to keep schema.ts under the 300-line cap;
 // re-exported here so existing import sites (`from "./schema.js"`) keep working.
 import {
@@ -21,13 +24,12 @@ import { demoCurveTickerSchema } from './schema-demo-curve-ticker.js'
 import { demoResetSchema } from './schema-demo-reset.js'
 import { ledgerUiSchema } from './schema-ledger-ui.js'
 import { operatorSchema } from './schema-operator.js'
-// Org schema (incl. the role enum) lives in a sibling file so adding a
-// new role value only requires touching one place; re-exported here.
-import { addOrgAllowlistIssues, addOrgRoleIssues, orgRoleSchema, orgSchema } from './schema-orgs.js'
+import { orgRoleSchema, orgSchema } from './schema-orgs.js'
 // Party-hint schemas live in a sibling file to keep schema.ts under the
 // 300-line cap; re-exported so existing import sites keep working.
 import { partiesSchema, partyHintSchema } from './schema-parties.js'
 import { rateFamiliesSchema } from './schema-rate-families.js'
+import { applyTopLevelRefinements } from './schema-refinements.js'
 import { schedulerSchema } from './schema-scheduler.js'
 import { addServiceAccountIssues } from './schema-service-accounts.js'
 
@@ -228,69 +230,8 @@ export const configSchema = z
     parties: partiesSchema,
     scheduler: schedulerSchema.default({}),
     operator: operatorSchema,
+    bootstrap: bootstrapSchema,
   })
   .superRefine((config, ctx) => {
-    if (config.routing === 'subdomain') {
-      config.orgs.forEach((org, i) => {
-        if (org.subdomain === undefined || org.subdomain === '') {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ['orgs', i, 'subdomain'],
-            message: "subdomain is required for every org when routing is 'subdomain'",
-          })
-        }
-      })
-      if (config.platform.frontendUrlTemplate === undefined) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['platform', 'frontendUrlTemplate'],
-          message: "frontendUrlTemplate is required when routing is 'subdomain'",
-        })
-      } else if (!config.platform.frontendUrlTemplate.includes('{subdomain}')) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['platform', 'frontendUrlTemplate'],
-          message: "frontendUrlTemplate must contain the literal token '{subdomain}'",
-        })
-      }
-    }
-    const defaults = config.currencies.filter((c) => c.isDefault)
-    if (defaults.length !== 1) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['currencies'],
-        message: `exactly one currency must have isDefault: true (got ${defaults.length})`,
-      })
-    }
-    const codes = new Set<string>()
-    config.currencies.forEach((c, i) => {
-      if (codes.has(c.code)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['currencies', i, 'code'],
-          message: `duplicate currency code: ${c.code}`,
-        })
-      }
-      codes.add(c.code)
-    })
-    addOrgRoleIssues(config.orgs, ctx)
-    if (config.profile === 'production' && config.auth.provider === 'oidc') {
-      addOrgAllowlistIssues(config.orgs, ctx)
-    }
-    // A production deployment must not carry a populated `demo:` subtree.
-    // Empty-object is allowed so operators can flip `profile` back and forth
-    // without deleting the block; anything populated is a hard error.
-    if (config.profile === 'production' && config.demo) {
-      const populated = Object.keys(config.demo).some(
-        (k) => config.demo?.[k as keyof typeof config.demo] !== undefined,
-      )
-      if (populated) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['demo'],
-          message: 'profile=production must not carry a populated `demo:` subtree',
-        })
-      }
-    }
-    addServiceAccountIssues(config, ctx)
+    applyTopLevelRefinements(config, ctx, config)
   })

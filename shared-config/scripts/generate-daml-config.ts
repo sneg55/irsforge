@@ -26,6 +26,12 @@ if (process.argv[1] === __filename) {
     demoCsaInitialFunding: config.demo?.csa?.initialFunding ?? {},
     schedulerPartyHint: config.parties.scheduler.partyHint,
     operatorPolicy: config.operator.policy,
+    bootstrapCsaPairs: config.bootstrap.csaPairs.map((p) => ({
+      traderAHint: p.traderAHint,
+      traderBHint: p.traderBHint,
+      isdaMasterAgreementRef: p.isdaMasterAgreementRef,
+      governingLaw: p.governingLaw,
+    })),
   })
   // The script is invoked from shared-config/ (cwd) but writes the file
   // relative to the repo root, which is one directory up.

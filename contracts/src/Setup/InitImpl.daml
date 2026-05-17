@@ -34,6 +34,7 @@ import Setup.CashSetup
 import Setup.AddCurrency (addCurrency)
 import Setup.EventFactory (EventFactory(..))
 import Setup.GeneratedConfig qualified as Config
+import Setup.InitTypes (InitParties(..))
 import Setup.InitSeeds (seedOracleData, seedFloatingRateIndices)
 import Setup.SchedulerRole (SchedulerRole(..))
 import Swap.ProposalDelegation (ProposalDelegation(..))
@@ -41,16 +42,7 @@ import Csa.Csa qualified
 import Csa.Types qualified
 import Operator.Policy (OperatorPolicy(..))
 
--- | Pre-allocated parties consumed by `initForParties`. Tests allocate
---   their own pool and call this variant; `init` wraps it with
---   allocatePartyWithHint + createUser.
-data InitParties = InitParties
-  with
-    operator  : Party
-    partyA    : Party
-    partyB    : Party
-    regulators : [Party]
-    scheduler : Party
+-- InitParties moved to Setup.InitTypes to keep this file under cap.
 
 -- | Infrastructure bootstrap minus party allocation + user creation.
 initForParties : InitParties -> Script ()
@@ -246,25 +238,47 @@ initForParties ps = do
       -- CSB can Post via the UI or amend the config to bias one direction.
       seedCsbMap =
         Map.fromList Config.demoCsaInitialFunding
-  submitMulti [partyA, partyB, operator] [] do
-    createCmd Csa.Csa.Csa with
-      operator
-      partyA
-      partyB
-      regulators
-      scheduler
-      threshold    = csaThresholdMap
-      mta          = Config.csaMta
-      rounding     = Config.csaRounding
-      eligible     = eligibleList
-      valuationCcy = Config.csaValuationCcy
-      csb          = seedCsbMap
-      state        = Csa.Types.Active
-      lastMarkCid  = None
-      isdaMasterAgreementRef = ""
-      governingLaw           = Csa.Types.NewYork
-      imAmount               = 0.0
-      activeDispute          = None
+      -- Phase E (post-launch hardening, issue 5): seed one CSA per
+      -- configured bootstrap.csaPairs entry instead of hardcoding the
+      -- canonical (partyA, partyB) pair. Demo profile leaves the list
+      -- empty → fall back to the canonical pair so existing tests and
+      -- the demo init keep working. Production deployments declare
+      -- every intended pair in irsforge.yaml and pre-allocate the
+      -- referenced parties (the lookup table `ps.tradersByHint` is
+      -- populated by the entry point — Setup.Init for demo, a future
+      -- Setup.ProdInit for network deployments).
+      mkCsa pa pb isdaRef govLaw = Csa.Csa.Csa with
+        operator
+        partyA       = pa
+        partyB       = pb
+        regulators
+        scheduler
+        threshold    = csaThresholdMap
+        mta          = Config.csaMta
+        rounding     = Config.csaRounding
+        eligible     = eligibleList
+        valuationCcy = Config.csaValuationCcy
+        csb          = seedCsbMap
+        state        = Csa.Types.Active
+        lastMarkCid  = None
+        isdaMasterAgreementRef = isdaRef
+        governingLaw           = govLaw
+        imAmount               = 0.0
+        activeDispute          = None
+      resolveHint h = case lookup h ps.tradersByHint of
+        Some p -> p
+        None -> error ("bootstrap.csaPairs references unknown trader hint: " <> h)
+  case ps.bootstrapPairs of
+    [] -> do
+      _ <- submitMulti [partyA, partyB, operator] [] do
+        createCmd (mkCsa partyA partyB "" Csa.Types.NewYork)
+      pure ()
+    pairs ->
+      forA_ pairs $ \p -> do
+        let pa = resolveHint p.traderAHint
+            pb = resolveHint p.traderBHint
+        submitMulti [pa, pb, operator] [] do
+          createCmd (mkCsa pa pb p.isdaMasterAgreementRef p.governingLaw)
 
   submit operator do
     createCmd RoleSetup with

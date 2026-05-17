@@ -42,8 +42,15 @@ describe('configSchema profile + demo subtree', () => {
     const result = configSchema.safeParse({
       ...baseConfig,
       profile: 'production',
+      bootstrap: {
+        csaPairs: [{ traderAHint: 'PartyA', traderBHint: 'PartyB' }],
+      },
     })
-    assert.equal(result.success, true)
+    assert.equal(
+      result.success,
+      true,
+      result.success ? '' : JSON.stringify(result.error.issues, null, 2),
+    )
   })
 
   it('rejects profile=production with a populated demo subtree', () => {
@@ -51,6 +58,9 @@ describe('configSchema profile + demo subtree', () => {
       ...baseConfig,
       profile: 'production',
       demo: { cdsStub: { defaultProb: 0.02, recovery: 0.4 } },
+      bootstrap: {
+        csaPairs: [{ traderAHint: 'PartyA', traderBHint: 'PartyB' }],
+      },
     })
     assert.equal(result.success, false)
     if (!result.success) {

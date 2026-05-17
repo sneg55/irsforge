@@ -184,6 +184,9 @@ describe('configSchema profile=production + provider=oidc — org membership req
         { id: 'mark-publisher', actAs: ['Operator'], readAs: ['PartyA', 'PartyB'] },
       ],
     },
+    bootstrap: {
+      csaPairs: [{ traderAHint: 'PartyA', traderBHint: 'PartyB' }],
+    },
   }
 
   it('rejects when a trader org has no allowedSubjects / allowedGroups', () => {

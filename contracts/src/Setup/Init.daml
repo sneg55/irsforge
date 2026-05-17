@@ -4,7 +4,8 @@ module Setup.Init where
 
 import Daml.Script
 import Setup.GeneratedConfig qualified as Config
-import Setup.InitImpl (InitParties(..), initForParties)
+import Setup.InitImpl (initForParties)
+import Setup.InitTypes (InitParties(..))
 
 init : Script ()
 init = do
@@ -32,4 +33,6 @@ init = do
   -- canonical regulator party; multi-regulator deployments populate the
   -- list from config at the entry point that drives initForParties.
   let regulators = [regulator]
+      tradersByHint = [("PartyA", partyA), ("PartyB", partyB)]
+      bootstrapPairs = Config.bootstrapCsaPairs
   initForParties InitParties{..}

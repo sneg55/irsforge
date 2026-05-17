@@ -25,7 +25,8 @@ import Daml.Finance.Interface.Lifecycle.V4.Event qualified as Event
 import Daml.Finance.Interface.Lifecycle.V4.Effect qualified as Effect
 import Swap.Workflow
 import Setup.CashSetup (CashSetupResult)
-import Setup.InitImpl (InitParties(..), initForParties)
+import Setup.InitImpl (initForParties)
+import Setup.InitTypes (InitParties(..))
 import Oracle.NYFedProvider (NYFedOracleProvider, PublishHistory(..))
 import Oracle.FloatingRateIndex (FloatingRateIndex(..))
 import Oracle.Types (RateFamily(..), CompoundingMethod(..))
@@ -88,8 +89,6 @@ seedFloatingRateIndex tp indexId currency family lookback = do
         floor       = Some 0.0
 
 -- | Run the shared infrastructure bootstrap for the given TestParties.
---   Tests that exercise a proposal's Accept choice need the CashSetupRecord
---   seeded; this calls Setup.InitImpl.initForParties with the test pool.
 runInit : TestParties -> Script ()
 runInit tp = initForParties InitParties with
   operator  = tp.operator
@@ -97,6 +96,8 @@ runInit tp = initForParties InitParties with
   partyB    = tp.partyB
   regulators = [tp.regulator]
   scheduler = tp.scheduler
+  tradersByHint = [("PartyA", tp.partyA), ("PartyB", tp.partyB)]
+  bootstrapPairs = []
 
 -- | Back-fill CDS default-prob + recovery observation history for a
 --   given reference name. Mirrors Init's post-seed for the CDS observables
