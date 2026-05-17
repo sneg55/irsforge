@@ -18,6 +18,37 @@ class LedgerProxyError extends Error {
 }
 
 /**
+ * Pull the `org` claim out of a bearer JWT without verifying its signature.
+ * Defence in depth — the upstream Canton rejects bad sigs, but we want to
+ * short-circuit cross-participant routing here. Returns null for tokens
+ * minted without an `org` claim (demo HS256 bootstrap), in which case the
+ * proxy can't enforce a binding and must forward.
+ */
+function readOrgClaimUnverified(authHeader: string | null): string | null {
+  if (!authHeader) return null
+  const match = /^Bearer\s+(.+)$/i.exec(authHeader)
+  if (!match) return null
+  const segments = match[1].split('.')
+  if (segments.length < 2) return null
+  try {
+    const payload = JSON.parse(Buffer.from(segments[1], 'base64url').toString('utf8')) as {
+      org?: unknown
+    }
+    return typeof payload.org === 'string' ? payload.org : null
+  } catch {
+    return null
+  }
+}
+
+function assertOrgBinding(request: NextRequest): void {
+  const headerOrg = request.headers.get(ORG_HEADER)
+  const tokenOrg = readOrgClaimUnverified(request.headers.get('authorization'))
+  if (tokenOrg && headerOrg && tokenOrg !== headerOrg) {
+    throw new LedgerProxyError(403, `Org mismatch: token org=${tokenOrg}, header org=${headerOrg}`)
+  }
+}
+
+/**
  * Forward `init` to `url` and pass the response back verbatim (status, body,
  * and Content-Type). Reads the body as text so non-JSON upstream responses
  * (HTML error pages from a reverse proxy, empty 5xx bodies, plain-text
@@ -74,6 +105,7 @@ function resolveLedgerUrl(request: NextRequest): string {
 export async function POST(request: NextRequest) {
   let upstreamBase: string
   try {
+    assertOrgBinding(request)
     upstreamBase = resolveLedgerUrl(request)
   } catch (err) {
     if (err instanceof LedgerProxyError) {
@@ -102,6 +134,7 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   let upstreamBase: string
   try {
+    assertOrgBinding(request)
     upstreamBase = resolveLedgerUrl(request)
   } catch (err) {
     if (err instanceof LedgerProxyError) {
