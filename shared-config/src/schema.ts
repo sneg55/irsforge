@@ -23,7 +23,7 @@ import { ledgerUiSchema } from './schema-ledger-ui.js'
 import { operatorSchema } from './schema-operator.js'
 // Org schema (incl. the role enum) lives in a sibling file so adding a
 // new role value only requires touching one place; re-exported here.
-import { addOrgRoleIssues, orgRoleSchema, orgSchema } from './schema-orgs.js'
+import { addOrgAllowlistIssues, addOrgRoleIssues, orgRoleSchema, orgSchema } from './schema-orgs.js'
 // Party-hint schemas live in a sibling file to keep schema.ts under the
 // 300-line cap; re-exported so existing import sites keep working.
 import { partiesSchema, partyHintSchema } from './schema-parties.js'
@@ -274,6 +274,9 @@ export const configSchema = z
       codes.add(c.code)
     })
     addOrgRoleIssues(config.orgs, ctx)
+    if (config.profile === 'production' && config.auth.provider === 'oidc') {
+      addOrgAllowlistIssues(config.orgs, ctx)
+    }
     // A production deployment must not carry a populated `demo:` subtree.
     // Empty-object is allowed so operators can flip `profile` back and forth
     // without deleting the block; anything populated is a hard error.

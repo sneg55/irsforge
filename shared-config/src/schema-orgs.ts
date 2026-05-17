@@ -30,6 +30,14 @@ export const orgSchema = z.object({
     })
     .optional(),
   subdomain: z.string().optional(),
+  // Auth-provider-side allowlists. When `profile=production` and
+  // `auth.provider=oidc`, the configSchema superRefine requires every
+  // non-operator org to define at least one of `allowedSubjects` /
+  // `allowedGroups` — otherwise any verified OIDC identity could mint a
+  // token for any org's party. Demo profile is exempt (party picker is
+  // the auth UX). See plan 2026-05-17-post-launch-hardening (issue 1).
+  allowedSubjects: z.array(z.string().min(1)).optional(),
+  allowedGroups: z.array(z.string().min(1)).optional(),
 })
 
 export type OrgConfig = z.infer<typeof orgSchema>
@@ -70,4 +78,28 @@ export function addOrgRoleIssues(orgs: readonly OrgConfig[], ctx: z.RefinementCt
       message: `at least two orgs must have role: trader (got ${traderCount})`,
     })
   }
+}
+
+/**
+ * Append "non-operator orgs need an OIDC allowlist" issues. Called from
+ * configSchema's superRefine only when `profile=production` and
+ * `auth.provider=oidc`. The operator org is exempt because the operator
+ * party isn't user-facing — it's the platform principal that signs
+ * factories and runs init; if production deployments want operator-side
+ * OIDC binding they should add allowedSubjects explicitly. Demo profile
+ * is exempt entirely (the party-picker IS the auth UX).
+ */
+export function addOrgAllowlistIssues(orgs: readonly OrgConfig[], ctx: z.RefinementCtx): void {
+  orgs.forEach((org, i) => {
+    if (org.role === 'operator') return
+    const hasAllowlist =
+      (org.allowedSubjects?.length ?? 0) > 0 || (org.allowedGroups?.length ?? 0) > 0
+    if (!hasAllowlist) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['orgs', i, 'allowedSubjects'],
+        message: `org "${org.id}" (role: ${org.role}) requires allowedSubjects or allowedGroups when profile=production + provider=oidc`,
+      })
+    }
+  })
 }
