@@ -56,6 +56,14 @@ const config: Config = {
         theme: {
           customCss: './src/css/custom.css',
         },
+        // Google Analytics. Docusaurus injects the gtag snippet only on
+        // `docusaurus build` (the production bundle), not under
+        // `docusaurus start`, so local dev stays analytics-free without
+        // an explicit env gate.
+        gtag: {
+          trackingID: 'G-8XCRNX21EF',
+          anonymizeIP: true,
+        },
       } satisfies Preset.Options,
     ],
   ],
