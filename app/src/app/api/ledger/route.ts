@@ -1,8 +1,11 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { loadResolvedConfig } from '@/shared/config/server'
 
-// Canton endpoints that must use GET (not POST)
-const GET_ENDPOINTS = ['/v1/packages', '/v1/parties']
+// Canton endpoints that must use GET (not POST). Exact-match only — a
+// prefix scan would forward /v1/parties/allocate (POST, creates a party)
+// as GET and strip the body. Any new GET endpoint must be added here
+// explicitly rather than relying on path prefix.
+const GET_PATHS = new Set(['/v1/packages', '/v1/parties'])
 const ORG_HEADER = 'x-irsforge-org'
 
 class LedgerProxyError extends Error {
@@ -81,7 +84,7 @@ export async function POST(request: NextRequest) {
 
   const { path, body } = (await request.json()) as { path: string; body: unknown }
   const authHeader = request.headers.get('authorization')
-  const isGetEndpoint = GET_ENDPOINTS.some((ep) => path.startsWith(ep))
+  const isGetEndpoint = GET_PATHS.has(path)
   const config = loadResolvedConfig()
   const signal = AbortSignal.timeout(config.ledger.upstreamTimeoutMs)
 

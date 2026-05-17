@@ -12,11 +12,12 @@ beforeEach(() => {
 
 const LEDGER_URL = 'http://localhost:7575'
 
-const GET_ENDPOINTS = ['/v1/packages', '/v1/parties']
+const GET_PATHS = new Set(['/v1/packages', '/v1/parties'])
 
-// Mirror the proxy logic from route.ts for testability
+// Mirror the proxy logic from route.ts for testability. Exact-match only —
+// prefix matching would forward /v1/parties/allocate (POST) as GET.
 function isGetEndpoint(path: string): boolean {
-  return GET_ENDPOINTS.some((ep) => path.startsWith(ep))
+  return GET_PATHS.has(path)
 }
 
 function buildUpstreamRequest(path: string, body: unknown, authHeader: string | null) {
@@ -78,10 +79,15 @@ describe('proxy route logic', () => {
     expect(req.url).toBe('http://localhost:7575/v1/query')
   })
 
-  test('/v1/parties/allocate is NOT a GET endpoint', () => {
-    expect(isGetEndpoint('/v1/parties/allocate')).toBe(true)
-    // Note: /v1/parties/allocate starts with /v1/parties, so the current
-    // proxy treats it as GET. This is a known limitation.
+  test('/v1/parties/allocate is a POST endpoint', () => {
+    // /v1/parties/allocate is a POST that creates a party; a prefix match
+    // against /v1/parties would forward it as GET and strip the body. The
+    // proxy must classify by exact path, not by prefix.
+    expect(isGetEndpoint('/v1/parties/allocate')).toBe(false)
+  })
+
+  test('/v1/parties/<id>/anything is a POST endpoint', () => {
+    expect(isGetEndpoint('/v1/parties/foo/bar')).toBe(false)
   })
 })
 
@@ -89,6 +95,7 @@ describe('GET endpoint detection', () => {
   test.each([
     ['/v1/packages', true],
     ['/v1/parties', true],
+    ['/v1/parties/allocate', false],
     ['/v1/query', false],
     ['/v1/create', false],
     ['/v1/exercise', false],
