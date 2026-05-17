@@ -69,6 +69,14 @@ template Csa
         assertMsg "amount must be positive" (amount > 0.0)
         assertMsg "ccy must be eligible"
                   (any (\e -> e.currency == ccy) eligible)
+        -- Phase B.3 (post-launch hardening, issue 4): defence in depth.
+        -- shared-config restricts eligible to valuationCcy + haircut 1.0,
+        -- but a Csa crafted outside that path (broken codegen, manual
+        -- contract) must still refuse non-valuationCcy collateral —
+        -- otherwise it lands in csb[ccy] which the mark publisher never
+        -- reads, leaving the CSA under-collateralised silently.
+        assertMsg "ccy must equal valuationCcy until FX-aware collateral ships"
+                  (ccy == valuationCcy)
         assertMsg "poster must be partyA or partyB"
                   (poster == partyA || poster == partyB)
         let current = fromOptional 0.0 (Map.lookup ccy csb)

@@ -217,6 +217,21 @@ testOverpostDoesNotPinWrongSide = do
 --  live in Csa.TestDispute alongside the rest of the dispute taxonomy
 --  suite, so this file stays under the 300-line cap.)
 
+-- 13b. PostCollateral rejects ccy != valuationCcy even when ccy is in
+-- eligible. Defence in depth: shared-config schema restricts eligible
+-- to valuationCcy, but Csa contracts crafted outside that path (e.g.
+-- a future broken codegen) must still refuse. See plan
+-- 2026-05-17-post-launch-hardening.md (issue 4 / Phase B.3).
+testPostRejectsNonValuationCcy : Script ()
+testPostRejectsNonValuationCcy = do
+  (op, pa, pb, reg, sch) <- allocateThree
+  let c = (baseCsa op pa pb reg sch) with
+        eligible = [T.EligibleCollateral with currency = "EUR"; haircut = 1.0]
+  cid <- submitMulti [op, pa, pb] [] do createCmd c
+  submitMustFail pa do
+    exerciseCmd cid C.PostCollateral with
+      poster = pa; ccy = "EUR"; amount = 1_000_000.0
+
 -- 14. imAmount round-trips through the template.
 testCsaImAmountPersists : Script ()
 testCsaImAmountPersists = do

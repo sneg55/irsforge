@@ -24,10 +24,11 @@ const validCsa = {
   mta: 100000,
   rounding: 10000,
   valuationCcy: 'USD',
-  eligibleCollateral: [
-    { currency: 'USD', haircut: 1.0 },
-    { currency: 'EUR', haircut: 1.0 },
-  ],
+  // Phase B.3 (post-launch hardening, issue 4): until on-chain FX +
+  // haircut math ships, eligibleCollateral is restricted to a single
+  // entry where currency === valuationCcy and haircut === 1.0. The
+  // pre-restriction multi-ccy / haircut < 1 cases are below.
+  eligibleCollateral: [{ currency: 'USD', haircut: 1.0 }],
 }
 
 describe('csa schema', () => {
@@ -43,8 +44,45 @@ describe('csa schema', () => {
       assert.equal(result.data.csa.mta, 100000)
       assert.equal(result.data.csa.rounding, 10000)
       assert.equal(result.data.csa.valuationCcy, 'USD')
-      assert.equal(result.data.csa.eligibleCollateral.length, 2)
+      assert.equal(result.data.csa.eligibleCollateral.length, 1)
       assert.equal(result.data.demo?.csa?.initialFunding['USD'], 5000000)
+    }
+  })
+
+  it('rejects eligibleCollateral entry whose currency != valuationCcy', () => {
+    // Pre-restriction this passed (EUR alongside USD with haircut 1.0).
+    // It is now a hard error — silently posting EUR collateral into a
+    // USD-valued CSA produces csb rows that the mark publisher never
+    // sees, leaving the call under-collateralised.
+    const result = configSchema.safeParse({
+      ...baseConfig,
+      csa: {
+        ...validCsa,
+        eligibleCollateral: [
+          { currency: 'USD', haircut: 1.0 },
+          { currency: 'EUR', haircut: 1.0 },
+        ],
+      },
+    })
+    assert.equal(result.success, false)
+    if (!result.success) {
+      const issue = result.error.issues.find((i) => i.message.includes('must equal valuationCcy'))
+      assert.ok(issue, 'expected currency==valuationCcy issue')
+    }
+  })
+
+  it('rejects haircut != 1.0 (FX/haircut math not yet shipped)', () => {
+    const result = configSchema.safeParse({
+      ...baseConfig,
+      csa: {
+        ...validCsa,
+        eligibleCollateral: [{ currency: 'USD', haircut: 0.92 }],
+      },
+    })
+    assert.equal(result.success, false)
+    if (!result.success) {
+      const issue = result.error.issues.find((i) => i.path.includes('haircut'))
+      assert.ok(issue, 'expected haircut-path issue')
     }
   })
 
