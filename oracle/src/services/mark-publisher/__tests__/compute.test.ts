@@ -157,6 +157,68 @@ describe('computeMark', () => {
     expect(reversed.exposure).toBeCloseTo(-natural.exposure, 6)
   })
 
+  it('propagates resolveSwapConfig errors (no silent skip on unsupported swap types)', async () => {
+    // A live CCY/FX/ASSET workflow under an active CSA must NOT silently
+    // contribute zero to exposure — that would understate the call and
+    // could leave the CSA under-collateralised without anyone seeing.
+    const csa: DecodedCsa = {
+      contractId: 'csa-bad',
+      operator: 'Op',
+      partyA: 'PA',
+      partyB: 'PB',
+      regulators: ['Reg'],
+      thresholdDirA: 0,
+      thresholdDirB: 0,
+      mta: 0,
+      rounding: 0,
+      valuationCcy: 'USD',
+      postedByA: new Map(),
+      postedByB: new Map(),
+      state: 'Active',
+      lastMarkCid: null,
+      isdaMasterAgreementRef: '',
+      governingLaw: 'NewYork',
+      imAmount: 0,
+    }
+    const netting: NettingSetEntry = {
+      csaCid: 'csa-bad',
+      partyA: 'PA',
+      partyB: 'PB',
+      swaps: [
+        {
+          contractId: 'wf-ccy',
+          reversed: false,
+          payload: {
+            swapType: 'CCY',
+            operator: 'Op',
+            partyA: 'PA',
+            partyB: 'PB',
+            regulators: ['Reg'],
+            scheduler: 'Sched',
+            notional: '1000000',
+            instrumentKey: {
+              depository: 'D',
+              issuer: 'I',
+              id: { unpack: 'wf-ccy' },
+              version: '1',
+              holdingStandard: 'TransferableFungible',
+            },
+          } satisfies SwapWorkflow,
+        },
+      ],
+    }
+    const ctx: PricingContext = { curve: fix.curve, index: fix.index, observations: [] }
+    await expect(
+      computeMark(csa, netting, {
+        asOf: () => '2026-04-17T12:00:00Z',
+        resolveSwapConfig: () => {
+          throw new Error('resolveSwapConfig: CCY deprecated/disabled — not in replay scope')
+        },
+        resolveCtx: () => ctx,
+      }),
+    ).rejects.toThrow(/deprecated\/disabled/)
+  })
+
   it('nets to ≈ 0 for two opposite-direction IRS at par', async () => {
     const csa: DecodedCsa = {
       contractId: 'csa1',

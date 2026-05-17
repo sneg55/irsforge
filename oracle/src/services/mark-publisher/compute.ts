@@ -34,27 +34,23 @@ export async function computeMark(
   deps: ComputeDeps,
 ): Promise<MarkComputation> {
   const ctx = await deps.resolveCtx(csa.valuationCcy)
-  const swapPvs = (
-    await Promise.all(
-      netting.swaps.map(async (s) => {
-        try {
-          const cfg = await deps.resolveSwapConfig(s.contractId)
-          const { npv } = pricingEngine.price(cfg, ctx)
-          // For workflows proposed B→A inside an A/B CSA, the pricer's
-          // npv is in B's frame. Flip into csa.partyA's frame so the
-          // netted exposure has a single, consistent orientation.
-          const signed = s.reversed ? -npv : npv
-          return { swapCid: s.contractId, pv: signed }
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err)
-          // deprecated/out-of-scope swap types (CCY/FX/ASSET) return no PV
-          // rather than poisoning the whole CSA mark.
-          if (/deprecated\/disabled/.test(msg)) return null
-          throw err
-        }
-      }),
-    )
-  ).filter((x): x is { swapCid: string; pv: number } => x !== null)
+  // Errors from resolveSwapConfig propagate. A live unsupported swap
+  // (CCY/FX/ASSET, etc.) under an active CSA must surface visibly: the
+  // publisher's outer try/catch records `csa_publish_failed` and skips
+  // the CSA so it shows up in error counts and logs. Silently dropping
+  // such a swap would understate exposure and could leave the CSA
+  // under-collateralised without surfacing the problem.
+  const swapPvs = await Promise.all(
+    netting.swaps.map(async (s) => {
+      const cfg = await deps.resolveSwapConfig(s.contractId)
+      const { npv } = pricingEngine.price(cfg, ctx)
+      // For workflows proposed B→A inside an A/B CSA, the pricer's
+      // npv is in B's frame. Flip into csa.partyA's frame so the
+      // netted exposure has a single, consistent orientation.
+      const signed = s.reversed ? -npv : npv
+      return { swapCid: s.contractId, pv: signed }
+    }),
+  )
   // Every PV is now in csa.partyA's frame (positive = A ITM). Spec
   // convention for exposure: positive ⇒ A owes B, so flip sign.
   const sumPa = swapPvs.reduce((acc, x) => acc + x.pv, 0)
