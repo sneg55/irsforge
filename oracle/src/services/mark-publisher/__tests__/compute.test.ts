@@ -71,6 +71,92 @@ function buildConfig(s: (typeof fix.swaps)[number]): SwapConfig {
 }
 
 describe('computeMark', () => {
+  it('flips PV sign for swaps whose partyA is csa.partyB (reversed orientation)', async () => {
+    // Two CSAs holding the same single swap. CSA #1 sees the swap in
+    // its natural orientation (swap.partyA == csa.partyA → reversed=false).
+    // CSA #2 has the parties flipped (swap.partyA == csa.partyB → reversed=true).
+    // The pricer returns the same PV either way; the netting layer must
+    // flip the sign for the reversed case so the recorded PVs are
+    // mirror images.
+    const baseCsa: DecodedCsa = {
+      contractId: 'csa-base',
+      operator: 'Op',
+      partyA: 'PA',
+      partyB: 'PB',
+      regulators: ['Reg'],
+      thresholdDirA: 0,
+      thresholdDirB: 0,
+      mta: 0,
+      rounding: 0,
+      valuationCcy: 'USD',
+      postedByA: new Map(),
+      postedByB: new Map(),
+      state: 'Active',
+      lastMarkCid: null,
+      isdaMasterAgreementRef: '',
+      governingLaw: 'NewYork',
+      imAmount: 0,
+    }
+    const swap = fix.swaps[0]
+    const baseSwap = {
+      contractId: swap.contractId,
+      payload: {
+        swapType: 'IRS' as const,
+        operator: 'Op',
+        partyA: 'PA',
+        partyB: 'PB',
+        regulators: ['Reg'],
+        scheduler: 'Sched',
+        notional: String(swap.notional),
+        instrumentKey: {
+          depository: 'D',
+          issuer: 'I',
+          id: { unpack: swap.contractId },
+          version: '1',
+          holdingStandard: 'TransferableFungible',
+        },
+      } satisfies SwapWorkflow,
+    }
+    const ctx: PricingContext = { curve: fix.curve, index: fix.index, observations: [] }
+    // Override the fixed rate to 5% (curve discounts at 4%) so the PV is
+    // clearly non-zero. Otherwise both natural and reversed cases price
+    // to ~0 and the sign-flip assertion is vacuous.
+    const deps = {
+      asOf: () => '2026-04-17T12:00:00Z',
+      resolveSwapConfig: (cid: string) => {
+        const s = fix.swaps.find((x) => x.contractId === cid)!
+        return buildConfig({ ...s, fixedRate: 0.05 })
+      },
+      resolveCtx: () => ctx,
+    }
+
+    const natural = await computeMark(
+      baseCsa,
+      {
+        csaCid: 'csa-base',
+        partyA: 'PA',
+        partyB: 'PB',
+        swaps: [{ ...baseSwap, reversed: false }],
+      },
+      deps,
+    )
+    const reversed = await computeMark(
+      baseCsa,
+      {
+        csaCid: 'csa-base',
+        partyA: 'PA',
+        partyB: 'PB',
+        swaps: [{ ...baseSwap, reversed: true }],
+      },
+      deps,
+    )
+
+    // Recorded PV under reversed must equal the negation of the natural.
+    expect(reversed.swapPvs[0].pv).toBeCloseTo(-natural.swapPvs[0].pv, 6)
+    // And the headline exposure (which is -ΣpvA) must flip too.
+    expect(reversed.exposure).toBeCloseTo(-natural.exposure, 6)
+  })
+
   it('nets to ≈ 0 for two opposite-direction IRS at par', async () => {
     const csa: DecodedCsa = {
       contractId: 'csa1',
@@ -97,6 +183,7 @@ describe('computeMark', () => {
       partyB: 'PB',
       swaps: fix.swaps.map((s) => ({
         contractId: s.contractId,
+        reversed: false,
         payload: {
           swapType: 'IRS',
           operator: 'Op',

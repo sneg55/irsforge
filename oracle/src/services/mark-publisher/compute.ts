@@ -13,13 +13,16 @@ export interface MarkComputation {
 export interface ComputeDeps {
   asOf: () => string
   /**
-   * MUST return a `SwapConfig` already re-signed to PartyA's perspective.
-   * Adapter is responsible for negating PV sign when PartyB is the
-   * proposer. computeMark then sums and flips sign per spec convention.
+   * Return the SwapConfig for `cid` in the swap's *own owner* frame —
+   * i.e. positive PV means the workflow's partyA (the holding owner) is
+   * ITM. This adapter has no CSA context, so it cannot orient PVs to
+   * csa.partyA. computeMark re-signs per entry using the `reversed`
+   * flag carried on `NettingSetEntry.swaps` (set by `groupByNettingSet`
+   * when swap.partyA !== csa.partyA).
    *
    * Async to match the Stage D replay adapters (`resolveSwapConfig` in
-   * replay.ts queries the ledger). Sync fakes are still valid — just
-   * wrap the return in `Promise.resolve(...)`.
+   * replay.ts queries the ledger). Sync fakes are still valid — wrap in
+   * Promise.resolve.
    */
   resolveSwapConfig: (cid: string) => SwapConfig | Promise<SwapConfig>
   resolveCtx: (currency: string) => PricingContext | Promise<PricingContext>
@@ -37,7 +40,11 @@ export async function computeMark(
         try {
           const cfg = await deps.resolveSwapConfig(s.contractId)
           const { npv } = pricingEngine.price(cfg, ctx)
-          return { swapCid: s.contractId, pv: npv }
+          // For workflows proposed B→A inside an A/B CSA, the pricer's
+          // npv is in B's frame. Flip into csa.partyA's frame so the
+          // netted exposure has a single, consistent orientation.
+          const signed = s.reversed ? -npv : npv
+          return { swapCid: s.contractId, pv: signed }
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           // deprecated/out-of-scope swap types (CCY/FX/ASSET) return no PV
@@ -48,8 +55,8 @@ export async function computeMark(
       }),
     )
   ).filter((x): x is { swapCid: string; pv: number } => x !== null)
-  // Each PV is already in PartyA's perspective (positive = PA ITM).
-  // Spec convention for exposure: positive ⇒ A owes B, so flip sign.
+  // Every PV is now in csa.partyA's frame (positive = A ITM). Spec
+  // convention for exposure: positive ⇒ A owes B, so flip sign.
   const sumPa = swapPvs.reduce((acc, x) => acc + x.pv, 0)
   return { exposure: -sumPa, asOf: deps.asOf(), swapPvs }
 }

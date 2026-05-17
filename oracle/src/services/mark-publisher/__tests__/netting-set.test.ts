@@ -41,4 +41,13 @@ describe('groupByNettingSet', () => {
     const out = groupByNettingSet([csa('c1', 'PA', 'PB')], [wf('w1', 'PA', 'PC')])
     expect(out[0].swaps).toEqual([])
   })
+
+  it('tags reversed=true when swap.partyA equals csa.partyB', () => {
+    const out = groupByNettingSet(
+      [csa('c1', 'PA', 'PB')],
+      [wf('natural', 'PA', 'PB'), wf('flipped', 'PB', 'PA')],
+    )
+    const byCid = Object.fromEntries(out[0].swaps.map((s) => [s.contractId, s.reversed]))
+    expect(byCid).toEqual({ natural: false, flipped: true })
+  })
 })
