@@ -90,6 +90,12 @@ RUN rm -f package-lock.json && npm install --no-audit --no-fund \
 # gen-package-ids, auth/oracle/app builds.
 COPY . .
 
+# Next.js bakes NEXT_PUBLIC_* env vars into the client bundle at
+# `next build` time, not at container start. Setting this here gates
+# the GA4 snippet (see app/src/shared/config/analytics.ts) so analytics
+# fire on demo.irsforge.com but stay off on localhost dev / `make demo`.
+ENV NEXT_PUBLIC_DEPLOY_ENV=production
+
 # Daml Finance bundle — same step `make setup` does locally. Note this
 # uses DAML_FINANCE_BUNDLE_VERSION (decoupled from DAML_SDK_VERSION above).
 RUN cd contracts && mkdir -p lib && \
