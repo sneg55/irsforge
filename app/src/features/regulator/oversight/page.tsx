@@ -2,6 +2,7 @@
 
 import { usePartyDirectory } from 'canton-party-directory/react'
 import { useMemo, useState } from 'react'
+import { LivenessDot } from '@/components/ui/liveness-dot'
 import { TradeTable } from '@/shared/components/trade-table/trade-table'
 import { useLedgerClient } from '@/shared/hooks/use-ledger-client'
 import { type SwapFamily, useSwapInstruments } from '@/shared/hooks/use-swap-instruments'
@@ -86,11 +87,18 @@ export function OversightPage() {
   }, [rows, statusFilter, pairFilter, displayName])
 
   const isLoading = wf.isLoading || props.isLoading
+  const isFetching = wf.isFetching || props.isFetching
 
   return (
     <div className="flex flex-col gap-4">
       <header className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold text-white tracking-tight">Oversight</h1>
+        <div className="flex items-baseline gap-3">
+          <h1 className="text-3xl font-bold text-white tracking-tight">Oversight</h1>
+          <LivenessDot
+            state={isLoading ? 'idle' : isFetching ? 'stale' : 'live'}
+            title={isLoading ? 'Loading' : isFetching ? 'Refreshing' : 'Up to date'}
+          />
+        </div>
         <p className="text-xs text-zinc-500">
           {filtered.length} of {rows.length} trades
         </p>

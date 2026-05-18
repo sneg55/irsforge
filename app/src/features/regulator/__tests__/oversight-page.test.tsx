@@ -44,11 +44,12 @@ vi.mock('../hooks/use-all-swap-workflows', () => ({
     matured: [],
     terminated: [],
     isLoading: false,
+    isFetching: false,
   }),
 }))
 
 vi.mock('../hooks/use-all-proposals-cross-org', () => ({
-  useAllProposalsCrossOrg: () => ({ proposals: [], isLoading: false }),
+  useAllProposalsCrossOrg: () => ({ proposals: [], isLoading: false, isFetching: false }),
 }))
 
 // Audit E5 added a pair-level MTM column backed by useAllMarksByPair
@@ -65,7 +66,7 @@ describe('OversightPage', () => {
     expect(screen.queryAllByText('PartyA').length).toBeGreaterThan(0)
     expect(screen.queryAllByText('PartyB').length).toBeGreaterThan(0)
     expect(screen.queryByText('IRS')).not.toBe(null)
-    expect(screen.queryByText('Live')).not.toBe(null)
+    expect(screen.queryAllByText('Live').length).toBeGreaterThan(0)
   })
 
   it('renders no action buttons (anti-leak)', () => {

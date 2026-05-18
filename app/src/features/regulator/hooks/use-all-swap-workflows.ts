@@ -17,6 +17,7 @@ export interface UseAllSwapWorkflowsResult {
   matured: ContractResult<MaturedSwap>[]
   terminated: ContractResult<TerminatedSwap>[]
   isLoading: boolean
+  isFetching: boolean
 }
 
 /**
@@ -63,5 +64,6 @@ export function useAllSwapWorkflows(): UseAllSwapWorkflowsResult {
     matured: matQ.data ?? [],
     terminated: termQ.data ?? [],
     isLoading: wfQ.isLoading || matQ.isLoading || termQ.isLoading,
+    isFetching: wfQ.isFetching || matQ.isFetching || termQ.isFetching,
   }
 }

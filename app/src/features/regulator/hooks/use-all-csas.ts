@@ -12,6 +12,7 @@ const REFETCH_MS = 5_000
 export interface UseAllCsasResult {
   data: CsaViewModel[]
   isLoading: boolean
+  isFetching: boolean
   error: Error | null
 }
 
@@ -36,6 +37,7 @@ export function useAllCsas(): UseAllCsasResult {
   return {
     data: q.data ?? [],
     isLoading: q.isLoading,
+    isFetching: q.isFetching,
     error: q.error ?? null,
   }
 }

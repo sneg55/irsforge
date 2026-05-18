@@ -28,6 +28,7 @@ export interface CrossOrgProposalRow {
 export interface UseAllProposalsCrossOrgResult {
   proposals: CrossOrgProposalRow[]
   isLoading: boolean
+  isFetching: boolean
 }
 
 export function useAllProposalsCrossOrg(): UseAllProposalsCrossOrgResult {
@@ -65,5 +66,5 @@ export function useAllProposalsCrossOrg(): UseAllProposalsCrossOrgResult {
     return out
   }, [results])
 
-  return { proposals, isLoading }
+  return { proposals, isLoading, isFetching: results.some((r) => r.isFetching) }
 }

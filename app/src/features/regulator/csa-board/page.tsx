@@ -1,12 +1,13 @@
 'use client'
 
 import { useMemo } from 'react'
+import { LivenessDot } from '@/components/ui/liveness-dot'
 import { CsaBoardCard } from '../components/csa-board-card'
 import { useAllCsas } from '../hooks/use-all-csas'
 import { sortCsasByFriction } from './sort'
 
 export function CsaBoardPage() {
-  const { data, isLoading, error } = useAllCsas()
+  const { data, isLoading, isFetching, error } = useAllCsas()
   const sorted = useMemo(() => sortCsasByFriction(data), [data])
 
   if (error) {
@@ -20,9 +21,15 @@ export function CsaBoardPage() {
   return (
     <div className="flex flex-col gap-4">
       <header>
-        <h1 className="text-3xl font-bold text-white tracking-tight">CSA Board</h1>
+        <div className="flex items-baseline gap-3">
+          <h1 className="text-3xl font-bold text-white tracking-tight">CSA Board</h1>
+          <LivenessDot
+            state={isLoading ? 'idle' : isFetching ? 'stale' : 'live'}
+            title={isLoading ? 'Loading' : isFetching ? 'Refreshing' : 'Up to date'}
+          />
+        </div>
         <p className="text-xs text-zinc-500">
-          {data.length} active {data.length === 1 ? 'CSA' : 'CSAs'} across the platform — disputes
+          {data.length} active {data.length === 1 ? 'CSA' : 'CSAs'} across the platform, disputes
           and margin calls float to the top.
         </p>
       </header>

@@ -1,10 +1,31 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { LivenessDot } from '@/components/ui/liveness-dot'
+import { Skeleton } from '@/components/ui/skeleton'
+import { phaseToLiveness } from '@/shared/hooks/use-stream-phase'
 import { TimelineEventCard } from '../components/timeline-event-card'
 import { TimelineFilterBar } from '../components/timeline-filter-bar'
 import { useBusinessEvents } from '../hooks/use-business-events'
 import { type BusinessEventKind, isSystemKind } from './business-events'
+
+function TimelineSkeletonList() {
+  return (
+    <div className="flex flex-col gap-2" data-testid="timeline-skeleton-list">
+      {Array.from({ length: 5 }, (_, i) => (
+        <div
+          key={i}
+          className="flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-950 px-4 py-3"
+        >
+          <Skeleton className="h-2 w-2 rounded-full" />
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="h-4 w-48" />
+          <Skeleton className="ml-auto h-4 w-20" />
+        </div>
+      ))}
+    </div>
+  )
+}
 
 export function TimelinePage() {
   const { events, phase } = useBusinessEvents()
@@ -28,12 +49,17 @@ export function TimelinePage() {
     })
   }
 
+  const isInitial = phase === 'initial' && events.length === 0
+
   return (
     <div className="flex flex-col gap-4">
       <header className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold text-white tracking-tight">Timeline</h1>
+        <div className="flex items-baseline gap-3">
+          <h1 className="text-3xl font-bold text-white tracking-tight">Timeline</h1>
+          <LivenessDot state={phaseToLiveness(phase)} />
+        </div>
         <p className="text-xs text-zinc-500">
-          {filtered.length} events · stream: <span className="font-mono">{phase}</span>
+          {filtered.length} {filtered.length === 1 ? 'event' : 'events'}
         </p>
       </header>
       <TimelineFilterBar
@@ -43,9 +69,11 @@ export function TimelinePage() {
         toggleKind={toggleKind}
         clearKindFilter={() => setKindFilter(new Set())}
       />
-      {filtered.length === 0 ? (
+      {isInitial ? (
+        <TimelineSkeletonList />
+      ) : filtered.length === 0 ? (
         <div className="rounded-lg border border-zinc-800 bg-zinc-950 px-6 py-8 text-center text-sm text-zinc-500">
-          No events yet — the regulator timeline shows trades, marks, and CSA activity as they land
+          No events yet, the regulator timeline shows trades, marks, and CSA activity as they land
           on the ledger.
         </div>
       ) : (
