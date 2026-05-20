@@ -82,7 +82,7 @@ describe('ExportFpmlButton', () => {
     expect(container.firstChild).toBeNull()
   })
 
-  it('IRS workflow: click downloads a blob + revokes the URL', () => {
+  it('IRS workflow: clicking through confirm downloads a blob + revokes the URL', () => {
     render(
       <ExportFpmlButton
         swapType="IRS"
@@ -92,12 +92,32 @@ describe('ExportFpmlButton', () => {
       />,
     )
 
+    // First click opens the confirm modal; no download yet.
     fireEvent.click(screen.getByRole('button', { name: /export fpml/i }))
+    expect(createObjectURL).not.toHaveBeenCalled()
+    expect(screen.getByTestId('fpml-confirm-modal')).toBeTruthy()
 
+    // Download button in the modal performs the actual export.
+    fireEvent.click(screen.getByRole('button', { name: /download/i }))
     expect(createObjectURL).toHaveBeenCalledTimes(1)
     const blob: Blob = createObjectURL.mock.calls[0][0]
     expect(blob.type).toBe('application/xml')
     expect(clickSpy).toHaveBeenCalledTimes(1)
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock-url')
+  })
+
+  it('IRS workflow: confirm modal Cancel closes without downloading', () => {
+    render(
+      <ExportFpmlButton
+        swapType="IRS"
+        notional="10000000"
+        instrument={mkIrsInstrument()}
+        workflowContractId="cid-abcdefghij"
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /export fpml/i }))
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }))
+    expect(createObjectURL).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('fpml-confirm-modal')).toBeNull()
   })
 })

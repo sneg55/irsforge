@@ -1,6 +1,7 @@
 'use client'
 
 import { PartyName } from 'canton-party-directory/ui'
+import { EnvChip } from '@/components/ui/env-chip'
 import { ExportFpmlButton } from '@/features/fpml-export/export-button'
 import { LedgerCidLink } from '@/features/ledger/components/ledger-cid-link'
 import { useFlags } from '@/shared/flags/use-flags'
@@ -120,11 +121,14 @@ export function OnChainPanel({
           {swapStatus ?? 'UNKNOWN'}
         </span>
         {contractId && (
-          <LedgerCidLink
-            cid={contractId}
-            truncate={12}
-            className="ml-auto text-3xs text-[#555b6e] hover:text-[#8a9dc5]"
-          />
+          <span className="ml-auto flex items-center gap-1.5">
+            <EnvChip />
+            <LedgerCidLink
+              cid={contractId}
+              truncate={12}
+              className="text-3xs text-[#555b6e] hover:text-[#8a9dc5]"
+            />
+          </span>
         )}
       </div>
       {/* Details */}

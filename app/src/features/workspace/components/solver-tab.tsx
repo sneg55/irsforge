@@ -10,7 +10,7 @@ import {
   solveUnwindPv,
 } from '@irsforge/shared-pricing'
 import { useEffect, useMemo, useState } from 'react'
-import type { LegConfig, SwapType } from '../types'
+import type { LegConfig, SwapType, WorkspaceMode } from '../types'
 import { formatAmount, formatFixedRate, formatNotional } from '../utils/format'
 
 type Variable = 'parRate' | 'spread' | 'hedgeNotional' | 'unwindPv'
@@ -36,6 +36,7 @@ interface SolverTabProps {
   swapType: SwapType
   swapConfig: SwapConfig | null
   pricingCtx: PricingContext | null
+  mode: WorkspaceMode
   onApplyLegPatch?: (legIndex: number, patch: Partial<LegConfig>) => void
 }
 
@@ -72,7 +73,14 @@ function rule(variable: Variable, target: Target): PairingRule {
   return { valid: true }
 }
 
-export function SolverTab({ swapType, swapConfig, pricingCtx, onApplyLegPatch }: SolverTabProps) {
+export function SolverTab({
+  swapType,
+  swapConfig,
+  pricingCtx,
+  mode,
+  onApplyLegPatch,
+}: SolverTabProps) {
+  const isLive = mode === 'active'
   const [variable, setVariable] = useState<Variable>(initialVariable(swapType))
   const [target, setTarget] = useState<Target>('npv')
   const [pillarIndex, setPillarIndex] = useState(0)
@@ -243,8 +251,18 @@ export function SolverTab({ swapType, swapConfig, pricingCtx, onApplyLegPatch }:
         )}
       </div>
 
+      {isLive && (result?.kind === 'parRate' || result?.kind === 'spread') && (
+        <div
+          data-testid="solver-locked-hint"
+          className="rounded p-2 border border-[#1e2235] text-3xs font-mono text-[#8b8fa3]"
+          style={{ background: '#111320' }}
+        >
+          Trade is live and locked. Toggle What-If to apply the solved {VARIABLE_LABELS[variable]}.
+        </div>
+      )}
+
       <div className="flex gap-1.5">
-        {result?.kind === 'parRate' && (
+        {!isLive && result?.kind === 'parRate' && (
           <button
             onClick={applyParRate}
             className="flex-1 py-1.5 bg-[#8b5cf6] text-white rounded text-3xs font-semibold hover:bg-[#7c3aed]"
@@ -252,7 +270,7 @@ export function SolverTab({ swapType, swapConfig, pricingCtx, onApplyLegPatch }:
             Apply to workspace
           </button>
         )}
-        {result?.kind === 'spread' && (
+        {!isLive && result?.kind === 'spread' && (
           <button
             onClick={applySpread}
             className="flex-1 py-1.5 bg-[#8b5cf6] text-white rounded text-3xs font-semibold hover:bg-[#7c3aed]"

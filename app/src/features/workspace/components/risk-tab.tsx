@@ -91,7 +91,11 @@ function Row({
 
 export function RiskTab({ swapConfig, pricingCtx }: RiskTabProps) {
   const [horizonKey, setHorizonKey] = useState<HorizonKey>('nextFixing')
-  const [showAllPillars, setShowAllPillars] = useState(false)
+  // Default ON: a Risk approver expects to see the full pillar grid, including
+  // pillars with 0 exposure — collapsing to "non-zero only" makes a sparse
+  // 3M trade indistinguishable from a curve gap. The opt-out trims sub-$0.50
+  // noise once the table feels too busy.
+  const [showAllPillars, setShowAllPillars] = useState(true)
   const horizon = HORIZON_DEFS[horizonKey].horizon
 
   const metrics = useMemo(() => {

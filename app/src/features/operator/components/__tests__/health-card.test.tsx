@@ -12,10 +12,6 @@ vi.mock('@/shared/scheduler/use-last-tick', () => ({
   useLastTick: () => mockLastTick,
 }))
 
-vi.mock('@/shared/scheduler/scheduler-status-pill', () => ({
-  SchedulerStatusPill: () => <span data-testid="scheduler-pill">Scheduler OK</span>,
-}))
-
 vi.mock('../../hooks/use-curve-staleness', () => ({
   useCurveStaleness: () => ({
     entries: mockCurves,
@@ -52,12 +48,12 @@ function stalledTick(): Date {
 }
 
 describe('HealthCard', () => {
-  it('renders SchedulerStatusPill', () => {
+  it('does not render SchedulerStatusPill (footer status-bar owns it)', () => {
     mockLastTick = freshTick()
     mockCurves = []
     const { container } = wrap(<HealthCard />)
     const pill = container.querySelector('[data-testid="scheduler-pill"]')
-    expect(pill).not.toBeNull()
+    expect(pill).toBeNull()
   })
 
   it('renders one row per curve from useCurveStaleness', () => {

@@ -197,12 +197,29 @@ describe('TopBar interactions', () => {
         onToggleWhatIf={onToggleWhatIf}
       />,
     )
-    // The What-If toggle is the only round-capsule button — find by class.
-    const toggle = Array.from(container.querySelectorAll('button')).find((b) =>
-      b.className.includes('rounded-full'),
-    )!
+    const toggle = container.querySelector('[data-testid="what-if-toggle"]') as HTMLButtonElement
+    expect(toggle).not.toBeNull()
+    expect(toggle.getAttribute('aria-pressed')).toBe('false')
+    expect(toggle.textContent).toContain('OFF')
     fireEvent.click(toggle)
     expect(onToggleWhatIf).toHaveBeenCalledTimes(1)
+  })
+
+  test('What-If toggle label reflects active state', () => {
+    const { container } = render(
+      <TopBar
+        swapType="IRS"
+        onTypeChange={vi.fn()}
+        dates={baseDates}
+        onDateChange={vi.fn()}
+        mode="active"
+        whatIfActive={true}
+        onToggleWhatIf={vi.fn()}
+      />,
+    )
+    const toggle = container.querySelector('[data-testid="what-if-toggle"]') as HTMLButtonElement
+    expect(toggle.getAttribute('aria-pressed')).toBe('true')
+    expect(toggle.textContent).toContain('ON')
   })
 
   test('does not render What-If toggle in draft mode', () => {
@@ -217,7 +234,7 @@ describe('TopBar interactions', () => {
         onToggleWhatIf={vi.fn()}
       />,
     )
-    expect(container.textContent).not.toContain('WHAT-IF')
+    expect(container.querySelector('[data-testid="what-if-toggle"]')).toBeNull()
   })
 
   test('renders Regulator-visible pill near WHAT-IF when workflow has regulators', () => {

@@ -134,18 +134,29 @@ export function TopBar({
         {mode !== 'draft' && (
           <>
             <RegulatorVisibilityPill regulators={workflowRegulators} />
-            <span className="text-[#555b6e] text-2xs uppercase tracking-wider">WHAT-IF</span>
             <button
+              type="button"
+              data-testid="what-if-toggle"
+              aria-pressed={whatIfActive}
               onClick={onToggleWhatIf}
-              className={`w-8 h-4 rounded-full relative transition-colors cursor-pointer ${
-                whatIfActive ? 'bg-[#f59e0b]' : 'bg-[#1e2235]'
+              title={
+                whatIfActive
+                  ? 'What-If ON — leg fields editable, no on-chain writes'
+                  : 'What-If OFF — leg fields locked, on-chain values'
+              }
+              className={`inline-flex items-center gap-1.5 rounded border px-2 py-1 text-2xs font-semibold uppercase tracking-wider transition-colors cursor-pointer ${
+                whatIfActive
+                  ? 'border-[#f59e0b] bg-[#f59e0b]/15 text-[#f59e0b]'
+                  : 'border-[#1e2235] bg-[#1e2235] text-[#8b8fa3] hover:text-white'
               }`}
             >
-              <div
-                className={`w-3 h-3 rounded-full absolute top-0.5 transition-all ${
-                  whatIfActive ? 'left-4 bg-black' : 'left-0.5 bg-[#555b6e]'
+              <span
+                aria-hidden="true"
+                className={`inline-block h-1.5 w-1.5 rounded-full ${
+                  whatIfActive ? 'bg-[#f59e0b]' : 'bg-[#555b6e]'
                 }`}
               />
+              What-If: {whatIfActive ? 'ON' : 'OFF'}
             </button>
           </>
         )}

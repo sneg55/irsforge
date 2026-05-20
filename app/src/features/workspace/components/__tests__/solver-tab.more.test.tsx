@@ -69,7 +69,13 @@ const ctx: PricingContext = { curve, index: sofr, observations: [] }
 describe('SolverTab — extra branches', () => {
   test('renders placeholder when swapConfig is null', () => {
     const { container } = render(
-      <SolverTab swapType="IRS" swapConfig={null} pricingCtx={null} onApplyLegPatch={vi.fn()} />,
+      <SolverTab
+        swapType="IRS"
+        swapConfig={null}
+        pricingCtx={null}
+        mode="draft"
+        onApplyLegPatch={vi.fn()}
+      />,
     )
     expect(container.textContent).toMatch(/unavailable/)
   })
@@ -80,6 +86,7 @@ describe('SolverTab — extra branches', () => {
         swapType="IRS"
         swapConfig={swapConfig}
         pricingCtx={ctx}
+        mode="draft"
         onApplyLegPatch={vi.fn()}
       />,
     )
@@ -96,6 +103,7 @@ describe('SolverTab — extra branches', () => {
         swapType="IRS"
         swapConfig={swapConfig}
         pricingCtx={ctx}
+        mode="draft"
         onApplyLegPatch={vi.fn()}
       />,
     )
@@ -113,6 +121,7 @@ describe('SolverTab — extra branches', () => {
         swapType="IRS"
         swapConfig={swapConfig}
         pricingCtx={ctx}
+        mode="draft"
         onApplyLegPatch={onApply}
       />,
     )
@@ -138,6 +147,7 @@ describe('SolverTab — extra branches', () => {
         swapType="IRS"
         swapConfig={swapConfig}
         pricingCtx={ctx}
+        mode="draft"
         onApplyLegPatch={vi.fn()}
       />,
     )

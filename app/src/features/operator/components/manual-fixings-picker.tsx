@@ -64,7 +64,7 @@ export function ManualFixingsPicker({ stalled }: Props) {
         >
           Publish fixing manually
         </button>
-        <p className="mt-1 text-xs text-zinc-600">Available only when scheduler is stalled.</p>
+        <p className="mt-1 text-xs text-zinc-400">Available only when scheduler is stalled.</p>
       </div>
     )
   }

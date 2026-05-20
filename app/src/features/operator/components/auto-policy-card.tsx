@@ -56,7 +56,7 @@ function PolicyToggleRow({ family, row, canEdit, pendingFamily, onToggle }: Togg
     >
       <div className="flex items-center gap-3">
         <span className="font-mono text-zinc-300">{family}</span>
-        {row === undefined && <span className="text-xs text-zinc-600">no policy contract</span>}
+        {row === undefined && <span className="text-xs text-zinc-400">no policy contract</span>}
       </div>
       <button
         type="button"

@@ -24,13 +24,27 @@ function curveTitle(curve: DiscountCurve | null): string {
 interface Props {
   curve: DiscountCurve | null
   history: CurveStreamEntry[]
+  /** Trade tenor in days. When provided, the tile labels and sparkline track
+   *  the curve pillar nearest to this tenor; otherwise the middle pillar is
+   *  shown. Picks the trade tenor so a 3M trade doesn't read off a 2Y pillar. */
+  tradeTenorDays?: number | null
 }
 
-function findPillar(curve: DiscountCurve | null, days: number) {
-  if (!curve) return null
-  const exact = curve.pillars.find((p) => p.tenorDays === days)
-  if (exact) return exact
-  return curve.pillars[Math.floor(curve.pillars.length / 2)] ?? null
+function findNearestPillarIndex(curve: DiscountCurve | null, days: number | null | undefined) {
+  if (!curve || curve.pillars.length === 0) return -1
+  if (days == null || !Number.isFinite(days)) {
+    return Math.floor(curve.pillars.length / 2)
+  }
+  let bestIdx = 0
+  let bestDelta = Math.abs(curve.pillars[0].tenorDays - days)
+  for (let i = 1; i < curve.pillars.length; i++) {
+    const delta = Math.abs(curve.pillars[i].tenorDays - days)
+    if (delta < bestDelta) {
+      bestDelta = delta
+      bestIdx = i
+    }
+  }
+  return bestIdx
 }
 
 const POPOVER_WIDTH = 320
@@ -40,7 +54,7 @@ const POPOVER_WIDTH = 320
 const POPOVER_HEIGHT_ESTIMATE = 220
 const VIEWPORT_PAD = 8
 
-export function ReferenceSofrTile({ curve, history }: Props) {
+export function ReferenceSofrTile({ curve, history, tradeTenorDays }: Props) {
   const [open, setOpen] = useState(false)
   const tileRef = useRef<HTMLDivElement>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
@@ -63,11 +77,13 @@ export function ReferenceSofrTile({ curve, history }: Props) {
     }
   }, [open])
 
-  const twoY = findPillar(curve, 730)
+  const pinnedIdx = findNearestPillarIndex(curve, tradeTenorDays)
+  const pinnedPillar = pinnedIdx >= 0 ? (curve?.pillars[pinnedIdx] ?? null) : null
   const recent = history.slice(-20)
   const sparkVals = recent.map((e) => {
-    const mid = Math.floor(e.curve.pillars.length / 2)
-    return e.curve.pillars[mid]?.zeroRate ?? 0
+    const idx = findNearestPillarIndex(e.curve, tradeTenorDays)
+    if (idx < 0) return 0
+    return e.curve.pillars[idx]?.zeroRate ?? 0
   })
   const lo = sparkVals.length ? Math.min(...sparkVals) : 0
   const hi = sparkVals.length ? Math.max(...sparkVals) : 0
@@ -118,8 +134,12 @@ export function ReferenceSofrTile({ curve, history }: Props) {
           {sparkPath && <path d={sparkPath} fill="none" stroke="#3b82f6" strokeWidth="1.4" />}
         </svg>
         <div className="flex justify-between text-3xs font-mono mt-1">
-          <span className="text-[#c9c9d4]">{twoY ? tenorLabel(twoY.tenorDays) : '—'}</span>
-          <span className="text-[#3b82f6]">{twoY ? formatFloatRate(twoY.zeroRate) : '—'}</span>
+          <span className="text-[#c9c9d4]">
+            {pinnedPillar ? tenorLabel(pinnedPillar.tenorDays) : '—'}
+          </span>
+          <span className="text-[#3b82f6]">
+            {pinnedPillar ? formatFloatRate(pinnedPillar.zeroRate) : '—'}
+          </span>
         </div>
       </div>
       {open &&

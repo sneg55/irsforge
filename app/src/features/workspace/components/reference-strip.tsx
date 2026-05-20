@@ -10,12 +10,15 @@ interface Props {
   history: CurveStreamEntry[]
   cpty: string
   summary: CsaSummary
+  /** Trade tenor in days — passed to the curve tile so the sparkline tracks
+   *  the pillar nearest the trade tenor instead of a hardcoded 2Y. */
+  tradeTenorDays?: number | null
 }
 
-export function ReferenceStrip({ curve, history, cpty, summary }: Props) {
+export function ReferenceStrip({ curve, history, cpty, summary, tradeTenorDays }: Props) {
   return (
     <div className="flex gap-px bg-[#1e2235] border-b border-[#1e2235]">
-      <ReferenceSofrTile curve={curve} history={history} />
+      <ReferenceSofrTile curve={curve} history={history} tradeTenorDays={tradeTenorDays} />
       <ReferenceCsaTile cpty={cpty} summary={summary} />
     </div>
   )

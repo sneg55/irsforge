@@ -5,7 +5,7 @@
 // flipping this requires a fresh `next build`, not a runtime env edit.
 
 // eslint-disable-next-line no-restricted-properties -- this file is the single boundary that owns the env read; everything else imports the resolved flag below
-const DEPLOY_ENV = process.env.NEXT_PUBLIC_DEPLOY_ENV
+export const DEPLOY_ENV: string | undefined = process.env.NEXT_PUBLIC_DEPLOY_ENV
 
 export const IS_PRODUCTION_DEPLOY = DEPLOY_ENV === 'production'
 

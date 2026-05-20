@@ -35,7 +35,7 @@ function EmptyQueueState() {
   return (
     <div className="px-6 py-8 text-center" data-testid="operator-queue-empty">
       <p className="text-sm text-zinc-500">No pending actions</p>
-      <p className="mt-2 text-xs text-zinc-600">
+      <p className="mt-2 text-xs text-zinc-400">
         {manualCount === 0 ? (
           <>
             All {autoCount}{' '}

@@ -5,7 +5,6 @@ import { Fragment, useState } from 'react'
 import { ErrorState } from '@/components/ui/error-state'
 import { ROUTES } from '@/shared/constants/routes'
 import { useLedger } from '@/shared/contexts/ledger-context'
-import { SchedulerStatusPill } from '@/shared/scheduler/scheduler-status-pill'
 import { useLastTick } from '@/shared/scheduler/use-last-tick'
 import { HEALTH_CARD_TITLE, SCHEDULER_STALL_MS } from '../constants'
 import { type CurveStalenessEntry, useCurveStaleness } from '../hooks/use-curve-staleness'
@@ -32,11 +31,13 @@ export function HealthCard() {
   return (
     <>
       <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-6">
+        {/* Scheduler-status pill lives in the global footer status bar; rendering
+            it here duplicated the same signal one viewport away. The card title
+            stays solo so the section reads as "Health: curves + manual fixings". */}
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-400">
             {HEALTH_CARD_TITLE}
           </h2>
-          <SchedulerStatusPill />
         </div>
 
         <div className="mb-5">
@@ -47,7 +48,7 @@ export function HealthCard() {
           {curvesHasError ? (
             <ErrorState error={curvesError} onRetry={refetchCurves} retryLabel="Retry curves" />
           ) : curves.length === 0 ? (
-            <p className="text-xs text-zinc-600">No curve contracts on-chain yet.</p>
+            <p className="text-xs text-zinc-400">No curve contracts on-chain yet.</p>
           ) : (
             <table className="w-full text-xs" data-testid="curves-table">
               <thead>

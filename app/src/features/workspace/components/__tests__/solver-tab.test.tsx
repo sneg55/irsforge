@@ -75,6 +75,7 @@ describe('SolverTab', () => {
         swapType="BASIS"
         swapConfig={swapConfig}
         pricingCtx={ctx}
+        mode="draft"
         onApplyLegPatch={vi.fn()}
       />,
     )
@@ -88,6 +89,7 @@ describe('SolverTab', () => {
         swapType="IRS"
         swapConfig={swapConfig}
         pricingCtx={ctx}
+        mode="draft"
         onApplyLegPatch={vi.fn()}
       />,
     )
@@ -105,6 +107,7 @@ describe('SolverTab', () => {
         swapType="IRS"
         swapConfig={swapConfig}
         pricingCtx={ctx}
+        mode="draft"
         onApplyLegPatch={vi.fn()}
       />,
     )
@@ -123,6 +126,7 @@ describe('SolverTab', () => {
         swapType="IRS"
         swapConfig={swapConfig}
         pricingCtx={ctx}
+        mode="draft"
         onApplyLegPatch={vi.fn()}
       />,
     )
@@ -143,6 +147,7 @@ describe('SolverTab', () => {
         swapType="IRS"
         swapConfig={swapConfig}
         pricingCtx={ctx}
+        mode="draft"
         onApplyLegPatch={onApply}
       />,
     )
@@ -155,5 +160,23 @@ describe('SolverTab', () => {
     expect(legIdx).toBe(0)
     expect(patch).toHaveProperty('rate')
     expect(typeof (patch as { rate: number }).rate).toBe('number')
+  })
+
+  test('hides Apply and renders locked-hint when mode is active', () => {
+    const { container } = render(
+      <SolverTab
+        swapType="IRS"
+        swapConfig={swapConfig}
+        pricingCtx={ctx}
+        mode="active"
+        onApplyLegPatch={vi.fn()}
+      />,
+    )
+    const applyBtn = Array.from(container.querySelectorAll('button')).find((b) =>
+      (b.textContent ?? '').includes('Apply'),
+    )
+    expect(applyBtn).toBeUndefined()
+    const hint = container.querySelector('[data-testid="solver-locked-hint"]')
+    expect(hint).not.toBeNull()
   })
 })

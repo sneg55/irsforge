@@ -1,6 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
+import { EnvChip } from '@/components/ui/env-chip'
 import { ObserverBadge } from '@/features/regulator/components/observer-badge'
 import { useAuth } from '../contexts/auth-context'
 import { useConfig } from '../contexts/config-context'
@@ -50,6 +51,7 @@ export function AuthHeader({ orgId }: AuthHeaderProps) {
           IRSForge
         </span>
         <span className="text-2xs uppercase tracking-wider text-zinc-500">Canton IRS Protocol</span>
+        <EnvChip />
       </div>
 
       <div className="flex items-center gap-4">

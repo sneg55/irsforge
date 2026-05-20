@@ -90,7 +90,7 @@ export function BootstrapStatusCard() {
             <span className="text-xs font-medium uppercase tracking-wide text-zinc-400">
               Platform initialized
             </span>
-            <span className="text-xs text-zinc-600">
+            <span className="text-xs text-zinc-400">
               {totalOk}/{totalRows}
             </span>
           </span>

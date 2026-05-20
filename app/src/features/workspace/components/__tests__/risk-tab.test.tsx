@@ -81,15 +81,16 @@ describe('RiskTab', () => {
 
   test('renders one KRD row per pillar + a total row', () => {
     const { container } = render(<RiskTab swapConfig={swapConfig} pricingCtx={ctx} />)
-    // Near-zero pillars are hidden by default; the 1-year swap only touches
-    // the 91d and 365d tenors so 1826d (5Y) is filtered out unless toggled.
+    // Default ON now — Risk approvers see the full pillar grid including 5Y
+    // which has near-zero exposure on a 1-year swap.
     expect(container.textContent).toMatch(/91d/)
     expect(container.textContent).toMatch(/365d/)
+    expect(container.textContent).toMatch(/1826d/)
     expect(container.textContent).toMatch(/parallel DV01/)
-    // Toggling "Show all pillars" reveals the full set including 1826d.
+    // Opting OFF collapses near-zero pillars (5Y on this 1Y swap).
     const checkbox = container.querySelector('input[type="checkbox"]') as HTMLInputElement
     fireEvent.click(checkbox)
-    expect(container.textContent).toMatch(/1826d/)
+    expect(container.textContent).not.toMatch(/1826d/)
   })
 
   test('shows the Time section with horizon pills', () => {

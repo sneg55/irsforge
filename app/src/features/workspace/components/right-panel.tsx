@@ -39,6 +39,16 @@ function pickReportingCcy(cfg: SwapConfig | null): string {
   return 'USD'
 }
 
+// Trade tenor in days = maturityDate − effectiveDate. Used by the reference
+// curve sparkline to pin its tracked pillar to the open trade rather than a
+// hardcoded 2Y, so a 3M trade reads the 3M pillar.
+function tradeTenorDays(cfg: SwapConfig | null): number | null {
+  if (!cfg) return null
+  const ms = cfg.maturityDate.getTime() - cfg.effectiveDate.getTime()
+  if (!Number.isFinite(ms) || ms <= 0) return null
+  return Math.round(ms / 86_400_000)
+}
+
 interface RightPanelProps {
   valuation: ValuationResult | null
   curve: DiscountCurve | null
@@ -221,6 +231,7 @@ export function RightPanel({
             swapType={swapType}
             swapConfig={swapConfig}
             pricingCtx={pricingCtx}
+            mode={mode}
             onApplyLegPatch={onApplyLegPatch}
           />
         )}
@@ -238,6 +249,7 @@ export function RightPanel({
           history={curveHistory}
           cpty={counterparty}
           summary={csaSummary}
+          tradeTenorDays={tradeTenorDays(swapConfig)}
         />
       )}
       {mode !== 'draft' && (

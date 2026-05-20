@@ -65,6 +65,14 @@ export function UnwindModal({ isOpen, onClose, currentNpv, onSubmit }: UnwindMod
         <p className="text-3xs text-[#555b6e] mb-3">
           Positive: you pay counterparty. Negative: counterparty pays you.
         </p>
+        <div
+          data-testid="unwind-confirm-summary"
+          className="mb-3 rounded border border-[#1e2235] bg-[#0a0c12] px-2 py-1.5 text-3xs leading-snug text-[#8b8fa3]"
+        >
+          Submitting proposes an unwind to the counterparty. On accept, the ledger archives the
+          workflow, fires a TerminateAccepted event, and the regulator party observes the settlement
+          audit record. The unwind PV becomes a one-shot cashflow at acceptance.
+        </div>
         <label className="block text-2xs text-[#555b6e] mb-1" htmlFor="unwind-reason">
           Reason
         </label>
