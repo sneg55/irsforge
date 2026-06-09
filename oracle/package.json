@@ -15,7 +15,7 @@
     "croner": "^9.1.0",
     "irsforge-shared-config": "*",
     "jose": "^5.0.0",
-    "ws": "^8.18.0"
+    "ws": "^8.21.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
