@@ -13,7 +13,7 @@ participants can adopt by editing one YAML file.
 [![Daml](https://img.shields.io/badge/Daml-2.10.0-orange.svg)](contracts/daml.yaml)
 [![Tests](https://img.shields.io/badge/tests-1940%20passing-brightgreen.svg)](#tests)
 
-**Site:** [irsforge.com](https://irsforge.com)  ·  **Live demo:** [demo.irsforge.com](https://demo.irsforge.com)
+**Site:** [irsforge.com](https://irsforge.com)  ·  **Docs:** [docs.irsforge.com](https://docs.irsforge.com)  ·  **GitHub:** [sneg55/irsforge](https://github.com/sneg55/irsforge)
 
 ## What it does
 
@@ -30,13 +30,6 @@ on-chain settlement:
 | Issuer / holder / observer | Proposer (PartyA), counterparty (PartyB), regulator + scheduler |
 
 ## Quickstart
-
-### 5-minute click-through
-
-The live demo at **[demo.irsforge.com](https://demo.irsforge.com)** is a
-fully-seeded sandbox — propose, accept, lifecycle, CSA dispute, operator
-resolve, and the regulator timeline are all clickable end-to-end without
-any local install.
 
 ### Run locally
 
@@ -146,8 +139,8 @@ Per-workspace `vitest.config.ts` enforces coverage floors set to current minus
 
 ## Reading order for reviewers
 
-1. **[demo.irsforge.com](https://demo.irsforge.com)**: live seeded sandbox — click through propose / accept / lifecycle / dispute end-to-end without installing anything
-2. **[docs.irsforge.com/ui/overview](https://docs.irsforge.com/ui/overview)**: every page, every button, every modal — *why* each surface looks the way it does
+1. **[`make demo`](#quickstart)**: boot a local seeded sandbox, then click through propose / accept / lifecycle / dispute end-to-end
+2. **[docs.irsforge.com/ui/overview](https://docs.irsforge.com/ui/overview)**: every page, every button, every modal, and *why* each surface looks the way it does
 3. **[docs.irsforge.com/concepts/csa-model](https://docs.irsforge.com/concepts/csa-model)**: signed-CSB model + the bug it fixed
 4. **[docs.irsforge.com/operations/deploying-production](https://docs.irsforge.com/operations/deploying-production)**: what a participant configures
 5. **[irsforge.yaml](irsforge.yaml)**: every product / role / provider / schedule, in one file

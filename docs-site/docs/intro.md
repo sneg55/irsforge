@@ -15,9 +15,9 @@ Five product families (IRS, OIS, Basis, XCCY, CDS) on the full Daml Finance stac
 ## Start here
 
 :::info[Buyers]
-**[Live demo at demo.irsforge.com →](https://demo.irsforge.com)** Seeded parties, seeded trades, no install. A live Canton sandbox you can click through right now.
+**[Source on GitHub →](https://github.com/sneg55/irsforge)** · **[Quickstart →](/getting-started/quickstart)**
 
-**[Talk to the team →](https://cal.com/sawinyh/irsforge-demo)** · **[Source on GitHub →](https://github.com/sneg55/irsforge)**
+Clone the repo and run `make demo` for a fully-seeded local Canton sandbox: propose, accept, lifecycle, and the regulator timeline, all clickable end-to-end.
 :::
 
 ## What it is

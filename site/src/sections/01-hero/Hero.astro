@@ -13,15 +13,12 @@ import ScreenshotFrame from '../../components/ScreenshotFrame.astro'
         wired in from day one.
       </p>
       <CtaPair
-        primaryHref="https://demo.irsforge.com"
-        primaryLabel="Live Demo"
-        secondaryHref="https://cal.com/sawinyh/irsforge-demo"
-        secondaryLabel="Talk to the team"
+        primaryHref="https://github.com/sneg55/irsforge"
+        primaryLabel="GitHub repo"
+        secondaryHref="https://docs.irsforge.com"
+        secondaryLabel="Read the docs"
         size="lg"
       />
-      <p class="tertiary">
-        <a href="https://github.com/sneg55/irsforge" target="_blank" rel="noopener">View the source on GitHub →</a>
-      </p>
     </div>
     <div class="anchor">
       <ScreenshotFrame
@@ -64,7 +61,4 @@ import ScreenshotFrame from '../../components/ScreenshotFrame.astro'
   }
   .anchor { width: 100%; }
   .anchor :global(.frame) { box-shadow: 0 30px 80px -30px rgba(0, 0, 0, 0.6); }
-  .tertiary { margin: 1.25rem 0 0; font-size: 0.9375rem; }
-  .tertiary a { color: var(--color-fg-muted); text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 4px; }
-  .tertiary a:hover { color: var(--color-accent); }
 </style>
