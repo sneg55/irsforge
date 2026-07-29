@@ -43,7 +43,7 @@
     "eslint": "^8",
     "eslint-config-next": "15.5.15",
     "jsdom": "^25.0.1",
-    "postcss": "^8",
+    "postcss": "^8.5.18",
     "tailwindcss": "^4.2.4",
     "typescript": "^5",
     "vitest": "^3.2.6"
